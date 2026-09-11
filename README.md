@@ -41,6 +41,10 @@ To catch sanitizer in you IDE set a breakpoint on `__asan::ReportGenericError`.
 
 Details: [dev-sandbox/README.md](./dev-sandbox/README.md).
 
+### Architecture explorations
+
+- [Set-Tonie metadata model](./docs/architecture/set-tonie-metadata-exploration.md): findings, proposed V3 contract, migration strategy and implementation-ready work packages for reliable set-member assignment.
+
 ### Build and Run in Editor (VS Code)
 - Build once: `Terminal (or F1) -> Run Task -> build` (uses `.vscode/tasks.json`).
 - Debug/run: open `Run and Debug`, select `[linux] teddyCloud`, press `F5` (uses `.vscode/launch.json`).
