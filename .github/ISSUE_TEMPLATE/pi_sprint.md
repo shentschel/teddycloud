@@ -20,6 +20,8 @@ State one observable outcome.
 - Components/files:
 - Sprint type: refinement / delivery / debt
 - Candidate roadmap slice:
+- Recommended model: `gpt-5.6-sol` / `gpt-6-astra`
+- Model override rationale: none
 
 ## Dependencies and inputs
 
@@ -58,4 +60,3 @@ Describe changed trust boundaries, inputs and public contracts.
 - Weekly usage at start/end:
 - Model and reasoning effort:
 - Deferred findings/issues:
-

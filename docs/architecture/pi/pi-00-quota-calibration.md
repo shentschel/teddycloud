@@ -14,16 +14,22 @@ Milestone: establish a conservative sprint-to-weekly-quota conversion
 
 ## Sprint R — representative refinement
 
+Recommended model: `gpt-6-astra`
+
 Refine PI-01 using the supplied charter. Produce explicit decisions, unknowns,
 acceptance criteria and issue boundaries. Do not implement runtime code.
 
 ## Sprint T — representative debt/refactoring
+
+Recommended model: `gpt-5.6-sol`
 
 Review architecture documentation for contradictions, broken links, duplicate
 terminology and untracked assumptions. Correct documentation and record deferred
 findings as issues.
 
 ## Optional sprint D — end-to-end documentation change
+
+Recommended model: `gpt-5.6-sol`
 
 If safely admitted by the weekly limit, create one accepted ADR from PI-01,
 verify its links and complete it through review and merge.
@@ -42,10 +48,11 @@ verify its links and complete it through review and merge.
 
 ## Calculation
 
-For each completed sprint, calculate its weekly percentage delta. Use the larger
-of the observed median and the largest representative delta as the initial
-conservative sprint cost. Recalibrate after three delivery sprints or whenever
-the model/reasoning effort changes.
+For each completed sprint, calculate its weekly percentage delta. Keep separate
+consumption samples for Sol and Astra. Use the larger of the model-specific
+observed median and largest representative delta as its initial conservative
+sprint cost. Recalibrate after three comparable delivery sprints or whenever the
+model/reasoning effort changes.
 
 ## Exit criteria
 
@@ -53,4 +60,3 @@ the model/reasoning effort changes.
 - A conservative weekly sprint cost is selected and justified.
 - PI-01 contains only scope predicted to fit below 95% weekly use.
 - Uncertainty and incomplete work are visible in the PI review.
-

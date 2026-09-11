@@ -17,6 +17,7 @@ Prepared execution artifacts:
 - [PI execution files](pi/README.md)
 - [PI-00 quota calibration](pi/pi-00-quota-calibration.md)
 - [PI-01 architecture-charter refinement](pi/pi-01-architecture-charter.md)
+- [Task model routing](task-model-routing.md)
 
 ## Capacity model
 
@@ -99,6 +100,8 @@ Execution rules:
 6. Record deferred findings as linked issues before closing the debt sprint.
 7. If a milestone does not fit, stop adding scope and replan the unfinished work
    into the next PI.
+8. Copy the task's recommended model from the model-routing matrix into its issue;
+   overrides require a written rationale before execution.
 
 ## Definition of done for every PI
 

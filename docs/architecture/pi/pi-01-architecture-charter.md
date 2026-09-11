@@ -36,11 +36,15 @@ TeddyCloud Next so later architecture decisions can be evaluated consistently.
 
 ### R — refinement/exploration
 
+Recommended model: `gpt-6-astra`
+
 - Confirm stakeholders, mandatory workflows and explicit exclusions.
 - Prioritize risks and unresolved assumptions.
 - Produce acceptance criteria for the two delivery slices.
 
 ### D1 — system context and boundaries
+
+Recommended model: `gpt-5.6-sol`
 
 - Create a system context diagram.
 - Define ownership boundaries for gateway, core, UI and workers.
@@ -48,11 +52,15 @@ TeddyCloud Next so later architecture decisions can be evaluated consistently.
 
 ### D2 — foundational ADRs
 
+Recommended model: `gpt-6-astra`
+
 - Decide control-plane-first versus complete rewrite.
 - Decide repository topology and supported deployment baseline.
 - Record database/file ownership and compatibility strategy.
 
 ### T — technical debt/refactoring
+
+Recommended model: `gpt-5.6-sol`
 
 - Normalize terminology across architecture documents.
 - Remove contradictory estimates or assumptions.
@@ -78,4 +86,3 @@ TeddyCloud Next so later architecture decisions can be evaluated consistently.
 
 This PI changes documentation only. Reverting its commit restores the previous
 state; it must not alter a running TeddyCloud installation.
-
