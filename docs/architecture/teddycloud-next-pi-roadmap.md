@@ -10,6 +10,14 @@ Related explorations:
 - [Set-Tonie metadata](set-tonie-metadata-exploration.md)
 - [UI plugin extensions](ui-plugin-extension-exploration.md)
 
+Prepared execution artifacts:
+
+- [Current-system dependency matrix](current-system-dependency-matrix.md)
+- [ADR template](adr/0000-template.md)
+- [PI execution files](pi/README.md)
+- [PI-00 quota calibration](pi/pi-00-quota-calibration.md)
+- [PI-01 architecture-charter refinement](pi/pi-01-architecture-charter.md)
+
 ## Capacity model
 
 This roadmap uses the Codex limits included with ChatGPT Plus. They are quota
