@@ -1,6 +1,6 @@
 # TeddyCloud Next product-increment roadmap
 
-Status: proposed baseline plan  
+Status: capacity-calibrated rolling plan
 Scope: Greenfield control plane, Set-Tonie metadata, extensible UI plugin system,
 feature migration and eventual protocol replacement
 
@@ -12,39 +12,62 @@ Related explorations:
 
 ## Capacity model
 
-This roadmap treats capacity as budget capacity, not elapsed wall-clock time.
+This roadmap uses the Codex limits included with ChatGPT Plus. They are quota
+windows, not working hours.
 
-- `B5`: one complete five-hour budget.
-- Sprint capacity: `2 * B5 * 0.95 = 9.5 budget hours`.
-- Weekly capacity assumption: `40 budget hours`.
-- PI capacity: `40 * 0.95 = 38 budget hours`.
-- One PI therefore contains exactly four 9.5-hour sprints.
-- If the real weekly allowance differs, keep sprint size at `1.9 B5` and set
-  `sprints_per_pi = floor((weekly_budget * 0.95) / (1.9 B5))`.
+- `B5`: 100% of one five-hour Codex quota window.
+- Sprint limit: `2 * B5 * 0.95 = 1.9 B5`.
+- `BW`: 100% of one weekly Codex quota window.
+- PI limit: `BW * 0.95 = 0.95 BW`.
+- A PI runs from one weekly reset to the next.
+- There is no documented fixed conversion from `B5` to `BW`.
+- Model, reasoning effort, context and task type can change consumption.
 
-Every PI reserves:
+The number of sprints in a PI is therefore dynamic. Each PI reserves these two
+sprints before feature scope is admitted:
 
-1. `S1` for refinement and exploration.
-2. `S2` for the first implementation slice.
-3. `S3` for the second implementation slice and integration.
-4. `S4` for technical debt, refactoring and hardening.
+1. `R`: one refinement/exploration sprint, limited to `1.9 B5`.
+2. `T`: one technical-debt/refactoring sprint, limited to `1.9 B5`.
 
-The 5% reserve is not planned. It is available only for unexpected failures,
-recovery and final verification. Unused reserve is not converted into scope.
+Remaining weekly capacity may be filled with ordered delivery sprints, each also
+limited to `1.9 B5`. The PI stops at 95% weekly consumption even when a sprint or
+milestone is incomplete. The remaining 5% is never planned.
 
-## Planning range
+## PI-00: quota calibration
 
-- Optimistic: 38 PIs / 1,444 budget hours.
-- Baseline: 50 PIs / 1,900 budget hours.
-- Pessimistic: 64 PIs / 2,432 budget hours.
+The first PI calibrates capacity instead of promising feature scope:
 
-The baseline corresponds to the middle of the combined 1,440-2,410 hour
-estimate. Re-estimate at every phase gate using completed-sprint velocity.
+1. Record five-hour and weekly usage at PI start.
+2. Execute one representative exploration sprint and record both deltas.
+3. Execute one representative refactoring sprint and record both deltas.
+4. If capacity remains, execute one small end-to-end delivery sprint.
+5. Calculate median weekly percentage consumed per completed sprint.
+6. Set the next PI's sprint count to the conservative lower confidence bound.
+
+Calibration must be repeated after changing the primary model or reasoning
+effort. Historical person-hour estimates remain useful for relative sizing, but
+must not be converted directly into Codex PIs.
+
+## Rolling capacity formula
+
+At each weekly reset:
+
+```text
+pi_limit = 95 weekly percentage points
+reserved = predicted_weekly_cost(R) + predicted_weekly_cost(T)
+delivery_capacity = pi_limit - reserved
+delivery_sprints = floor(delivery_capacity / conservative_sprint_cost)
+```
+
+If `R + T` cannot fit below the PI limit, reduce their scope while retaining both
+outcomes. Do not borrow from the next weekly window and do not consume the 5%
+reserve.
 
 ## Agent execution contract
 
-At the start of a PI, create or update four issues named
-`PI-NN/SN — <outcome>`. Each issue must contain:
+At the start of a PI, create one issue per admitted sprint named
+`PI-NN/SN — <outcome>`. Every PI must include `PI-NN/R` and `PI-NN/T`. Each issue
+must contain:
 
 - objective and non-goals;
 - repository and exact components in scope;
@@ -58,14 +81,14 @@ At the start of a PI, create or update four issues named
 
 Execution rules:
 
-1. Do not begin `S2` before the `S1` decisions and acceptance criteria are
-   recorded.
+1. Do not begin delivery before the refinement decisions and acceptance criteria
+   are recorded.
 2. Do not declare a PI complete while required tests or migrations are missing.
 3. Preserve existing APIs and data unless the PI explicitly introduces a tested
    migration and rollback.
 4. Ambiguous Tonie matches remain review candidates; no first-hit fallback.
 5. UI extensions use semantic slots; DOM selectors are never public contracts.
-6. Record deferred findings as linked issues before closing `S4`.
+6. Record deferred findings as linked issues before closing the debt sprint.
 7. If a milestone does not fit, stop adding scope and replan the unfinished work
    into the next PI.
 
@@ -80,7 +103,7 @@ Execution rules:
 
 ## Roadmap overview
 
-| Phase | PIs | Phase milestone |
+| Phase | Candidate PI slices | Phase milestone |
 | --- | ---: | --- |
 | A. Architecture and evidence | 01-04 | Approved architecture and executable skeleton |
 | B. Core control plane | 05-12 | Headless control-plane alpha |
@@ -91,11 +114,15 @@ Execution rules:
 | G. Protocol replacement | 39-47 | New gateway validated on real hardware |
 | H. Product hardening | 48-50 | TeddyCloud Next 1.0 release candidate |
 
-## PI backlog
+## Candidate PI backlog
 
-Each row is one PI and one independently demonstrable milestone.
+Each row is an independently demonstrable milestone candidate. The four work
+columns describe refinement, two ordered delivery slices and debt work; they are
+not a promise that exactly four sprints fit into one weekly quota. At refinement
+time, split or combine delivery slices using PI-00 velocity. If a row does not
+fit, its milestone continues in the next PI and must be reported as incomplete.
 
-| PI | S1 — Refinement / exploration | S2 — Delivery slice A | S3 — Delivery slice B | S4 — Debt / refactoring | PI milestone |
+| Candidate PI | R — Refinement / exploration | Delivery slice A | Delivery slice B | T — Debt / refactoring | Milestone |
 | --- | --- | --- | --- | --- | --- |
 | PI-01 | Confirm scope, users, non-goals and success metrics | Write system context and domain boundaries | Record language, storage and deployment ADRs | Review terminology and remove overlapping responsibilities | Architecture charter approved |
 | PI-02 | Inventory every box/API/plugin contract | Build sanitized HTTP/protobuf fixture catalog | Add initial contract-test harness | Normalize fixtures and remove secrets/duplication | Reproducible compatibility evidence exists |
@@ -150,56 +177,56 @@ Each row is one PI and one independently demonstrable milestone.
 
 ## Phase gates
 
-### Gate A — after PI-04
+### Gate A — after candidate slice PI-04
 
 - Domain vocabulary and architecture ADRs are approved.
 - Compatibility fixtures are sanitized and reproducible.
 - The project builds and tests from a clean checkout.
 
-### Gate B — after PI-12
+### Gate B — after candidate slice PI-12
 
 - Tags, content, assignments, library queries and events operate headlessly.
 - Database upgrade, backup and rollback are demonstrated.
 
-### Gate C — after PI-17
+### Gate C — after candidate slice PI-17
 
 - Set members have independent content identities and versions.
 - Exact pair lookup and explicit ambiguity are covered by regression tests.
 
-### Gate D — after PI-24
+### Gate D — after candidate slice PI-24
 
 - Trusted and sandboxed plugin modes are documented and tested.
 - A plugin can add a Copy action and filter without touching the DOM.
 
-### Gate E — after PI-33
+### Gate E — after candidate slice PI-33
 
 - Required current plugins have a mapped native module or isolated worker.
 - The separate Tonie Manager is unnecessary for normal operation.
 
-### Gate F — after PI-38
+### Gate F — after candidate slice PI-38
 
 - The new control plane runs the production dataset with the legacy gateway.
 - Rollback is tested and reconciliation reports no unexplained data loss.
 
-### Gate G — after PI-47
+### Gate G — after candidate slice PI-47
 
 - The new gateway passes protocol fixtures and the supported hardware matrix.
 - Production can return to the legacy gateway without restoring data.
 
-### Gate H — after PI-50
+### Gate H — after candidate slice PI-50
 
 - Installation, upgrade and rollback documentation is verified from scratch.
 - Security, license, performance and resilience release gates pass.
 
 ## Replanning policy
 
-At every phase gate, compare actual completed outcomes with the baseline:
+At every phase gate, compare completed milestone slices and quota consumption:
 
-- If velocity projects below 38 PIs, pull only already-refined optional scope.
-- If velocity projects above 50 PIs, spend contingency before changing quality
-  gates.
-- If the projection exceeds 64 PIs, stop and issue a scope/architecture decision
-  record; do not silently reduce tests, migration safety or protocol coverage.
+- Use the median of the last three comparable sprints for admission control.
+- Admit scope only while `predicted weekly use <= 95%`.
+- Pull only already-refined work when the PI has measured spare capacity.
+- If projected completion changes by more than 20%, write a scope/architecture
+  decision record; do not silently reduce tests, migration safety or protocol
+  coverage.
 - The protocol replacement phase may be postponed indefinitely without blocking
-  the production control-plane milestone at PI-38.
-
+  the production control-plane milestone represented by candidate slice PI-38.
