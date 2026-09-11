@@ -32,3 +32,4 @@ fake-server-tb2/*
 /dev-sandbox/run/
 /dev-sandbox/.teddycloud-native.pid
 *.pcap
+.pi-automation-state.json
