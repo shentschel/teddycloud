@@ -145,24 +145,26 @@ scope, not invented quota percentages; delivery admission awaits PI-00 calibrati
 
 ## F-04 — Reconcile exploratory contracts and quota terminology
 
-- Priority: P2; owner: PI-00/T; model: `gpt-5.6-sol`.
+- Priority: P2; owner: PI-00/T; model: `gpt-5.6-sol`; state: complete.
 - Tasks: resolve the V3 sketch's duplicated membership (`content.set` versus
   `sets.members`); mark cardinality as unresolved until PI-04/13. Reconcile
-  `tonies.list.transform` with server-owned pagination; it cannot remove arbitrary
-  records or decide identity. Normalize D1/D2 versus A/B and PI-00 optional D;
+  `tonies.query.filters` with server-owned pagination; it cannot remove arbitrary
+  records or decide identity. Normalize D1/D2 versus A/B and PI-00 optional A;
   avoid describing one measurement as a statistical confidence bound.
-- Done: one vocabulary and explicit provisional status; model/effort changes
-  cannot silently invalidate a sample; no unmeasured fixed sprint count.
+- Done: `sets[].members[]` is the sole proposed membership relation while its
+  cardinality remains open; filter contributions use validated server queries;
+  R/A/B/T naming and model-specific calibration rules are consistent.
 
 ## F-05 — Enable issue tracking and provide proportional documentation checks
 
-- Priority: P2; owner: repository maintainer for settings, PI-00/T for docs checks.
+- Priority: P2; owner: repository maintainer for settings, PI-00/T for docs checks;
+  state: docs check complete, issue-setting work open and non-blocking.
 - Model: `gpt-5.6-sol` for bounded implementation after admission.
 - Evidence: GitHub returns HTTP 410 for issue creation; current workflows target
   full builds/container publication and have no dedicated Markdown link check.
-- Tasks: enable Issues through an authorized repository-settings action; publish
-  the exact task IDs idempotently; evaluate a docs-only check without weakening
-  code checks or accidentally publishing release artifacts.
+- Tasks: enable Issues through an authorized repository-settings action and
+  publish the exact task IDs idempotently. The path-scoped docs check is now
+  implemented in `scripts/check_architecture_docs.py` and its dedicated workflow.
 - Done: IDs link to real issues and documentation changes have an appropriate
   validation path; no personal quota metadata is published.
 - Does not block: reviewable Git commits with this local task registry.

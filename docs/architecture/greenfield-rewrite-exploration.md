@@ -1,6 +1,6 @@
 # Greenfield TeddyCloud rewrite exploration
 
-Status: exploration  
+Status: exploration
 Scope: architecture, existing plugins, Tonie lookup and migration strategy
 
 ## Decision summary
@@ -125,4 +125,3 @@ narrow proof of concept, but not a usable rewrite.
 If code from the existing GPL-2.0-or-later project is reused, the resulting
 distribution must be planned around that license. A differently licensed
 implementation would require a genuine clean-room approach and legal review.
-

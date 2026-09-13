@@ -49,9 +49,11 @@ The first PI calibrates capacity instead of promising feature scope:
 1. Record five-hour and weekly usage at PI start.
 2. Execute one representative exploration sprint and record both deltas.
 3. Execute one representative refactoring sprint and record both deltas.
-4. If capacity remains, execute one small end-to-end delivery sprint.
-5. Calculate median weekly percentage consumed per completed sprint.
-6. Set the next PI's sprint count to the conservative lower confidence bound.
+4. If capacity remains, execute optional delivery slice `A` end-to-end.
+5. Keep separate model/effort samples and calculate their observed deltas.
+6. Until three comparable samples exist, plan from the largest relevant observed
+   delta plus an explicit uncertainty allowance. Then recalibrate using the
+   observed distribution; one sample is not a confidence bound.
 
 Calibration must be repeated after changing the primary model or reasoning
 effort. Historical person-hour estimates remain useful for relative sizing, but

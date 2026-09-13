@@ -1,6 +1,6 @@
 # PI-00 budget method and admission
 
-Status: calibration in progress; no fixed PI-01 delivery capacity established
+Status: initial R/T calibration complete; delivery capacity remains uncalibrated
 
 Account usage values, reset timestamps and host paths are private operational
 data. Record snapshots in the ignored `.pi-automation-state.json`, not in this
@@ -24,12 +24,20 @@ sample quality and scope admission.
 
 ## Admission decision
 
-- R: admitted as bounded refinement; actual observations are local-only.
-- T: required and reserved; perform a fresh preflight and route to Sol first.
-- D: not admitted until R/T observations and remaining capacity are reviewed.
-- PI-01: candidate backlog prepared; delivery count remains conditional.
+- R: completed as bounded Astra refinement; actual observations are local-only.
+- T: completed as bounded Sol documentation debt work; actual observations are
+  local-only.
+- A: not admitted. The available PI-01 ADR candidates require Astra according to
+  the routing policy and are not a representative Sol delivery sample.
+- PI-01: candidate backlog prepared. Admit R and reserve T first; admit at most
+  one delivery slice at a time after a fresh capacity check.
 
 One sample cannot establish a statistical confidence bound. After comparable
 samples exist, use a conservative observed cost with a recorded uncertainty
 allowance; do not convert elapsed hours or the number of open issues into quota.
 Review again after three comparable samples or any model/effort change.
+
+For the next matching R or T task, the local planner uses the relevant observed
+weekly delta plus a 50% uncertainty allowance, rounded upward. This temporary
+allowance is replaced after three comparable samples. No delivery task inherits
+an R/T estimate merely because it uses the same model.

@@ -1,7 +1,7 @@
 # Set-Tonie metadata exploration
 
-Status: exploration  
-Catalog snapshot: `toniebox-reverse-engineering/tonies-json@ecef6768e3fa823c0464bfb8097fa8f8b3ea7095`  
+Status: exploration
+Catalog snapshot: `toniebox-reverse-engineering/tonies-json@ecef6768e3fa823c0464bfb8097fa8f8b3ea7095`
 Scope: catalog schema, TeddyCloud lookup behavior, migration and API compatibility
 
 ## Decision summary
@@ -83,10 +83,6 @@ known model metadata or verified TAF observations are required as evidence.
       "series": "WAS IST WAS",
       "episode": "Erfindungen / Bionik",
       "picture": "https://example.invalid/cover.png",
-      "set": {
-        "article": "11000788",
-        "position": 1
-      },
       "versions": [
         {
           "audio_id": 1708683988,
@@ -104,7 +100,10 @@ known model metadata or verified TAF observations are required as evidence.
       "article": "11000788",
       "title": "WAS IST WAS - Set",
       "members": [
-        "was-ist-was:erfindungen-bionik"
+        {
+          "content_id": "was-ist-was:erfindungen-bionik",
+          "position": 1
+        }
       ]
     }
   ]
@@ -118,8 +117,14 @@ Contract rules:
 3. Each `versions[]` object owns its audio ID and hash as an inseparable pair.
 4. One version belongs to exactly one content identity.
 5. `tracks` contains actual TAF tracks, never set member names.
-6. Set membership is explicit and ordered.
+6. `sets[].members[]` is the single source of set membership and order. Content
+   records do not duplicate the relation.
 7. Provenance and confidence should be recorded for inferred assignments.
+
+The final cardinality is deliberately unresolved until PI-04/PI-13: one content
+may potentially belong to more than one commercial set. The schema decision must
+either support that relation or reject it with catalog evidence; it must not add
+a second membership field to `contents[]`.
 
 ## Matching precedence
 
@@ -236,4 +241,3 @@ Acceptance criteria:
 
 Expected total: 24–40 hours. A read-only generator prototype for the three pilot
 sets is feasible in approximately 5–8 hours.
-

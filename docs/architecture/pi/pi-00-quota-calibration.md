@@ -1,6 +1,6 @@
 # PI-00: Codex Plus quota calibration
 
-Status: R refinement complete; T not started; overall calibration incomplete
+Status: complete for initial R/T calibration; delivery remains uncalibrated
 Milestone: establish a conservative sprint-to-weekly-quota conversion
 
 ## Guardrails
@@ -29,7 +29,7 @@ Review architecture documentation for contradictions, broken links, duplicate
 terminology and untracked assumptions. Correct documentation and record deferred
 findings as issues.
 
-## Optional sprint D — end-to-end documentation change
+## Optional sprint A — end-to-end documentation change
 
 Recommended model: `gpt-5.6-sol`
 
@@ -46,14 +46,15 @@ and [review](pi-00-review.md) for actual delivery status.
 ## Calculation
 
 For each completed sprint, calculate its weekly percentage delta. Keep separate
-consumption samples for Sol and Astra. Use the larger of the model-specific
-observed median and largest representative delta as its initial conservative
-sprint cost. Recalibrate after three comparable delivery sprints or whenever the
-model/reasoning effort changes.
+consumption samples for Sol and Astra and for materially different effort levels.
+Until three comparable samples exist, use the largest relevant observed delta
+plus an explicit uncertainty allowance. With three or more comparable samples,
+record the median and largest value and retain a conservative estimate justified
+from that distribution. Recalibrate whenever the model or effort changes.
 
 ## Exit criteria
 
-- Refinement and debt sprint consumption are recorded.
-- A conservative weekly sprint cost is selected and justified.
-- PI-01 contains only scope predicted to fit below 95% weekly use.
+- Refinement and debt sprint consumption are recorded in local state.
+- The temporary conservative R/T rule is documented in the budget method.
+- PI-01 delivery remains conditional rather than claiming unsupported capacity.
 - Uncertainty and incomplete work are visible in the PI review.

@@ -30,12 +30,18 @@ Current execution artifacts:
 
 GitHub Issues are currently disabled in this fork. Until enabled, the backlog
 provides stable local task IDs; these must not be reported as published issues.
+Run `python3 scripts/check_architecture_docs.py` before publishing architecture
+changes. The path-scoped documentation workflow runs the same check without
+creating release artifacts.
 
 ## Local automation state
 
-The optional daily automation stores the current weekly-window identifier and PI
+The optional hourly automation stores the current quota-window identifiers and PI
 status in the repository-local `.pi-automation-state.json`. The file survives a
 host restart but is intentionally ignored by Git because it belongs to one Codex
-host. A changed weekly `resetsAt` value starts the next PI; an unchanged completed
-window remains silent, while an unchanged `in_progress` window may resume only
-unfinished, idempotent work.
+host. It resumes the next unfinished idempotent sprint whenever both current
+windows have safe capacity. An exhausted window sets `waiting_budget`; a verified
+reset resumes that same work instead of skipping to a new PI. Reset timestamps
+may drift by seconds, so a timestamp difference alone is not treated as proof of
+a new weekly window. A queued dispatch has a stable request ID and is not sent
+again while a matching run is active or unresolved.

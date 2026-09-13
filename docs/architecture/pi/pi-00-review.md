@@ -1,6 +1,6 @@
 # PI-00 review
 
-Status: R refinement complete and locally verified. PI-00 remains incomplete.
+Status: complete for initial R/T calibration; optional A was not admitted.
 
 ## R outcome
 
@@ -30,9 +30,26 @@ local-only. No credentials, physical card IDs or live captures belong in this re
 
 Local verification passed: seven PI documents, 29 relative links, balanced code
 fences, all seven ownership rows, all nine journey IDs and eleven unique task
-records. `git diff --check` passed. No runtime behavior changed, so hardware tests,
-deployment and production migration are not applicable. Existing CI has no
-dedicated documentation link checker; no green CI result is claimed.
+records. `git diff --check` passed. T then added the same reusable architecture
+documentation check to CI and reran it successfully across 14 documents. No
+runtime behavior changed, so hardware tests, deployment and production migration
+are not applicable. The new remote workflow has not run on this branch yet, so no
+green remote CI result is claimed.
+
+## T outcome
+
+- The proposed V3 example now has one canonical Set membership relation. Its
+  real cardinality remains a PI-04/PI-13 evidence decision.
+- UI filter extensions now contribute validated server query clauses and cannot
+  replace paginated results or decide identity.
+- PI work consistently uses R/A/B/T. PI-00 has no B and calls its optional
+  delivery slice A.
+- Calibration separates model, effort and task type. One sample is not described
+  as a confidence bound, and delivery does not inherit R/T estimates.
+- `scripts/check_architecture_docs.py` and a path-scoped workflow validate local
+  links, fenced blocks and whitespace without publishing release artifacts.
+- The hourly automation contract now records idempotent dispatch, `waiting_budget`
+  resumption and tolerance for reset timestamp drift.
 
 Delivery uses the documentation branch `docs/pi-00-r-charter`. Mainline merge is
 separate from this refinement: the inherited mainline workflows include container
@@ -41,7 +58,10 @@ resume state preserve the complete, reviewable change.
 
 ## Remaining work and next admission
 
-PI-00/T must execute with `gpt-5.6-sol`, review the documented inconsistencies,
-and collect its own local consumption sample. Optional D is not admitted. R alone
-does not calibrate Sol or justify a fixed PI-01 sprint count. PI-00 remains
-`in_progress`; a completed refinement must not be restarted on resumption.
+Both R and T have local start/end observations. Optional A was not admitted
+because the available foundational ADR work is routed to Astra and would not be
+a representative Sol delivery sample. PI-01 starts with R and reserves T; each
+delivery slice requires fresh admission. F-05 remains partly open because GitHub
+Issues are disabled, but the executable backlog and documentation checker remove
+that dependency from ongoing work. The automation should wait for the next
+verified weekly window and must not restart PI-00.

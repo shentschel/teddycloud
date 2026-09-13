@@ -35,9 +35,12 @@ ADR or refinement has reduced the task to bounded implementation.
 `T` is technical debt/refactoring. This covers every task in the candidate PI
 backlog.
 
+PI-00 is a calibration PI with required R and T plus optional A. It has no B
+slice; optional A is admitted only after both required measurements.
+
 | Candidate PI | R | A | B | T |
 | --- | --- | --- | --- | --- |
-| PI-00 | `gpt-6-astra` | `gpt-5.6-sol` | `gpt-5.6-sol` | `gpt-5.6-sol` |
+| PI-00 | `gpt-6-astra` | `gpt-5.6-sol` | n/a | `gpt-5.6-sol` |
 | PI-01 | `gpt-6-astra` | `gpt-5.6-sol` | `gpt-6-astra` | `gpt-5.6-sol` |
 | PI-02 | `gpt-6-astra` | `gpt-5.6-sol` | `gpt-5.6-sol` | `gpt-5.6-sol` |
 | PI-03 | `gpt-5.6-sol` | `gpt-5.6-sol` | `gpt-5.6-sol` | `gpt-5.6-sol` |
@@ -95,4 +98,3 @@ Copy the matrix value into every sprint issue as `Recommended model`. The agent
 must preserve the exact model ID. Record the actual model and reasoning effort in
 the budget record so PI-00 can maintain separate consumption estimates for Sol
 and Astra.
-

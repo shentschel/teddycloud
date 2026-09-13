@@ -1,6 +1,6 @@
 # UI plugin extension exploration
 
-Status: exploration  
+Status: exploration
 Scope: extending existing TeddyCloud screens without DOM patching or replacing
 whole pages
 
@@ -60,7 +60,7 @@ ordering, loading state, error boundaries, accessibility and lifecycle.
 | `app.navigation.tonies` | Tonies navigation entries |
 | `tonies.toolbar.primary` | Global actions above the overview |
 | `tonies.filters` | Additional filter controls |
-| `tonies.list.transform` | Explicitly ordered filtering/sorting projections |
+| `tonies.query.filters` | Validated filter contributions translated to the server query contract |
 | `tonie.card.header` | Badges such as Original or Custom Card |
 | `tonie.card.body.after` | Additional compact card information |
 | `tonie.card.actions` | Actions such as Copy |
@@ -127,6 +127,9 @@ The host SDK should expose only stable services:
 
 Plugins must not import internal application components or application state.
 Reusable public UI components should live in a small versioned SDK package.
+Filter contributions declare supported query fields and values. The host validates
+and sends them through the paginated library API; plugins do not receive or replace
+the complete result list, decide canonical identity, or remove arbitrary records.
 
 ## Example: replacing the separate Tonie Manager
 
@@ -211,6 +214,7 @@ Estimated effort: 14-22 hours.
 ### PLUGAPI-003 — Tonies overview coverage
 
 - Add filter, card header/body, detail panel and list query extension points.
+- Define validated server-query contributions with deterministic composition.
 - Move classification and preferred-record logic behind core API contracts.
 - Migrate Tonie Manager features into the standard overview.
 
@@ -240,4 +244,3 @@ requirements before broad slot coverage is added.
 
 The complete first-generation platform is approximately 80-126 hours. A focused
 proof of concept for the Copy action is feasible in 12-18 hours.
-

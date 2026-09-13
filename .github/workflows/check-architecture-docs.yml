@@ -1,0 +1,27 @@
+name: Check architecture documentation
+
+on:
+  pull_request:
+    paths:
+      - "docs/architecture/**"
+      - "scripts/check_architecture_docs.py"
+      - ".github/workflows/check-architecture-docs.yml"
+  push:
+    branches:
+      - master
+      - develop
+    paths:
+      - "docs/architecture/**"
+      - "scripts/check_architecture_docs.py"
+      - ".github/workflows/check-architecture-docs.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Validate local documentation contracts
+        run: python3 scripts/check_architecture_docs.py
