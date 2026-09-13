@@ -1,14 +1,16 @@
 # PI-00: Codex Plus quota calibration
 
-Status: prepared
+Status: R refinement complete; T not started; overall calibration incomplete
 Milestone: establish a conservative sprint-to-weekly-quota conversion
 
 ## Guardrails
 
-- Start immediately after the weekly Codex reset.
+- Prefer starting immediately after the weekly Codex reset. A missed automatic
+  start records its actual later start; never backdate measurements.
 - Leave at least 5% of the weekly limit unused.
 - Limit each sprint to 95% of two five-hour quota windows.
-- Keep model and reasoning effort unchanged throughout calibration.
+- Keep model and reasoning effort unchanged within each measured sprint; retain
+  separate samples for Sol and Astra as required by task-model-routing.md.
 - Read usage immediately before and after each sprint.
 - Stop when weekly usage reaches 95%, even if work is unfinished.
 
@@ -36,15 +38,10 @@ verify its links and complete it through review and merge.
 
 ## Measurement record
 
-| Point | Time | Model/effort | 5h used | Weekly used | Notes |
-| --- | --- | --- | ---: | ---: | --- |
-| PI start | | | | | |
-| R start | | | | | |
-| R end | | | | | |
-| T start | | | | | |
-| T end | | | | | |
-| D start | | | | | optional |
-| D end | | | | | optional |
+Personal start/end observations are recorded in ignored local automation state.
+The public [budget method](pi-00-budget.md) documents sample quality and admission
+without exposing account usage or reset timestamps. See the [plan](pi-00-plan.md)
+and [review](pi-00-review.md) for actual delivery status.
 
 ## Calculation
 
