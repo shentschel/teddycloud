@@ -48,8 +48,9 @@ green remote CI result is claimed.
   as a confidence bound, and delivery does not inherit R/T estimates.
 - `scripts/check_architecture_docs.py` and a path-scoped workflow validate local
   links, fenced blocks and whitespace without publishing release artifacts.
-- The hourly automation contract now records idempotent dispatch, `waiting_budget`
-  resumption and tolerance for reset timestamp drift.
+- The adaptive automation contract now records idempotent dispatch,
+  `waiting_budget` resumption and tolerance for reset timestamp drift. Its idle
+  check is daily near the weekly reset instead of consuming quota every hour.
 
 Delivery uses the documentation branch `docs/pi-00-r-charter`. Mainline merge is
 separate from this refinement: the inherited mainline workflows include container

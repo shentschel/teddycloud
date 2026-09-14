@@ -36,12 +36,14 @@ creating release artifacts.
 
 ## Local automation state
 
-The optional hourly automation stores the current quota-window identifiers and PI
+The optional adaptive automation stores the current quota-window identifiers and PI
 status in the repository-local `.pi-automation-state.json`. The file survives a
 host restart but is intentionally ignored by Git because it belongs to one Codex
 host. It resumes the next unfinished idempotent sprint whenever both current
 windows have safe capacity. An exhausted window sets `waiting_budget`; a verified
 reset resumes that same work instead of skipping to a new PI. Reset timestamps
 may drift by seconds, so a timestamp difference alone is not treated as proof of
-a new weekly window. A queued dispatch has a stable request ID and is not sent
-again while a matching run is active or unresolved.
+a new weekly window. Its normal daily check is scheduled shortly after the known
+weekly reset time so idle polling does not consume the quota being protected. A
+queued dispatch has a stable request ID and is not sent again while a matching
+run is active or unresolved.
