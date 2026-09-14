@@ -1,6 +1,6 @@
 # PI-00 review
 
-Status: reopened for admitted optional A; R and T remain complete.
+Status: complete; R, T and optional A are locally verified.
 
 ## R outcome
 
@@ -48,9 +48,22 @@ green remote CI result is claimed.
   as a confidence bound, and delivery does not inherit R/T estimates.
 - `scripts/check_architecture_docs.py` and a path-scoped workflow validate local
   links, fenced blocks and whitespace without publishing release artifacts.
-- The adaptive automation contract now records idempotent dispatch,
-  `waiting_budget` resumption and tolerance for reset timestamp drift. Its idle
-  check is daily near the weekly reset instead of consuming quota every hour.
+- The six-hour automation contract records idempotent dispatch, `waiting_budget`
+  resumption and tolerance for reset timestamp drift. The fixed cadence checks
+  every five-hour reset by the following run without relying on self-rescheduling.
+
+## A outcome
+
+- [System context](../system-context.md) defines gateway, core, UI/SDK, event hub,
+  workers, stores and external systems with explicit trust and failure flows.
+- [Component ownership](../component-ownership.md) assigns one target writer for
+  each durable mutation and maps the provisional legacy API surface.
+- All seven enhancement repositories have a supported target integration and no
+  independent path to the core database.
+- Successful and interrupted Copy plus offline/interrupted connector scenarios
+  preserve prior assignments, verified TAFs and idempotent recovery.
+- The documents keep hardware, schema, deployment and dual-write choices open for
+  evidence and ADR review instead of claiming they are already accepted.
 
 Delivery uses the documentation branch `docs/pi-00-r-charter`. Mainline merge is
 separate from this refinement: the inherited mainline workflows include container
@@ -59,10 +72,10 @@ resume state preserve the complete, reviewable change.
 
 ## Remaining work and next admission
 
-Both R and T have local start/end observations. Optional A is now limited to
-system context and ownership artifacts routed to Sol; foundational ADR acceptance
-remains in PI-01/B with Astra. After A, PI-00 will record a first Sol delivery
-sample and reevaluate the remaining weekly capacity. F-05 remains partly open because GitHub
+R, T and A have local start/end observations. A supplies the first bounded Sol
+delivery sample; foundational ADR acceptance remains in PI-01/B with Astra.
+PI-01/R is the next dependency-safe candidate and requires a fresh admission
+check with PI-01/T capacity reserved. F-05 remains partly open because GitHub
 Issues are disabled, but the executable backlog and documentation checker remove
 that dependency from ongoing work. The automation should wait for the next
-verified capacity and must not repeat R or T.
+verified capacity and must not repeat PI-00 work.

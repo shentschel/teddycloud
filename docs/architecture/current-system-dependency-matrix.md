@@ -5,6 +5,10 @@ Status: PI-00 preparation snapshot
 This matrix is an architecture input, not a promise of feature parity. Validate
 it against fixtures and real installations during PI-02.
 
+Target flows and single-writer boundaries are expanded in the
+[system context](system-context.md) and
+[component ownership](component-ownership.md) documents.
+
 ## Runtime components
 
 | Current component | Responsibilities and interfaces | TeddyCloud Next target | Migration order | Main risk |
@@ -56,4 +60,3 @@ it against fixtures and real installations during PI-02.
 4. Browser plugins must migrate from iframe/DOM customization to semantic slots.
 5. External enrichment may propose metadata but must not silently override
    verified physical or content identities.
-

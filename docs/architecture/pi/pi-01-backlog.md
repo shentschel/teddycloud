@@ -34,7 +34,7 @@ scope, not invented quota percentages; delivery admission awaits PI-00 calibrati
 
 ## PI-00/T — Review architecture documentation and calibration consistency
 
-- Model: `gpt-5.6-sol`; type: debt; size: bounded; state: reserved.
+- Model: `gpt-5.6-sol`; type: debt; size: bounded; state: complete.
 - Inputs: published PI-00/R; findings F-04 and F-05 below.
 - Output: corrected `docs/architecture/` terminology/links/estimates and updated
   PI-00 review. Do not rewrite accepted product requirements.
@@ -60,7 +60,7 @@ scope, not invented quota percentages; delivery admission awaits PI-00 calibrati
 
 ## PI-01/A — Define system context and ownership
 
-- Model: `gpt-5.6-sol`; type: delivery; size: medium; state: executing early as
+- Model: `gpt-5.6-sol`; type: delivery; size: medium; state: completed early as
   the bounded PI-00/A calibration slice.
 - Dependencies: PI-01/R; F-02 writer inventory.
 - Output: `docs/architecture/system-context.md` and
@@ -120,7 +120,8 @@ scope, not invented quota percentages; delivery admission awaits PI-00 calibrati
 
 ## F-02 — Inventory legacy writes before shadow import
 
-- Priority: P1; owner: PI-01/A, completed with PI-02 contracts.
+- Priority: P1; owner: PI-01/A, completed with PI-02 contracts; state: provisional
+  ownership boundary documented, exhaustive source/fixture inventory still open.
 - Model: `gpt-6-astra` for ambiguous ownership analysis; bounded inventory may
   move to Sol only with documented routing rationale.
 - Evidence: `getTagInfoJson` calls `saveTonieInfo` in `src/handler_api.c`.

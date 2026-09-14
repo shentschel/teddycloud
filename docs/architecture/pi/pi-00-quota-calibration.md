@@ -1,6 +1,6 @@
 # PI-00: Codex Plus quota calibration
 
-Status: complete for initial R/T calibration; delivery remains uncalibrated
+Status: complete for initial R/T and Sol delivery calibration
 Milestone: establish a conservative sprint-to-weekly-quota conversion
 
 ## Guardrails

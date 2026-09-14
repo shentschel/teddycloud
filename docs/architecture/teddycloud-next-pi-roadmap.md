@@ -18,6 +18,8 @@ Prepared execution artifacts:
 - [PI-00 quota calibration](pi/pi-00-quota-calibration.md)
 - [PI-01 architecture-charter refinement](pi/pi-01-architecture-charter.md)
 - [Task model routing](task-model-routing.md)
+- [System context](system-context.md)
+- [Component and write ownership](component-ownership.md)
 
 ## Capacity model
 

@@ -1,6 +1,6 @@
 # PI-00 budget method and admission
 
-Status: R/T calibration complete; first Sol delivery sample admitted
+Status: initial R/T and Sol delivery calibration complete
 
 Account usage values, reset timestamps and host paths are private operational
 data. Record snapshots in the ignored `.pi-automation-state.json`, not in this
@@ -27,10 +27,15 @@ sample quality and scope admission.
 - R: completed as bounded Astra refinement; actual observations are local-only.
 - T: completed as bounded Sol documentation debt work; actual observations are
   local-only.
-- A: admitted as a bounded system-context and ownership documentation slice. It
-  is Sol delivery work and does not accept the Astra-routed foundational ADRs.
+- A: completed as a bounded system-context and ownership documentation slice. It
+  is the first Sol delivery sample and does not accept the Astra-routed
+  foundational ADRs.
 - PI-01: candidate backlog prepared. Admit R and reserve T first; admit at most
-  one delivery slice at a time after a fresh capacity check.
+one delivery slice at a time after a fresh capacity check.
+
+PI-01/R is the next dependency-safe candidate. It remains an Astra refinement;
+its admission uses the local Astra R observation plus the temporary uncertainty
+allowance and reserves PI-01/T before any delivery work.
 
 One sample cannot establish a statistical confidence bound. After comparable
 samples exist, use a conservative observed cost with a recorded uncertainty
