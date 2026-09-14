@@ -1,6 +1,6 @@
 # PI-00 plan
 
-Status: complete; R and T verified, optional A not admitted
+Status: in progress; R and T verified, optional A admitted
 Milestone: a defensible, model-specific quota calibration and executable PI-01 scope
 
 ## Scope and dependencies
@@ -13,16 +13,17 @@ after a weekly reset; the missed automatic start must not be backdated.
 | --- | --- | --- | --- | --- |
 | R | `gpt-6-astra` | Refined PI-01 decisions, acceptance criteria and executable backlog | Existing explorations and source baseline | Complete; issue publication deferred to F-05 |
 | T | `gpt-5.6-sol` | Documentation consistency review and deferred-issue audit | R published; actual execution routed to Sol | Complete |
-| A | `gpt-5.6-sol` | One bounded end-to-end documentation change | Remaining capacity and R/T observations | Not admitted: foundational PI-01 ADRs remain Astra work |
+| A | `gpt-5.6-sol` | System context and component/write ownership artifacts from PI-01/A | Remaining capacity, refined charter and F-02 evidence boundary | Admitted; queued |
 
 The cap is 1.9 five-hour quota windows per sprint, with at least 5% weekly
 capacity left unused. This is a ceiling, not a minimum amount of work to consume.
 Personal observations remain in ignored local state; see [budget](pi-00-budget.md).
 Missing Sol calibration prevents committing to a fixed PI-01 delivery capacity.
 
-R and T now provide one bounded sample for each routed model/task type. They do
-not calibrate delivery work. PI-01 therefore starts with refinement and a reserved
-debt slice; delivery remains conditional on fresh admission and measurement.
+R and T provide one bounded sample for each routed model/task type. Optional A is
+now admitted as one Sol delivery sample because current weekly and five-hour
+capacity safely exceed the reserve. It documents context and ownership but does
+not accept the foundational Astra ADRs from PI-01/B.
 
 ## R acceptance and verification
 

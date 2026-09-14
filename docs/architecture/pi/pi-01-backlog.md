@@ -60,7 +60,8 @@ scope, not invented quota percentages; delivery admission awaits PI-00 calibrati
 
 ## PI-01/A — Define system context and ownership
 
-- Model: `gpt-5.6-sol`; type: delivery; size: medium; state: candidate.
+- Model: `gpt-5.6-sol`; type: delivery; size: medium; state: executing early as
+  the bounded PI-00/A calibration slice.
 - Dependencies: PI-01/R; F-02 writer inventory.
 - Output: `docs/architecture/system-context.md` and
   `docs/architecture/component-ownership.md`.

@@ -1,6 +1,6 @@
 # PI-00 review
 
-Status: complete for initial R/T calibration; optional A was not admitted.
+Status: reopened for admitted optional A; R and T remain complete.
 
 ## R outcome
 
@@ -59,10 +59,10 @@ resume state preserve the complete, reviewable change.
 
 ## Remaining work and next admission
 
-Both R and T have local start/end observations. Optional A was not admitted
-because the available foundational ADR work is routed to Astra and would not be
-a representative Sol delivery sample. PI-01 starts with R and reserves T; each
-delivery slice requires fresh admission. F-05 remains partly open because GitHub
+Both R and T have local start/end observations. Optional A is now limited to
+system context and ownership artifacts routed to Sol; foundational ADR acceptance
+remains in PI-01/B with Astra. After A, PI-00 will record a first Sol delivery
+sample and reevaluate the remaining weekly capacity. F-05 remains partly open because GitHub
 Issues are disabled, but the executable backlog and documentation checker remove
 that dependency from ongoing work. The automation should wait for the next
-verified weekly window and must not restart PI-00.
+verified capacity and must not repeat R or T.
