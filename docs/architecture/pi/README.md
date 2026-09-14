@@ -45,5 +45,7 @@ reset resumes that same work instead of skipping to a new PI. Reset timestamps
 may drift by seconds, so a timestamp difference alone is not treated as proof of
 a new weekly window. Its normal daily check is scheduled shortly after the known
 weekly reset time so idle polling does not consume the quota being protected. A
+running PI or a wait for the next five-hour window switches to a six-hour cadence;
+PI completion restores the daily schedule. A
 queued dispatch has a stable request ID and is not sent again while a matching
 run is active or unresolved.
