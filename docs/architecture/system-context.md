@@ -141,4 +141,3 @@ from the checkpoint and never infer success from the presence of an NFC file alo
   repositories.
 - A tested dual-run commit/reconciliation policy for assignment and TAF import.
 - Concrete secret storage, process isolation and deployment decisions from ADRs.
-

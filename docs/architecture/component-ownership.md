@@ -101,4 +101,3 @@ unambiguous in both:
 - PI-34/PI-38 prove import, dual-run reconciliation and rollback on snapshots.
 - Hardware and credential ownership remain proposals until deployment and device
   evidence are recorded; this document does not certify them.
-
