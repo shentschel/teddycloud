@@ -1,6 +1,6 @@
 # PI-02 execution plan
 
-Status: R complete; A/B/T pending
+Status: R complete; A first source-derived checkpoint; B/T pending
 Milestone: reproducible initial compatibility evidence
 
 ## Agent tasks and dependencies
@@ -23,6 +23,12 @@ events and discovery). Include one protobuf framing case from CT-15/16 before
 claiming that the initial corpus covers both HTTP and protobuf. Next enumerate
 all remaining routes and link each to covered, deferred or unsupported status
 with a reason and owner. Route coverage is distinct from behavior coverage.
+
+The first A checkpoint contains the
+[69-entry router manifest](../../../tests/fixtures/compatibility/router-manifest.tsv)
+and [six synthetic cases](../../../tests/fixtures/compatibility/ct-01-02-08-10-catalog.json).
+These are source-derived, not wire-observed. Remaining A work includes the
+protobuf case, deferred-route reasons, Web UI inspection and CF-01…05.
 
 A must inspect the pinned Web UI and installer for CF-04. Existing unit tests
 in enhancement repos are input evidence; importing their assumptions blindly

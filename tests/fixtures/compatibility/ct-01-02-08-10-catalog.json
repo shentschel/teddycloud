@@ -1,0 +1,98 @@
+{
+  "schema": "pi-02-a-checkpoint/1",
+  "origin": "synthetic-source-derived; not wire-observed",
+  "source_revision": "a90f7fe26a7138b1fb1e4351d5a223be807eeb28",
+  "identities": {
+    "uid_compact": "1122334455667788",
+    "uid_display": "11:22:33:44:55:66:77:88",
+    "ruid": "8877665544332211",
+    "relation": "ruid reverses the eight UID bytes, not the 16 hex characters"
+  },
+  "cases": [
+    {
+      "id": "A-CT01-info-writeback",
+      "ct": "CT-01",
+      "producer": "handleApiTagInfo/getTagInfoJson",
+      "consumer": "Tag/Library facade",
+      "source": ["src/handler_api.c:4340-4359", "src/handler_api.c:4378-4396", "src/handler_api.c:4421-4440", "src/handler_api.c:4460-4491"],
+      "request": {"method": "GET", "path": "/api/getTagInfo?ruid=8877665544332211", "headers": {}, "body": null},
+      "response": {"status": "expected-success; exact status not wire-verified", "headers": {"Content-Type": "text/json"}, "body": {"tagInfo": {"ruid": "8877665544332211", "uid": "11:22:33:44:55:66:77:88", "valid": true, "exists": true, "tonieInfo": {"model": "synthetic-assigned"}, "sourceInfo": {"model": "synthetic-content"}}}},
+      "initial_state": {"content_json": "exists in disposable fixture root; model=synthetic-assigned", "taf": "exists; source model=synthetic-content"},
+      "final_state": {"content_json": "saveTonieInfo(..., true) write-back must be diffed; exact serialized bytes unknown"},
+      "side_effects": [{"effect": "metadata write-back", "evidence": "observed-source", "shadow_replay": "excluded"}],
+      "assertions": ["tagInfo wrapper, not bare tag", "UID/rUID byte relation", "sourceInfo remains distinct from tonieInfo", "capture before/after metadata files"],
+      "unknowns": ["exact status/body fields vary with catalog and disposable TAF", "write-back bytes need local fixture execution"]
+    },
+    {
+      "id": "A-CT01-index-wrapper",
+      "ct": "CT-01",
+      "producer": "handleApiTagIndex/getTagInfoJson",
+      "consumer": "Tag/Library facade",
+      "source": ["src/handler_api.c:4493-4512", "src/handler_api.c:4560-4585"],
+      "request": {"method": "GET", "path": "/api/getTagIndex", "headers": {}, "body": null},
+      "response": {"status": "expected-success; not wire-verified", "headers": {"Content-Type": "text/json"}, "body": {"tags": [{"ruid": "8877665544332211", "uid": "11:22:33:44:55:66:77:88"}]}},
+      "initial_state": {"content_json": "synthetic tag exists"},
+      "final_state": {"content_json": "getTagInfoJson may write back each selected tag"},
+      "side_effects": [{"effect": "per-tag metadata write-back", "evidence": "observed-source", "shadow_replay": "excluded"}],
+      "assertions": ["tags array wrapper", "byte-reversed identity", "state-diff capture"],
+      "unknowns": ["directory ordering is not pinned", "full element fields depend on fixture TAF"]
+    },
+    {
+      "id": "A-CT02-form-readback",
+      "ct": "CT-02",
+      "producer": "handleApiContentJsonSet/Get",
+      "consumer": "Assignment adapter",
+      "source": ["src/handler_api.c:4179-4213", "src/handler_api.c:4216-4323"],
+      "request": {"method": "POST", "path": "/content/json/set/8877665544332211", "headers": {"Content-Type": "application/x-www-form-urlencoded"}, "body": "tonie_model=synthetic-assigned&nocloud=true"},
+      "response": {"status": "expected-success; exact status not wire-verified", "headers": {}, "body": "httpOkResponse; wire body unverified"},
+      "readback": {"method": "GET", "path": "/content/json/get/8877665544332211", "headers": {}, "body": {"tonie_model": "synthetic-assigned", "nocloud": true, "source": "synthetic-source-preserved"}},
+      "initial_state": {"content_json": {"tonie_model": "synthetic-previous", "nocloud": false, "source": "synthetic-source-preserved"}},
+      "final_state": {"content_json": {"tonie_model": "synthetic-assigned", "nocloud": true, "source": "synthetic-source-preserved"}},
+      "side_effects": [{"effect": "save_content_json on changed optional fields", "evidence": "observed-source", "shadow_replay": "excluded"}],
+      "assertions": ["form fields parsed individually", "omitted source remains unchanged", "GET readback agrees with persisted JSON"],
+      "unknowns": ["text/plain sender tolerance not yet exercised", "save failure and status translation not yet exercised"]
+    },
+    {
+      "id": "A-CT08-placement",
+      "ct": "CT-08",
+      "producer": "tbs_tag_placed/sse_sendEvent",
+      "consumer": "Event Hub/legacy plugins",
+      "source": ["src/toniebox_state.c:24-39", "src/handler_sse.c:112-165", "src/handler_sse.c:169-205"],
+      "request": {"method": "GET", "path": "/api/sse", "headers": {"Accept": "text/event-stream"}, "body": null},
+      "response": {"status": "stream; status not wire-verified", "headers": {"Content-Type": "text/event-stream"}, "events": ["event: TagValid\ndata: { \"type\":\"TagValid\", \"data\":\"1122334455667788\" }\n\n"]},
+      "initial_state": {"tag": "not placed"},
+      "final_state": {"tag": "placed; uid=1122334455667788; valid=true"},
+      "side_effects": [{"effect": "state update, SSE and MQTT broadcast", "evidence": "observed-source"}],
+      "assertions": ["event name and JSON envelope", "compact UID is converted to rUID by byte reversal", "no box ID in SSE envelope"],
+      "unknowns": ["two-box isolation and reconnect reconciliation unsupported by this fixture"]
+    },
+    {
+      "id": "A-CT08-removal-distinction",
+      "ct": "CT-08",
+      "producer": "tbs_tag_removed",
+      "consumer": "Event Hub/legacy plugins",
+      "source": ["src/toniebox_state.c:42-55", "src/handler_rtnl.c:340-348"],
+      "request": {"method": "NONE", "path": "synthetic RTNL state transition; no device request", "headers": {}, "body": null},
+      "response": {"status": "not applicable", "headers": {}, "events": []},
+      "initial_state": {"tag": "placed"},
+      "final_state": {"tag": "removal transition; no SSE emitted by this handler"},
+      "side_effects": [{"effect": "MQTT -1122334455667788 and empty opposite validity event", "evidence": "observed-source"}],
+      "assertions": ["do not fabricate an SSE TagInvalid removal", "negative TagValid is client-compatibility convention, not server-observed SSE"],
+      "unknowns": ["RTNL wire framing not cataloged", "client removal fallback needs separate evidence"]
+    },
+    {
+      "id": "A-CT10-bare-array",
+      "ct": "CT-10",
+      "producer": "handleApiPluginsGet",
+      "consumer": "Legacy extension adapter",
+      "source": ["src/handler_api.c:4769-4801"],
+      "request": {"method": "GET", "path": "/api/plugins/get", "headers": {}, "body": null},
+      "response": {"status": "expected-success; exact status not wire-verified", "headers": {"Content-Type": "application/json; charset=utf-8"}, "body": ["synthetic-plugin-a", "synthetic-plugin-b"]},
+      "initial_state": {"plugins_dir": "contains two synthetic subdirectories"},
+      "final_state": {"plugins_dir": "unchanged"},
+      "side_effects": [{"effect": "directory scan only; no manifest validation in handler", "evidence": "observed-source"}],
+      "assertions": ["response is bare array, not plugins object", "only directory entries are included"],
+      "unknowns": ["directory ordering not pinned", "missing directory returns ERROR_FAILURE; HTTP translation unverified"]
+    }
+  ]
+}

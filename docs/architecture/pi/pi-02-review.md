@@ -1,6 +1,6 @@
 # PI-02 review
 
-Status: R delivered; milestone incomplete
+Status: R delivered; A source-derived checkpoint; milestone incomplete
 
 R inventories the source router families and seven enhancement seams at pinned
 local revisions. It records confirmed GET write-back, different auth flag
@@ -12,9 +12,24 @@ in this source snapshot `tbs_tag_removed` sends MQTT only. Existing browser code
 also recognizes an RTNL removal signal. A negative-UID SSE event is a supported
 client input, not evidence that this server emits it. CF-02 owns the fixtures.
 
-Web UI source, complete handler/status tracing, fixture files and harness tests
-remain A/B work. No production API, cloud content request or device operation
-was performed. R provides source evidence and planning, not runtime conformance.
+The [router manifest](../../../tests/fixtures/compatibility/router-manifest.tsv)
+enumerates all 69 entries in `src/server.c` order, with method, prefix,
+server type and handler. Six
+[synthetic fixture cases](../../../tests/fixtures/compatibility/ct-01-02-08-10-catalog.json)
+cover tag wrappers/write-back, form assignment/readback, placement versus
+removal and bare-array discovery. JSON parses; entries are source-derived and
+have not been replayed. A separate
+[deployment-seam note](pi-02-deployment-seams.md) inventories pinned installer
+and plugin paths. No production API, cloud content request or device operation
+was performed.
+
+The first agent-produced fixture contained invalid JSON and a nested
+`sourceInfo.tonieInfo` shape. Integration corrected both against
+`getTagInfoJson`: `sourceInfo` is detached `tonieInfo`, so `model` is direct
+under `sourceInfo`. This is a fixture correction, not a production change.
+
+Web UI source, complete handler/status tracing, protobuf framing, CF-01…05
+and harness tests remain A/B work. This checkpoint is not runtime conformance.
 
 Validation: architecture link/whitespace checks are required before publishing;
 remote check evidence is recorded in the local execution state. A/B/T remain
