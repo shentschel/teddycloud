@@ -1,6 +1,6 @@
 # PI-01 review
 
-Status: R/B/T complete locally; A reviewed and reused; remote CI evidence pending
+Status: complete as architecture baseline; runtime qualification remains open
 
 ## R outcome
 
@@ -52,10 +52,11 @@ later contract and schema fixtures. F-05 issue publication remains non-blocking.
 
 The GitHub connector returned no pull-request-triggered runs for R commit
 `cdbe7fe645a3b9778c028013cf7c84543559eaa1`. That query is limited to PR runs and
-does not prove that all other workflow types are absent. B/T remote checks still
-need observation. A PR-triggered build/release workflow may also run, so the
-documentation workflow is now scoped to the `docs/pi-*` branch push to obtain
-proportional CI without triggering a release. The remote result remains pending.
+does not prove that all other workflow types are absent. A PR-triggered
+build/release workflow may also run, so the documentation workflow is scoped
+to `docs/pi-*` branch pushes. The [documentation run for T commit `8f04e5a`](https://github.com/shentschel/teddycloud/actions/runs/34968314419)
+completed successfully on GitHub Actions. This is architecture-document CI,
+not runtime, device or migration evidence.
 
 ## T consistency review
 
@@ -85,8 +86,8 @@ and quota were closed in PI-00/T; F-06 design is accepted but its runtime proof
 remains with PI-05/07/09/36/37. F-01 browser/device evidence and F-05 Issues
 publication remain open; neither is represented as passed.
 
-Local architecture checks are passing. The architecture charter is a locally
-accepted implementation baseline, with external CI and hardware/migration gates
-open. The roadmap's remote-green definition of done is not yet evidenced, so
-the PI-01 milestone is **not marked complete**. PI-02/R can refine fixtures on
-this accepted baseline while the remote documentation check is observed.
+Local and remote architecture-document checks passed. PI-01 is complete as the
+implementation architecture baseline. Hardware, browser, runtime and migration
+gates remain explicitly open for their later milestones; they are not covered
+by the documentation check. PI-02/R may now refine contract fixtures against
+this accepted baseline.
