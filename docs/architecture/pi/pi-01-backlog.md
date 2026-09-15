@@ -52,8 +52,9 @@ scope, not invented quota percentages; delivery admission awaits PI-00 calibrati
 - Output: `pi-01-plan.md`, `pi-01-budget.md`, `pi-01-review.md` and final scope
   section in `pi-01-architecture-charter.md`.
 - Tasks: confirm reference deployment/hardware limits; prioritize J-01 through
-  J-09; accept or revise proposed performance thresholds; admit A/B only after
-  reserving T and documenting live capacity.
+  J-09; keep numerical performance targets provisional pending a pinned runner;
+  revalidate the early A slice and admit B after reserving T and checking live
+  capacity.
 - Done: no unspecified hardware promise; every target has an evidence owner;
   all admitted work fits the conservative allowance or is explicitly deferred.
 - Not included: repeating PI-00 exploration or obtaining live credentials.
@@ -97,7 +98,8 @@ scope, not invented quota percentages; delivery admission awaits PI-00 calibrati
 
 ## PI-01/T — Close the architecture consistency review
 
-- Model: `gpt-5.6-sol`; type: debt; size: bounded; state: mandatory candidate.
+- Model: `gpt-5.6-sol`; type: debt; size: bounded; state: complete locally;
+  remote docs CI evidence pending in the PI-01 review.
 - Dependencies: admitted PI-01 deliverables; if a slice is deferred, review the
   delivered portion and mark the PI milestone incomplete.
 - Output: consistent charter, ownership matrix, ADR links and PI-01 review.

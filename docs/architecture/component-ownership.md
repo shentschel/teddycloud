@@ -21,7 +21,7 @@ operation after reconciliation and rollback checks.
 | Catalog Service | Content, ContentVersion metadata, Set relations, provenance and review candidates | Exact/conflicting lookup outcomes and catalog queries | Physical-card classification from metadata alone |
 | Assignment Service | Current and historical Tag-to-ContentVersion assignment | Idempotent assign/unassign/readback commands | TAF bytes, catalog enrichment or UI filtering |
 | Library Query | Stable paginated projection, search, filters and preferred-record policy | Read-only joins of Tag, Content, Assignment and blob availability | Canonical mutations or destructive deduplication |
-| Event Hub | Event vocabulary, delivery cursor and subscriber lifecycle | SSE/SDK adapters and invalidation | Authoritative domain state |
+| Event Hub | Event vocabulary, delivery cursor and subscriber lifecycle | SSE/SDK adapters and invalidation of committed core outbox events | Authoritative domain state or domain outbox commit |
 | Settings/Secrets | Validated settings, overlay ownership, secret references and audit metadata | Redacted settings API; scoped credential handles | Returning private keys to UI/plugins |
 | Extension Registry/SDK | Manifests, commands, semantic slots and namespaced extension state | Typed core clients and events | Internal React state or direct core/database mutation |
 | Media Worker | Media job state, temporary inputs and conversion checkpoints | YouTube/media sources; validated import API | Core blobs after import, assignments or global credentials |
@@ -41,7 +41,7 @@ operation after reconciliation and rollback checks.
 | Select preferred Original | Library Query policy | Tag, Assignment, Catalog and Content facts | Read-only choice; never deletes Custom Cards or unresolved alternatives |
 | Upsert custom catalog metadata | Catalog Service review command | Unknown-Tonie UI submits correction | Custom catalog metadata is not proof of Custom Card hardware |
 | Change settings/overlay | Settings Service | Administration UI | Validate and audit; isolate secrets from ordinary settings |
-| Publish domain event | Owning core service through Event Hub | Gateway/workers report input events | Event publication follows authoritative commit |
+| Publish domain event | Owning core service records outbox in its transaction; Event Hub delivers | Gateway/workers report input events | Outbox commit is durable; duplicate delivery is reconciled by event identity |
 | Store media/sync job progress | Respective worker | Event Hub mirrors progress | Worker checkpoint may be rebuilt without changing core truth |
 | Install/upgrade/rollback | Installer/Release | Core exposes backup, migration and health gates | No domain writes outside versioned migration commands |
 
@@ -85,8 +85,9 @@ The [system context](system-context.md) documents the complete successful and
 interrupted Copy flow and the offline/interrupted Connector flow. Ownership is
 unambiguous in both:
 
-- Assignment Service is the only assignment writer; Content Store only proves
-  availability and Event Hub publishes after commit.
+- Assignment Service is the only assignment writer after the ownership gate;
+  Content Store only proves availability and Event Hub delivers a committed
+  outbox event. Desired and confirmed legacy-applied revisions remain separate.
 - Connector Worker owns retry state; Catalog Service and Content Store own the
   accepted metadata and TAF. A downloaded file does not create an assignment.
 - Failed legacy projection is reported as reconciliation debt and cannot cause a
@@ -101,5 +102,5 @@ unambiguous in both:
 - PI-04/PI-13 decides Set cardinality and the final versioned schema.
 - PI-09 defines the assignment transaction/history contract and legacy adapter.
 - PI-34/PI-38 prove import, dual-run reconciliation and rollback on snapshots.
-- Hardware and credential ownership remain proposals until deployment and device
-  evidence are recorded; this document does not certify them.
+- Hardware support and credential deployment remain unverified until service and
+  device evidence is recorded; this document does not certify them.

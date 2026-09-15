@@ -53,4 +53,7 @@ may drift by seconds, so a timestamp difference alone is not treated as proof of
 a new weekly window. The fixed six-hour cadence checks each five-hour reset no
 later than one cycle afterwards and is not changed by the automation itself. A
 queued dispatch has a stable request ID and is not sent again while a matching
-run is active or unresolved.
+run is active or unresolved. A queued handoff is only a request: on a later run
+with the correct model, check the actual task and repository state, then execute
+the same request ID when no work has started. A completed sprint may be followed
+by the next admitted sprint within the same run and quota week.

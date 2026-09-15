@@ -13,9 +13,9 @@ compatibility baseline; the administrator also needs reliable catalog correction
 media conversion and repeatable installation.
 
 The product owner decides scope and accepts hardware-support limitations. The
-executing architecture agent owns proposals, traceability and evidence. A merged
-refinement is not evidence that hardware compatibility or a migration works.
-PI-01/B records final architecture decisions in ADRs with their acceptance basis.
+executing architecture agent owns implementation-planning decisions, traceability
+and evidence. Accepted ADRs define a build baseline; a merged refinement does not
+prove hardware compatibility or a migration.
 
 ## Inputs and evidence boundary
 
@@ -58,7 +58,7 @@ targets remain provisional until PI-10/26 establishes the specified baseline.
 | C-03 | Product requirement | Preserve known Custom Cards, assignments and user-curated metadata through enrichment, deduplication and migration. Catalog custom entries do not imply Custom Card hardware. |
 | C-04 | Product requirement | Keep one usable preferred Original per resolved content/member: cloud-auth eligible, existing usable TAF, latest verified audio version; a stable rUID tie-break is acceptable for equals. Never infer latest from the largest audio ID alone. |
 | C-05 | Product requirement | Standard Tonies and Library pages support Copy, filters, details and badges through versioned semantic extension slots. Classification and identity resolution belong in the core. |
-| C-06 | Planning choice | Prefer control-plane-first, a modular core, and isolated media/connector workers. PI-01/B must compare alternatives and record the gateway boundary. |
+| C-06 | Implementation baseline | Build the control plane before replacing the device gateway; use a modular core and isolated media/connector workers under ADR-0001/0002. |
 | C-07 | Implementation baseline | Go backend, React/TypeScript UI, generated SDK, SQLite state and immutable local blobs; ADR-0002/0003 record topology and recovery. Exact versions and final V3 schema remain later decisions. |
 | C-08 | Implementation baseline | Start with a Linux systemd service on the observed Debian 13 x86-64 LXC reference; container packaging follows qualification. Browser/runtime pins and backup tests remain evidence tasks. Windows/macOS are administration clients. |
 
@@ -142,9 +142,9 @@ permissions alone are not a sandbox. Untrusted modules need the isolated bridge.
 | Live events | No stale current-tag after a completed removal event; reconnect reconciles authoritative state | Ordered, late-response and reconnect fixtures; latency target deferred until measured |
 | Extension lifecycle | Disable/unmount leaves zero registrations/subscriptions; incompatible versions do not load | Host/SDK compatibility tests and a failing-plugin fixture |
 
-Performance numbers are proposed acceptance thresholds, not observed results or
-capacity claims. PI-01/R must record a reference environment and either accept or
-adjust them before they become release gates.
+Performance numbers are proposed engineering targets, not observed results or
+capacity claims. PI-01/R recorded the server reference; PI-03/10/26 must pin the
+browser/runtime and measure a baseline before accepting numerical release gates.
 
 ## Ordered execution and exit gate
 
@@ -163,7 +163,8 @@ PI-01 may be called complete only when:
 - Every deferred concern has an executable record; upstream coordination and
   licensing assumptions have owners and do not masquerade as approvals.
 - Required checks pass; any absent CI or hardware evidence is reported.
-- The next slice is admitted from completed, model-specific quota observations.
+- The next slice is admitted from completed, model-specific quota observations or
+  an explicit first-sample cap with an uncertainty allowance.
 
 ## Non-goals, migration and rollback
 

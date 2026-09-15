@@ -42,6 +42,7 @@ flowchart LR
     Core --> Blobs
     Gateway --> Secrets
     Connector --> Secrets
+    Core --> Secrets
     Media -->|job result and validated import| Core
     Connector -->|candidates, checkpoints and validated import| Core
     Sources --> Media
@@ -79,7 +80,7 @@ the core database file.
 | Flow | Producer to consumer | Durable owner | Failure behavior |
 | --- | --- | --- | --- |
 | Device claim/auth state | Gateway to Tag Registry | Core Tag Registry | Reject incomplete state; preserve prior valid ownership and expose retry status |
-| Playback/tag lifecycle | Gateway to event hub to UI/extensions | Event hub cursor plus authoritative Tag Registry state | Reconnect reconciles state; stale responses cannot restore a removed tag |
+| Playback/tag lifecycle | Gateway to core outbox to event hub to UI/extensions | Committed core state/outbox; event hub delivery cursor | Reconnect reconciles state; stale responses cannot restore a removed tag |
 | Catalog enrichment | Connector/review UI to Catalog Service | Core Catalog Service | Store candidate and provenance; ambiguity cannot auto-assign |
 | TAF import | Gateway/media/connector to Content Store | Core Content Store | Publish durable immutable bytes before committing the DB reference; recover unreferenced blobs |
 | Tag assignment | UI/extension to Assignment Service | Core Assignment Service | Idempotent command and assignment history; prior assignment remains recoverable |
@@ -95,6 +96,10 @@ active writer; the compatibility facade must not write the new database and the
 legacy JSON independently without a reconciled command.
 
 ## Scenario J-02: successful Copy
+
+This target sequence begins only after core assignment ownership has transferred
+and the legacy projection adapter passes the revision-fencing gate in ADR-0001.
+Before that gate, the existing legacy assignment path remains authoritative.
 
 1. The Copy command supplies source `content_version_id`, target rUID and an
    idempotency key to the Assignment Service. A placed-card flow resolves the
@@ -116,9 +121,10 @@ legacy JSON independently without a reconciled command.
 
 If interruption occurs before the authoritative commit, the prior assignment
 remains active. If the response is lost after commit, retrying the same key returns
-the committed result. If legacy projection fails after the core commit, the new
-assignment is marked unreconciled and playback cutover is blocked; unrelated
-cards and TAFs remain unchanged.
+the committed desired result. If legacy projection fails after the core commit,
+the new assignment stays pending, the previously applied revision is retained and
+playback success is not reported. Playback cutover is blocked; unrelated cards
+and TAFs remain unchanged.
 
 ## Scenario J-07: offline or interrupted connector
 

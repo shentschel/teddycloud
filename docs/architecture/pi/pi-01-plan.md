@@ -1,6 +1,6 @@
 # PI-01 execution plan
 
-Status: R/B complete; A reused; T reserved and ready
+Status: R/B/T complete locally; A reused; milestone awaits remote CI evidence
 Milestone: implementation architecture baseline with explicit evidence gates
 Decision owner: executing architecture agent within the authorized roadmap
 
@@ -15,7 +15,7 @@ production changes and device certification belong to later milestones.
 | R | `gpt-6-astra` | Complete: this plan, budget method, review, reference environment and refined charter |
 | A | `gpt-5.6-sol` | Reuse PI-00/A at `f3d6612`; context and ownership reviewed against R; do not repeat the slice |
 | B | `gpt-6-astra` | Complete: three accepted implementation ADRs, corrected context and recovery walkthroughs |
-| T | `gpt-5.6-sol` | Mandatory reserve: review vocabulary, failure flows, ADR evidence, links and deferred work after B |
+| T | `gpt-5.6-sol` | Complete locally: vocabulary, failure, ownership, backlog and quota review |
 
 The original dependency R-before-A is satisfied by revalidating the early A
 artifacts against this refinement. B consumes that reviewed result. R has found
@@ -61,5 +61,6 @@ unless it would make a new hardware support or cutover claim.
 - Commit and push the documentation branch; mainline merge remains separate.
 - Documentation rollback is a revert of the relevant commits.
 
-The milestone is incomplete until B and T pass. Hardware and migration tests are
-later gates with explicit owners; none is reported as executed by this PI.
+The runtime hardware and migration gates belong to later milestones. Local B/T
+verification has passed; this milestone remains incomplete until remote docs CI
+evidence is observed. No device or production test is reported as executed.

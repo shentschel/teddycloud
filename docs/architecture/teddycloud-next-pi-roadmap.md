@@ -30,7 +30,9 @@ windows, not working hours.
 - Sprint limit: `2 * B5 * 0.95 = 1.9 B5`.
 - `BW`: 100% of one weekly Codex quota window.
 - PI limit: `BW * 0.95 = 0.95 BW`.
-- A PI runs from one weekly reset to the next.
+- A weekly execution interval runs from one verified weekly reset to the next.
+  Candidate `PI-NN` labels identify milestone scope and may advance within the
+  same interval; advancing a label never replenishes the shared weekly quota.
 - There is no documented fixed conversion from `B5` to `BW`.
 - Model, reasoning effort, context and task type can change consumption.
 
@@ -63,7 +65,7 @@ must not be converted directly into Codex PIs.
 
 ## Rolling capacity formula
 
-At each weekly reset:
+At each weekly reset, account for all admitted candidate scopes in the interval:
 
 ```text
 pi_limit = 95 weekly percentage points
@@ -78,7 +80,7 @@ reserve.
 
 ## Agent execution contract
 
-At the start of a PI, create one issue per admitted sprint named
+At the start of an admitted candidate scope, create one issue per sprint named
 `PI-NN/SN — <outcome>`. Every PI must include `PI-NN/R` and `PI-NN/T`. Each issue
 must contain:
 
@@ -101,7 +103,8 @@ Execution rules:
    migration and rollback.
 4. Ambiguous Tonie matches remain review candidates; no first-hit fallback.
 5. UI extensions use semantic slots; DOM selectors are never public contracts.
-6. Record deferred findings as linked issues before closing the debt sprint.
+6. Record deferred findings as linked issues when available; if Issues are
+   disabled, use stable local backlog IDs and report publication as pending.
 7. If a milestone does not fit, stop adding scope and replan the unfinished work
    into the next PI.
 8. Copy the task's recommended model from the model-routing matrix into its issue;

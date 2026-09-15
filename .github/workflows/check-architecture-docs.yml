@@ -10,6 +10,7 @@ on:
     branches:
       - master
       - develop
+      - "docs/pi-*"
     paths:
       - "docs/architecture/**"
       - "scripts/check_architecture_docs.py"

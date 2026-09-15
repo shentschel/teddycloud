@@ -1,6 +1,6 @@
 # PI-01 budget and admission
 
-Status: R measured; B admitted with a spending cap; T reserved
+Status: R and B measured; T in execution, reserved from the calibration sample
 
 Use the [PI-00 measurement rules](pi-00-budget.md). Personal usage and reset
 timestamps stay in the ignored local automation state. The sprint limit is
