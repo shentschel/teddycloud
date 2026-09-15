@@ -40,8 +40,9 @@ Current execution artifacts:
 - [Persistence/recovery ADR](../adr/0003-persistence-and-projection-recovery.md)
 - [Issue-ready tasks and findings](pi-01-backlog.md)
 
-GitHub Issues are currently disabled in this fork. Until enabled, the backlog
-provides stable local task IDs; these must not be reported as published issues.
+GitHub Issues are enabled in this fork. The [PI-01 backlog](pi-01-backlog.md)
+links the four open findings; the [PI-02 plan](pi-02-plan.md) links its three
+next sprint tasks. Search by stable ID before creating any further issue.
 Run `python3 scripts/check_architecture_docs.py` before publishing architecture
 changes. The path-scoped documentation workflow runs the same check without
 creating release artifacts.

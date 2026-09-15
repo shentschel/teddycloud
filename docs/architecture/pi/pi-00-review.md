@@ -75,7 +75,8 @@ resume state preserve the complete, reviewable change.
 R, T and A have local start/end observations. A supplies the first bounded Sol
 delivery sample; foundational ADR acceptance remains in PI-01/B with Astra.
 PI-01/R is the next dependency-safe candidate and requires a fresh admission
-check with PI-01/T capacity reserved. F-05 remains partly open because GitHub
-Issues are disabled, but the executable backlog and documentation checker remove
-that dependency from ongoing work. The automation should wait for the next
+check with PI-01/T capacity reserved. F-05 remained partly open at PI-00 because
+Issues were disabled then. The executable backlog and documentation checker
+removed that dependency from ongoing work; issue publication was later completed.
+The automation should wait for the next
 verified capacity and must not repeat PI-00 work.

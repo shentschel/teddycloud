@@ -34,9 +34,10 @@ not accept the foundational Astra ADRs from PI-01/B.
 - Relative links, ownership coverage and `git diff --check` pass.
 - Source baseline and unverified live-system assumptions are explicit.
 
-GitHub currently returns HTTP 410 because Issues are disabled. The
-[backlog](pi-01-backlog.md) is the temporary task registry; no GitHub issue numbers
-are invented. Issue publication is a separate unresolved setup item.
+At PI-00, GitHub returned HTTP 410 because Issues were disabled. The
+[backlog](pi-01-backlog.md) was the temporary task registry; no GitHub issue
+numbers were invented at that stage. The setup item was resolved after PI-02/R;
+the current backlog now links the published Issues.
 
 ## Rollback
 

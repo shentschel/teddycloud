@@ -1,10 +1,11 @@
 # PI execution backlog and deferred findings
 
-Status: issue-ready local registry; GitHub Issues are disabled (HTTP 410)
+Status: GitHub Issues enabled; seven open tasks published
 
-Stable IDs below are task IDs, not GitHub issue numbers. Once Issues are enabled,
-search by exact ID, create only missing issues using the repository sprint
-template, and record their URLs here. Do not copy personal usage measurements.
+Stable IDs below are task IDs, not GitHub issue numbers. Search by exact ID
+before creating further issues. Seven open tasks are linked below; completed
+sprints and F-04 were not copied into the issue tracker. Do not publish personal
+usage measurements.
 Every task is documentation-only unless a future PI explicitly admits implementation.
 
 ## Shared execution contract
@@ -22,8 +23,7 @@ scope, not invented quota percentages; delivery admission awaits PI-00 calibrati
 
 ## PI-00/R — Refine the architecture charter
 
-- Model: `gpt-6-astra`; type: refinement; size: bounded; state: complete locally;
-  GitHub issue publication deferred to F-05.
+- Model: `gpt-6-astra`; type: refinement; size: bounded; state: complete locally.
 - Output: refined charter, this backlog, PI-00 plan/budget/review and local state.
 - Dependencies: existing explorations at `aee1395`.
 - Tasks: reconcile user journeys; map all seven owners; distinguish decisions
@@ -98,8 +98,8 @@ scope, not invented quota percentages; delivery admission awaits PI-00 calibrati
 
 ## PI-01/T — Close the architecture consistency review
 
-- Model: `gpt-5.6-sol`; type: debt; size: bounded; state: complete locally;
-  remote docs CI evidence pending in the PI-01 review.
+- Model: `gpt-5.6-sol`; type: debt; size: bounded; state: complete;
+  remote documentation CI passed as recorded in the PI-01 review.
 - Dependencies: admitted PI-01 deliverables; if a slice is deferred, review the
   delivered portion and mark the PI milestone incomplete.
 - Output: consistent charter, ownership matrix, ADR links and PI-01 review.
@@ -110,6 +110,8 @@ scope, not invented quota percentages; delivery admission awaits PI-00 calibrati
   actual CI state reported; milestone accepted or explicitly incomplete.
 
 ## F-01 — Establish hardware, deployment and performance evidence
+
+Issue: [#1](https://github.com/shentschel/teddycloud/issues/1).
 
 State: partially complete in PI-01/R. Observed server facts and the benchmark
 specification are in [reference environment](pi-01-reference-environment.md).
@@ -127,6 +129,8 @@ actual device/firmware observations for PI-02. No new hardware support is claime
 
 ## F-02 — Inventory legacy writes before shadow import
 
+Issue: [#2](https://github.com/shentschel/teddycloud/issues/2).
+
 - Priority: P1; owner: PI-01/A, completed with PI-02 contracts; state: provisional
   ownership boundary documented, exhaustive source/fixture inventory still open.
 - Model: `gpt-6-astra` for ambiguous ownership analysis; bounded inventory may
@@ -140,6 +144,8 @@ actual device/firmware observations for PI-02. No new hardware support is claime
 - Blocks: authoritative-store cutover and live shadow-import claims.
 
 ## F-03 — Specify collision, version and Set-member evidence
+
+Issue: [#3](https://github.com/shentschel/teddycloud/issues/3).
 
 - Priority: P1; owner: PI-04/R and PI-15/R; input to PI-01/B.
 - Model: `gpt-6-astra`; evidence: pair lookup in `src/toniesJson.c`.
@@ -167,18 +173,20 @@ actual device/firmware observations for PI-02. No new hardware support is claime
 ## F-05 — Enable issue tracking and provide proportional documentation checks
 
 - Priority: P2; owner: repository maintainer for settings, PI-00/T for docs checks;
-  state: docs check complete, issue-setting work open and non-blocking.
+  state: complete; Issues enabled and seven open tasks published.
 - Model: `gpt-5.6-sol` for bounded implementation after admission.
-- Evidence: GitHub returns HTTP 410 for issue creation; current workflows target
-  full builds/container publication and have no dedicated Markdown link check.
-- Tasks: enable Issues through an authorized repository-settings action and
-  publish the exact task IDs idempotently. The path-scoped docs check is now
-  implemented in `scripts/check_architecture_docs.py` and its dedicated workflow.
+- Evidence: GitHub repository metadata now reports `has_issues=true`; the seven
+  issue URLs linked here were verified. The path-scoped docs check is implemented
+  in `scripts/check_architecture_docs.py` and its dedicated workflow.
+- Tasks: track future tasks by exact ID; search before creating. The setting
+  change and initial issue publication are complete.
 - Done: IDs link to real issues and documentation changes have an appropriate
   validation path; no personal quota metadata is published.
 - Does not block: reviewable Git commits with this local task registry.
 
 ## F-06 — Specify blob publication and legacy projection recovery
+
+Issue: [#4](https://github.com/shentschel/teddycloud/issues/4).
 
 - Priority: P1; owner: PI-01/B for design, PI-05/07/09/36 for implementation tests.
 - Model: `gpt-6-astra`; state: design complete in ADR-0003, runtime proof open;

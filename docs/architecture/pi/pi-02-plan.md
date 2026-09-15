@@ -8,9 +8,9 @@ Milestone: reproducible initial compatibility evidence
 | ID | Model | Depends on | Deliverable and acceptance |
 | --- | --- | --- | --- |
 | PI-02/R | `gpt-6-astra` | PI-01 baseline | Source-pinned contract inventory, effect risks, fixture schema and issue-ready A/B/T; complete |
-| PI-02/A | `gpt-5.6-sol` | R | Enumerated router manifest and initial sanitized HTTP/protobuf/event fixture catalog; trace CF-01 through CF-05 and mark unknowns |
-| PI-02/B | `gpt-5.6-sol` | A | Offline harness for fixture validation and initial adapter contracts; failures must detect swapped UID bytes, wrong wrappers, omitted side effects and malformed framing |
-| PI-02/T | `gpt-5.6-sol` | B, or checkpoint | Normalize duplicate fixtures, audit provenance/secret absence and unsupported cases, review CI and reconcile inventory coverage |
+| [PI-02/A](https://github.com/shentschel/teddycloud/issues/5) | `gpt-5.6-sol` | R | Enumerated router manifest and initial sanitized HTTP/protobuf/event fixture catalog; trace CF-01 through CF-05 and mark unknowns |
+| [PI-02/B](https://github.com/shentschel/teddycloud/issues/6) | `gpt-5.6-sol` | A | Offline harness for fixture validation and initial adapter contracts; failures must detect swapped UID bytes, wrong wrappers, omitted side effects and malformed framing |
+| [PI-02/T](https://github.com/shentschel/teddycloud/issues/7) | `gpt-5.6-sol` | B, or checkpoint | Normalize duplicate fixtures, audit provenance/secret absence and unsupported cases, review CI and reconcile inventory coverage |
 
 Use the [contract inventory](pi-02-contract-inventory.md) as the acceptance input.
 A owns catalog/manifest files, B owns harness files; no concurrent edits to the
