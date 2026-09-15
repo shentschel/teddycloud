@@ -1,6 +1,6 @@
 # PI-01 budget and admission
 
-Status: R and B measured; T in execution, reserved from the calibration sample
+Status: R, B and T measured; architecture milestone complete
 
 Use the [PI-00 measurement rules](pi-00-budget.md). Personal usage and reset
 timestamps stay in the ignored local automation state. The sprint limit is
