@@ -1,6 +1,6 @@
 # PI-01 execution plan
 
-Status: R complete; A reused; B awaiting admission; T reserved
+Status: R/B complete; A reused; T reserved and ready
 Milestone: implementation architecture baseline with explicit evidence gates
 Decision owner: executing architecture agent within the authorized roadmap
 
@@ -14,7 +14,7 @@ production changes and device certification belong to later milestones.
 | --- | --- | --- |
 | R | `gpt-6-astra` | Complete: this plan, budget method, review, reference environment and refined charter |
 | A | `gpt-5.6-sol` | Reuse PI-00/A at `f3d6612`; context and ownership reviewed against R; do not repeat the slice |
-| B | `gpt-6-astra` | Admit one bounded ADR slice after a fresh capacity check: sequencing, technology/topology and persistence |
+| B | `gpt-6-astra` | Complete: three accepted implementation ADRs, corrected context and recovery walkthroughs |
 | T | `gpt-5.6-sol` | Mandatory reserve: review vocabulary, failure flows, ADR evidence, links and deferred work after B |
 
 The original dependency R-before-A is satisfied by revalidating the early A

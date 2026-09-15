@@ -30,6 +30,9 @@ Current execution artifacts:
 - [PI-01 budget method](pi-01-budget.md)
 - [PI-01 review](pi-01-review.md)
 - [PI-01 reference environment](pi-01-reference-environment.md)
+- [Gateway sequencing ADR](../adr/0001-control-plane-and-gateway-sequencing.md)
+- [Technology/topology ADR](../adr/0002-technology-and-repository-topology.md)
+- [Persistence/recovery ADR](../adr/0003-persistence-and-projection-recovery.md)
 - [Issue-ready tasks and findings](pi-01-backlog.md)
 
 GitHub Issues are currently disabled in this fork. Until enabled, the backlog

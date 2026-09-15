@@ -1,6 +1,6 @@
 # PI-01 refinement: architecture charter
 
-Status: scope refined by PI-01/R; foundational ADR acceptance remains PI-01/B
+Status: R/B implementation baseline recorded; final consistency review remains T
 Candidate milestone: architecture charter accepted with explicit evidence gates
 
 ## Objective and authority
@@ -59,8 +59,8 @@ targets remain provisional until PI-10/26 establishes the specified baseline.
 | C-04 | Product requirement | Keep one usable preferred Original per resolved content/member: cloud-auth eligible, existing usable TAF, latest verified audio version; a stable rUID tie-break is acceptable for equals. Never infer latest from the largest audio ID alone. |
 | C-05 | Product requirement | Standard Tonies and Library pages support Copy, filters, details and badges through versioned semantic extension slots. Classification and identity resolution belong in the core. |
 | C-06 | Planning choice | Prefer control-plane-first, a modular core, and isolated media/connector workers. PI-01/B must compare alternatives and record the gateway boundary. |
-| C-07 | Proposal | Go backend, React/TypeScript UI, generated SDK, SQLite state and filesystem blobs. No language, schema or repository topology is frozen before PI-01/B. |
-| C-08 | Planning choice | Start with one self-hosted LAN installation and a Linux service/container deployment candidate. Exact OS, CPU, runtime versions and backup/storage profile remain evidence tasks. Windows/macOS instructions address administration unless separately qualified as server targets. |
+| C-07 | Implementation baseline | Go backend, React/TypeScript UI, generated SDK, SQLite state and immutable local blobs; ADR-0002/0003 record topology and recovery. Exact versions and final V3 schema remain later decisions. |
+| C-08 | Implementation baseline | Start with a Linux systemd service on the observed Debian 13 x86-64 LXC reference; container packaging follows qualification. Browser/runtime pins and backup tests remain evidence tasks. Windows/macOS are administration clients. |
 
 C-04 governs preference and explicit cleanup planning, not automatic deletion
 during metadata lookup. Distinct set members and unresolved matches cannot be
@@ -166,6 +166,12 @@ PI-01 may be called complete only when:
 - The next slice is admitted from completed, model-specific quota observations.
 
 ## Non-goals, migration and rollback
+
+Accepted implementation decisions: [gateway sequencing](../adr/0001-control-plane-and-gateway-sequencing.md),
+[technology/topology](../adr/0002-technology-and-repository-topology.md), and
+[persistence/recovery](../adr/0003-persistence-and-projection-recovery.md).
+Acceptance is by the executing architecture agent within the authorized roadmap;
+it does not represent a production cutover decision or upstream approval.
 
 PI-01 changes documentation only. It does not implement runtime code, deploy to
 the host, modify live catalog/TAF data, replace the gateway, or freeze low-level

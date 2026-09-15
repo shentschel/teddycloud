@@ -1,6 +1,6 @@
 # TeddyCloud Next component and write ownership
 
-Status: proposed ownership boundary from PI-00/A; subject to PI-01 ADR review
+Status: implementation planning boundary reviewed by PI-01/R and PI-01/B
 Source baseline: `cc35138`
 
 ## Ownership rules
@@ -94,7 +94,9 @@ unambiguous in both:
 
 ## Open decisions and evidence
 
-- PI-01/B decides process/repository topology, persistence and cutover ordering.
+- PI-01/B records implementation choices in [sequencing](adr/0001-control-plane-and-gateway-sequencing.md),
+  [topology](adr/0002-technology-and-repository-topology.md) and
+  [persistence/recovery](adr/0003-persistence-and-projection-recovery.md) ADRs.
 - PI-02 inventories every legacy mutation, status code and event envelope.
 - PI-04/PI-13 decides Set cardinality and the final versioned schema.
 - PI-09 defines the assignment transaction/history contract and legacy adapter.

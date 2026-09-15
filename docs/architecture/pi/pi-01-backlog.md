@@ -78,7 +78,7 @@ scope, not invented quota percentages; delivery admission awaits PI-00 calibrati
 
 ## PI-01/B — Record foundational architecture ADRs
 
-- Model: `gpt-6-astra`; type: delivery; size: medium-to-large; state: candidate.
+- Model: `gpt-6-astra`; type: delivery; size: bounded ADR slice; state: complete.
 - Dependencies: reviewed PI-01/A; F-01/F-02 evidence; F-03 domain constraints.
 - Outputs: ADRs under `docs/architecture/adr/` using `0000-template.md` for
   (1) control-plane/gateway sequencing, (2) technology/repository/deployment
@@ -179,7 +179,8 @@ actual device/firmware observations for PI-02. No new hardware support is claime
 ## F-06 — Specify blob publication and legacy projection recovery
 
 - Priority: P1; owner: PI-01/B for design, PI-05/07/09/36 for implementation tests.
-- Model: `gpt-6-astra`; state: open; evidence: PI-00/A context describes blob and
+- Model: `gpt-6-astra`; state: design complete in ADR-0003, runtime proof open;
+  evidence: PI-00/A context described blob and
   metadata publication as atomic without a cross-store recovery protocol.
 - Tasks: define durable staging, publication-before-reference and orphan recovery;
   distinguish committed assignment from confirmed legacy playback projection;

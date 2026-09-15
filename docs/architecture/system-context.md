@@ -1,6 +1,6 @@
 # TeddyCloud Next system context
 
-Status: proposed context boundary from PI-00/A; foundational ADRs remain open
+Status: implementation planning boundary reviewed by PI-01/R and PI-01/B
 Source baseline: `cc35138`
 
 ## Purpose and evidence boundary
@@ -52,8 +52,10 @@ flowchart LR
 
 The target is a modular core with isolated workers. The legacy C gateway remains
 the device-facing boundary until contract fixtures and hardware tests justify a
-replacement. The diagram does not decide whether these components share a
-repository, process or package; PI-01/B records those choices.
+replacement. [ADR-0001](adr/0001-control-plane-and-gateway-sequencing.md) defines
+ownership transfer; [ADR-0002](adr/0002-technology-and-repository-topology.md)
+selects the process, repository and deployment baseline. These remain planning
+decisions until the corresponding implementation and deployment gates pass.
 
 ## Actors and trust boundaries
 
@@ -79,7 +81,7 @@ the core database file.
 | Device claim/auth state | Gateway to Tag Registry | Core Tag Registry | Reject incomplete state; preserve prior valid ownership and expose retry status |
 | Playback/tag lifecycle | Gateway to event hub to UI/extensions | Event hub cursor plus authoritative Tag Registry state | Reconnect reconciles state; stale responses cannot restore a removed tag |
 | Catalog enrichment | Connector/review UI to Catalog Service | Core Catalog Service | Store candidate and provenance; ambiguity cannot auto-assign |
-| TAF import | Gateway/media/connector to Content Store | Core Content Store | Stage, validate and atomically publish; failed staging leaves no referenced partial blob |
+| TAF import | Gateway/media/connector to Content Store | Core Content Store | Publish durable immutable bytes before committing the DB reference; recover unreferenced blobs |
 | Tag assignment | UI/extension to Assignment Service | Core Assignment Service | Idempotent command and assignment history; prior assignment remains recoverable |
 | Library projection | Core services to Library Query to UI | Underlying domain owners | Stable pagination and sort; filters cannot mutate or hide canonical records permanently |
 | Worker job progress | Worker to core/event hub | Worker owns job/checkpoint; core owns imported result | Retry from checkpoint; terminal failure is visible and does not imply successful import |
@@ -103,11 +105,14 @@ legacy JSON independently without a reconciled command.
    determine whether the physical card is a Custom Card.
 3. One transaction records the new assignment and its predecessor. No plugin or
    worker writes the database or legacy content JSON directly.
-4. After commit, the service emits an assignment-changed event. The Library Query
-   invalidates its projection and the UI reads the committed assignment back.
-5. During legacy coexistence, one tested adapter applies the corresponding
-   `/content/json/set/` representation. The cutover design must define which side
-   commits first and how divergence is reported; this document does not choose it.
+4. The same transaction records a durable event and projection outbox entry.
+   After commit the Library Query invalidates its view; readback shows the desired
+   assignment and its pending/applied status separately.
+5. After the core ownership gate, one tested adapter applies the legacy
+   representation with a per-tag revision fence and verifies readback. Playback
+   assignment is reported as applied only when that revision is confirmed.
+   [ADR-0003](adr/0003-persistence-and-projection-recovery.md) defines the order
+   and recovery; an unmodified legacy endpoint cannot supply this fence.
 
 If interruption occurs before the authoritative commit, the prior assignment
 remains active. If the response is lost after commit, retrying the same key returns
@@ -124,8 +129,10 @@ cards and TAFs remain unchanged.
 3. A TAF download is staged outside the authoritative blob namespace. A network
    failure retains a safe checkpoint or discards only the incomplete staging file.
 4. After format and digest validation, the worker calls the Content Store import
-   command with an idempotency key. The core publishes the blob and version record
-   atomically, then emits an import event.
+   command with an idempotency key. The core durably publishes immutable bytes,
+   then commits the version reference and event outbox in one DB transaction.
+   These are separate durability steps: failed DB commit can leave a retained
+   unreferenced blob; recovery follows ADR-0003.
 5. Assignment is a separate command. A successful import never silently remaps a
    card; repeated sync produces the same catalog/content outcome.
 
@@ -139,5 +146,5 @@ from the checkpoint and never infer success from the presence of an NFC file alo
 - A real device/firmware matrix for TB1, TB2, RTNL and cloud-proxy behavior.
 - Exact current plugin calls and status/error assumptions from all enhancement
   repositories.
-- A tested dual-run commit/reconciliation policy for assignment and TAF import.
-- Concrete secret storage, process isolation and deployment decisions from ADRs.
+- Failure-injection tests of the ADR-0003 reconciliation/import protocol.
+- Implementation proof of secret storage, process isolation and deployment ADRs.

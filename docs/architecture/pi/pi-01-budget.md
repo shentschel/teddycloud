@@ -1,6 +1,6 @@
 # PI-01 budget and admission
 
-Status: R measured; T reserved; delivery admission is incremental
+Status: R measured; B admitted with a spending cap; T reserved
 
 Use the [PI-00 measurement rules](pi-00-budget.md). Personal usage and reset
 timestamps stay in the ignored local automation state. The sprint limit is
@@ -16,6 +16,11 @@ against R is part of R. B is a first Astra architecture-delivery sample; it must
 not inherit refinement cost as if it had been measured. Admit it with an explicit
 local spending cap and intermediate checks; stop at a reviewable ADR checkpoint
 if the remaining capacity cannot safely fund completion and T.
+
+B was admitted after R completed and was published. Its first-sample cap and
+the separate T allowance fit both live windows; exact observations remain local.
+Check capacity after the ADR draft and before publication. Incomplete design
+work remains incomplete when a cap requires a checkpoint.
 
 After every completed slice, measure again and begin the next admitted slice if
 safe. A six-hour timer is a wake-up mechanism, not a one-sprint-per-run limit.

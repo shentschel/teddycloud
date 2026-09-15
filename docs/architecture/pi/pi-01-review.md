@@ -1,6 +1,6 @@
 # PI-01 review
 
-Status: R complete; A reviewed and reused; B/T outstanding; milestone incomplete
+Status: R/B complete; A reviewed and reused; T outstanding; milestone incomplete
 
 ## R outcome
 
@@ -30,7 +30,28 @@ be recorded when queried; no deployment or hardware tests are claimed here.
 
 ## Remaining work
 
-B must document and accept implementation choices with recovery consequences.
 T must verify the resulting architecture and close this milestone. F-01 remains
 partially open for browser/device qualification; F-02/F-03 require later contract
 and schema fixtures. F-05 issue publication remains non-blocking.
+
+## B outcome
+
+- [ADR-0001](../adr/0001-control-plane-and-gateway-sequencing.md) accepts
+  control-plane-first sequencing with explicit operation ownership and rollback.
+- [ADR-0002](../adr/0002-technology-and-repository-topology.md) selects a modular
+  Go core, React/TypeScript, independently versioned SDK and isolated workers.
+  Initial workspace scaffolding uses this fork; existing enhancement repositories
+  retain their supported contracts and releases.
+- [ADR-0003](../adr/0003-persistence-and-projection-recovery.md) defines separate
+  durable blob/DB steps, recovery, desired/applied assignment revisions, projection
+  fencing and coordinated backup retention. F-06 design is complete; failure
+  injection evidence is assigned to implementation sprints.
+- J-02/J-03/J-09 design walkthroughs expose interruption and ambiguous identity
+  states. Source/model metadata is not used as physical card classification.
+- Local documentation checks passed across 23 documents and whitespace checks
+  passed. No runtime tests are claimed for these design documents.
+
+The GitHub connector returned no pull-request-triggered runs for R commit
+`cdbe7fe645a3b9778c028013cf7c84543559eaa1`. That query is limited to PR runs and
+does not prove that all other workflow types are absent. B/T remote checks still
+need observation; the PI milestone stays incomplete until T records its result.
