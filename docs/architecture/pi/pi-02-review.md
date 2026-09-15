@@ -23,13 +23,21 @@ have not been replayed. A separate
 and plugin paths. No production API, cloud content request or device operation
 was performed.
 
+A second checkpoint adds a [synthetic CT-15 protobuf fixture](../../../tests/fixtures/compatibility/ct-15-freshness-protobuf.json)
+for the legacy freshness endpoint: the HTTP body has no TAF-length prefix,
+fixed-width UID/audio fields use protobuf little-endian encoding, and response
+byte length is explicitly checked. It documents setting/MQTT effects and
+untested cloud forwarding. The 69-route manifest now records why each route
+is cataloged or deferred. Neither the synthetic response bytes nor numeric
+HTTP status were captured from a running server.
+
 The first agent-produced fixture contained invalid JSON and a nested
 `sourceInfo.tonieInfo` shape. Integration corrected both against
 `getTagInfoJson`: `sourceInfo` is detached `tonieInfo`, so `model` is direct
 under `sourceInfo`. This is a fixture correction, not a production change.
 
-Web UI source, complete handler/status tracing, protobuf framing, CF-01…05
-and harness tests remain A/B work. This checkpoint is not runtime conformance.
+Web UI source, complete handler/status tracing, CF-01…05 and harness tests
+remain A/B work. This checkpoint is not runtime conformance.
 
 Validation: architecture link/whitespace checks are required before publishing;
 remote check evidence is recorded in the local execution state. A/B/T remain

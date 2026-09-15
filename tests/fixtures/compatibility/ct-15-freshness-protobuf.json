@@ -1,0 +1,67 @@
+{
+  "schema": "pi-02-a-checkpoint/1",
+  "id": "A-CT15-freshness-raw-protobuf",
+  "ct": "CT-15",
+  "origin": "synthetic-source-derived; not wire-observed or executed",
+  "source_revision": "d6d973b9b6a0c4398f46bd635a7d4937393d90e3",
+  "producer": "handleCloudFreshnessCheck",
+  "consumer": "offline legacy-gateway compatibility harness",
+  "source_evidence": [
+    "src/server.c:173: POST /v1/freshness-check, SERTY_BOTH",
+    "src/handler_cloud.c:1050-1064: size guard, httpReceive, protobuf-c unpack of complete HTTP body",
+    "src/handler_cloud.c:1074-1097: local processing, optional cloud forwarding, freshnessCache write and MQTT",
+    "src/handler_cloud.c:1099-1109: settings mapping, protobuf-c pack, octet-stream HTTP write",
+    "src/handler_cloud.c:920-945: freshnessCache carry-forward conditions",
+    "src/handler_cloud.c:969-1035: per-UID content lookup and marking conditions",
+    "src/handler.c:660-671: response settings fields",
+    "proto/toniebox.pb.freshness-check.fc-request.proto:1-10: proto2 request and fixed-width fields",
+    "proto/toniebox.pb.freshness-check.fc-response.proto:1-12: proto2 response fields"
+  ],
+  "request": {
+    "method": "POST",
+    "path": "/v1/freshness-check",
+    "headers": {"Content-Type": "application/octet-stream", "Content-Length": "16"},
+    "framing": "HTTP body is exactly one unprefixed TonieFreshnessCheckRequest protobuf message; no four-byte TAF length prefix",
+    "schema": "proto/toniebox.pb.freshness-check.fc-request.proto; proto2",
+    "body_hex": "0a0e0988776655443322111501000000",
+    "decoded": {"tonie_infos": [{"uid": "0x1122334455667788", "audio_id": 1}]},
+    "byte_notes": "0a 0e outer repeated-message tag/length; 09 then little-endian fixed64 synthetic UID; 15 then little-endian fixed32 audio_id"
+  },
+  "response": {
+    "status": "expected local success; numeric status not wire-verified",
+    "headers": {"Content-Type": "application/octet-stream; charset=utf-8", "Content-Length": "14"},
+    "framing": "HTTP body is exactly one unprefixed TonieFreshnessCheckResponse protobuf message; length is get_packed_size result",
+    "schema": "proto/toniebox.pb.freshness-check.fc-response.proto; proto2",
+    "body_hex": "1000180220012800300038024000",
+    "decoded": {"tonie_marked": [], "field2": 0, "max_vol_spk": 2, "slap_en": 1, "slap_dir": 0, "field6": 0, "max_vol_hdp": 2, "led": 0},
+    "qualification": "Synthetic expected bytes assume no marked UID, overrideFields=false and the listed settings; not a measured server response"
+  },
+  "initial_state": {
+    "cloud.enabled": false,
+    "internal.freshnessCache": [],
+    "synthetic_content": "disposable local metadata for UID 0x1122334455667788; valid TAF audio_id=1, live=false, nocloud=true, source_type neither STREAM nor TAP_STREAM",
+    "toniebox_settings": {"overrideFields": false, "max_vol_spk": 2, "max_vol_hdp": 2, "slap_enabled": true, "slap_back_left": false, "led": 0}
+  },
+  "final_state": {
+    "internal.freshnessCache": [],
+    "internal.freshnessCacheChanged": true,
+    "synthetic_content": "content lookup occurs; exact metadata/file diff unknown until disposable local test"
+  },
+  "side_effects": [
+    {"effect": "LastCloudFreshnessCheckTime MQTT event before body validation", "evidence": "observed-source"},
+    {"effect": "freshnessCache setting write and MQTT publish on successful local path", "evidence": "observed-source"},
+    {"effect": "cloud POST can replace local response when enabled", "evidence": "observed-source; disabled by synthetic initial state", "shadow_replay": "excluded"}
+  ],
+  "assertions": [
+    "request fixed64 bytes are little-endian within protobuf, not rUID string order",
+    "no four-byte length prefix on HTTP request or response",
+    "protobuf response fields and Content-Length agree with 14-byte body",
+    "changed flag is captured even if marked array remains empty"
+  ],
+  "unknowns": [
+    "Exact protobuf-c packed response bytes and numeric HTTP status need offline execution against disposable state",
+    "Content lookup may alter disposable metadata; before/after file diff still required",
+    "Malformed/truncated bodies and cloud-enabled branch are not covered",
+    "No TLS, device, cloud-provider or production conformance claim"
+  ]
+}
