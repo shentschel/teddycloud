@@ -26,6 +26,10 @@ Current execution artifacts:
 - [PI-00 budget method](pi-00-budget.md)
 - [PI-00 review](pi-00-review.md)
 - [Refined PI-01 charter](pi-01-architecture-charter.md)
+- [PI-01 execution plan](pi-01-plan.md)
+- [PI-01 budget method](pi-01-budget.md)
+- [PI-01 review](pi-01-review.md)
+- [PI-01 reference environment](pi-01-reference-environment.md)
 - [Issue-ready tasks and findings](pi-01-backlog.md)
 
 GitHub Issues are currently disabled in this fork. Until enabled, the backlog

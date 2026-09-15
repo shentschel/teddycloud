@@ -47,7 +47,7 @@ scope, not invented quota percentages; delivery admission awaits PI-00 calibrati
 
 ## PI-01/R — Confirm scope and evidence gates
 
-- Model: `gpt-6-astra`; type: refinement; size: small-to-medium; state: candidate.
+- Model: `gpt-6-astra`; type: refinement; size: small-to-medium; state: complete.
 - Dependencies: PI-00 R/T calibration and admission; F-01 environment evidence.
 - Output: `pi-01-plan.md`, `pi-01-budget.md`, `pi-01-review.md` and final scope
   section in `pi-01-architecture-charter.md`.
@@ -108,6 +108,11 @@ scope, not invented quota percentages; delivery admission awaits PI-00 calibrati
   actual CI state reported; milestone accepted or explicitly incomplete.
 
 ## F-01 — Establish hardware, deployment and performance evidence
+
+State: partially complete in PI-01/R. Observed server facts and the benchmark
+specification are in [reference environment](pi-01-reference-environment.md).
+PI-03 owns pinned executable browser/runtime evidence; the product owner supplies
+actual device/firmware observations for PI-02. No new hardware support is claimed.
 
 - Priority: P1; owner: PI-01/R agent; hardware observations: product owner.
 - Model: `gpt-6-astra`; dependencies: existing device inventory if available.
@@ -170,3 +175,16 @@ scope, not invented quota percentages; delivery admission awaits PI-00 calibrati
 - Done: IDs link to real issues and documentation changes have an appropriate
   validation path; no personal quota metadata is published.
 - Does not block: reviewable Git commits with this local task registry.
+
+## F-06 — Specify blob publication and legacy projection recovery
+
+- Priority: P1; owner: PI-01/B for design, PI-05/07/09/36 for implementation tests.
+- Model: `gpt-6-astra`; state: open; evidence: PI-00/A context describes blob and
+  metadata publication as atomic without a cross-store recovery protocol.
+- Tasks: define durable staging, publication-before-reference and orphan recovery;
+  distinguish committed assignment from confirmed legacy playback projection;
+  document revision fencing, retries and recovery after every failure boundary.
+- Done: ADR walks crash-before/after-publication, lost response, stale projection,
+  reboot and rollback without referenced partial bytes or false success.
+- Blocks: storage/assignment implementation acceptance and production cutover;
+  does not block documenting the chosen protocol.

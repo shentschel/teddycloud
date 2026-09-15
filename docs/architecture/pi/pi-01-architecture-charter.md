@@ -1,6 +1,6 @@
 # PI-01 refinement: architecture charter
 
-Status: refined by PI-00/R; candidate scope, not an approved architecture
+Status: scope refined by PI-01/R; foundational ADR acceptance remains PI-01/B
 Candidate milestone: architecture charter accepted with explicit evidence gates
 
 ## Objective and authority
@@ -44,6 +44,12 @@ Three implementation observations constrain the future design:
    displayed metadata, content assignment and cloud eligibility are distinct.
 
 ## Confirmed requirements and planning decisions
+
+The [PI-01 execution plan](pi-01-plan.md) confirms scope and journey priority.
+The [reference environment](pi-01-reference-environment.md) records observed
+deployment facts and the unverified browser/device evidence. Correctness and
+data-preservation gates are accepted requirements; numerical UI performance
+targets remain provisional until PI-10/26 establishes the specified baseline.
 
 | ID | Status | Rule and consequence |
 | --- | --- | --- |
@@ -143,7 +149,8 @@ adjust them before they become release gates.
 ## Ordered execution and exit gate
 
 Use [PI-01/R, A, B and T](pi-01-backlog.md). `A` equals the former D1 slice;
-`B` equals D2. R precedes A; B consumes the reviewed boundaries from A; T closes
+`B` equals D2. A was delivered early as PI-00/A and revalidated by PI-01/R;
+B consumes those reviewed boundaries without repeating A; T closes
 the consistency review. Independent evidence collection may run in parallel;
 agents must not concurrently rewrite the same charter/ADR.
 
