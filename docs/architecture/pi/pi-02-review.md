@@ -36,8 +36,19 @@ The first agent-produced fixture contained invalid JSON and a nested
 `getTagInfoJson`: `sourceInfo` is detached `tonieInfo`, so `model` is direct
 under `sourceInfo`. This is a fixture correction, not a production change.
 
-Web UI source, complete handler/status tracing, CF-01…05 and harness tests
-remain A/B work. This checkpoint is not runtime conformance.
+The source fixtures and Web UI inspection do not establish runtime
+conformance.
+
+The [pinned Web UI seam](pi-02-webui-seam.md) now establishes from source that
+the UI requests `/api/plugins/getPlugins`, then per-folder manifests, and uses
+same-origin `/plugins/{id}/index.html` iframes. The server's registered
+`/api/plugins/get` prefix implicitly matches that longer UI request. Library
+uses `fileIndexV2` special roots. Direct build, disposable-install and browser
+checks remain open; the exact Web UI gitlink is not initialized locally.
+CF-01…05 have source-level dispositions, not closure of runtime behavior.
+
+Complete handler/status tracing, catalog reconciliation and harness tests
+remain A/B work. Do not treat this as a PI-02 milestone or deployable UI.
 
 Validation: architecture link/whitespace checks are required before publishing;
 remote check evidence is recorded in the local execution state. A/B/T remain

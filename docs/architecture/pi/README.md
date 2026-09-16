@@ -26,6 +26,7 @@ Current execution artifacts:
 - [PI-02 contract inventory](pi-02-contract-inventory.md)
 - [PI-02 budget method](pi-02-budget.md)
 - [PI-02 review](pi-02-review.md)
+- [Pinned Web UI/plugin seam checkpoint](pi-02-webui-seam.md)
 
 - [PI-00 plan](pi-00-plan.md)
 - [PI-00 budget method](pi-00-budget.md)

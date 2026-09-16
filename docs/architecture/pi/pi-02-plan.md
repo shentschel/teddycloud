@@ -1,6 +1,6 @@
 # PI-02 execution plan
 
-Status: R complete; A first source-derived checkpoint; B/T pending
+Status: R complete; A source-derived checkpoints; B/T pending
 Milestone: reproducible initial compatibility evidence
 
 ## Agent tasks and dependencies
@@ -29,8 +29,10 @@ The A checkpoints contain the
 with a reason for each disposition,
 [six synthetic HTTP/SSE cases](../../../tests/fixtures/compatibility/ct-01-02-08-10-catalog.json)
 and [one synthetic protobuf case](../../../tests/fixtures/compatibility/ct-15-freshness-protobuf.json).
-These are source-derived, not wire-observed. Remaining A work includes Web UI
-inspection, CF-01…05, handler/status details and wider fixture coverage.
+The [pinned Web UI seam](pi-02-webui-seam.md) records the source-only CF-04
+plugin and library mechanisms, plus narrow CF-01…05 dispositions. These are
+not wire-observed. Remaining A work includes handler/status detail, fixture
+coverage reconciliation and clear source/runtime separation.
 
 A must inspect the pinned Web UI and installer for CF-04. Existing unit tests
 in enhancement repos are input evidence; importing their assumptions blindly
