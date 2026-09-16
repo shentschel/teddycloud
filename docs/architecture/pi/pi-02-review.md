@@ -65,6 +65,15 @@ lacks digest/version, and CF-01/03 state/negative/collision coverage is still
 schematic. Static fallback and alias scope also need a distinct reconciliation.
 These are A-owned source artifacts; executable negative proof remains B-owned.
 
+Follow-up source-artifact work pinned all 69 router rows to `65d699b`, added
+reasons for the six cataloged rows, recorded CT-15 positive request/response
+digests and framing version, and added a separate
+[fallback/alias inventory](../../../tests/fixtures/compatibility/router-fallback-manifest.tsv).
+The bounded CF-01/03 fixture job hit its admitted cap before producing a file;
+the disposable state-diff, source/auth negative and synthetic collision cases
+remain open. The prior audit is a historical snapshot, not a claim that these
+later corrections closed A.
+
 Validation: architecture link/whitespace checks are required before publishing;
 remote check evidence is recorded in the local execution state. A/B/T remain
 open until their own artifacts and verification exist.

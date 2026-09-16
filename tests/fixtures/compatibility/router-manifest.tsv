@@ -1,70 +1,70 @@
-order	source_line	method	prefix	server_type	handler	contract	coverage	owner	disposition_reason
-1	106	ANY	*binary	BOTH	handleRtnl	CT-08	deferred	Gateway/Event Hub	literal *binary prefix; RTNL framing not cataloged
-2	108	ANY	/reverseGeneric	WEB	handleReverseGeneric	CT-14	deferred	Connector boundary	proxy method, timeout and error behavior not cataloged
-3	109	ANY	/reverse	WEB	handleReverseCloudGet	CT-14	deferred	Connector boundary	proxy method, timeout and error behavior not cataloged
-4	111	GET	/cache/	WEB	handleCacheDownload	CT-03	deferred	Content worker	cache or download effects and ranges not cataloged
-5	113	GET	/content/download/	WEB	handleApiContentDownload	CT-03	deferred	Content worker	cache or download effects and ranges not cataloged
-6	114	GET	/content/json/get/	WEB	handleApiContentJsonGet	CT-02	cataloged	Assignment adapter	-
-7	115	POST	/content/json/set/	WEB	handleApiContentJsonSet	CT-02	cataloged	Assignment adapter	-
-8	116	GET	/content/json/	WEB	handleApiContentJson	CT-02	deferred	Assignment adapter	raw content paths need missing-file and overlay fixtures
-9	117	GET	/content/	WEB	handleApiContent	CT-02	deferred	Assignment adapter	raw content paths need missing-file and overlay fixtures
-10	119	POST	/api/auth/login	WEB	handleApiAuthLogin	CT-09	deferred	Authentication boundary	session, cookie and denial behavior not cataloged
-11	120	GET	/api/auth/logout	WEB	handleApiAuthLogout	CT-09	deferred	Authentication boundary	session, cookie and denial behavior not cataloged
-12	121	POST	/api/auth/refresh-token	WEB	handleApiAuthRefreshToken	CT-09	deferred	Authentication boundary	session, cookie and denial behavior not cataloged
-13	123	GET	/api/plugins/get	WEB	handleApiPluginsGet	CT-10	cataloged	Legacy extension adapter	-
-14	125	POST	/api/fileDelete	WEB	handleApiFileDelete	CT-11	deferred	Content worker	file mutation, limits and partial failure not cataloged
-15	126	POST	/api/fileMove	WEB	handleApiFileMove	CT-11	deferred	Content worker	file mutation, limits and partial failure not cataloged
-16	127	POST	/api/dirDelete	WEB	handleApiDirectoryDelete	CT-11	deferred	Content worker	file mutation, limits and partial failure not cataloged
-17	128	POST	/api/dirCreate	WEB	handleApiDirectoryCreate	CT-11	deferred	Content worker	file mutation, limits and partial failure not cataloged
-18	129	POST	/api/uploadCert	WEB	handleApiUploadCert	CT-13	deferred	Gateway administration	firmware and certificate workflows need synthetic-only fixtures
-19	130	GET	/api/getFile/ca.der	WEB	handleApiGetCaDer	CT-13	deferred	Gateway administration	firmware and certificate workflows need synthetic-only fixtures
-20	131	GET	/api/getFile/c2.der	WEB	handleApiGetCaDer	CT-13	deferred	Gateway administration	firmware and certificate workflows need synthetic-only fixtures
-21	132	POST	/api/esp32/uploadFirmware	WEB	handleApiESP32UploadFirmware	CT-13	deferred	Gateway administration	firmware and certificate workflows need synthetic-only fixtures
-22	133	POST	/api/esp32/extractCerts	WEB	handleApiESP32ExtractCerts	CT-13	deferred	Gateway administration	firmware and certificate workflows need synthetic-only fixtures
-23	134	GET	/api/esp32/patchFirmware	WEB	handleApiESP32PatchFirmware	CT-13	deferred	Gateway administration	firmware and certificate workflows need synthetic-only fixtures
-24	135	POST	/api/fileUpload	WEB	handleApiFileUpload	CT-11	deferred	Content worker	file mutation, limits and partial failure not cataloged
-25	136	POST	/api/fileEncode	WEB	handleApiEncodeFile	CT-11	deferred	Content worker	file mutation, limits and partial failure not cataloged
-26	137	POST	/api/pcmUpload	WEB	handleApiPcmUpload	CT-11	deferred	Content worker	file mutation, limits and partial failure not cataloged
-27	138	POST	/api/tafUpload	WEB	handleApiTafUpload	CT-11	deferred	Content worker	file mutation, limits and partial failure not cataloged
-28	139	GET	/api/fileIndexV2	WEB	handleApiFileIndexV2	CT-12	deferred	Content/Admin	index, cache and migration behavior not cataloged
-29	140	GET	/api/fileIndex	WEB	handleApiFileIndex	CT-12	deferred	Content/Admin	index, cache and migration behavior not cataloged
-30	141	GET	/api/stats	WEB	handleApiStats	CT-12	deferred	Content/Admin	index, cache and migration behavior not cataloged
-31	142	GET	/api/toniesJsonSearch	WEB	handleApiToniesJsonSearch	CT-04	deferred	Catalog service	catalog wrappers and precedence not cataloged
-32	143	GET	/api/toniesJsonUpdate	WEB	handleApiToniesJsonUpdate	CT-05	deferred	Catalog service	catalog mutation and recovery not cataloged
-33	144	GET	/api/toniesJsonReload	WEB	handleApiToniesJsonReload	CT-05	deferred	Catalog service	catalog mutation and recovery not cataloged
-34	145	GET	/api/toniesJson	WEB	handleApiToniesJson	CT-04	deferred	Catalog service	catalog wrappers and precedence not cataloged
-35	146	GET	/api/toniesCustomJson	WEB	handleApiToniesCustomJson	CT-04	deferred	Catalog service	catalog wrappers and precedence not cataloged
-36	147	POST	/api/toniesCustomJsonUpsert	WEB	handleApiToniesCustomJsonUpsert	CT-05	deferred	Catalog service	catalog mutation and recovery not cataloged
-37	148	POST	/api/toniesCustomJsonDelete	WEB	handleApiToniesCustomJsonDelete	CT-05	deferred	Catalog service	catalog mutation and recovery not cataloged
-38	149	POST	/api/toniesCustomJsonRename	WEB	handleApiToniesCustomJsonRename	CT-05	deferred	Catalog service	catalog mutation and recovery not cataloged
-39	150	GET	/api/tonieboxesJson	WEB	handleApiTonieboxJson	CT-04	deferred	Catalog service	catalog wrappers and precedence not cataloged
-40	151	GET	/api/tonieboxesCustomJson	WEB	handleApiTonieboxCustomJson	CT-04	deferred	Catalog service	catalog wrappers and precedence not cataloged
-41	152	GET	/api/trigger	WEB	handleApiTrigger	CT-07	deferred	Gateway/Assignment	box scope, command or assignment behavior not cataloged
-42	153	GET	/api/getTagIndex	WEB	handleApiTagIndex	CT-01	cataloged	Tag/Library facade	-
-43	154	GET	/api/getTagInfo	WEB	handleApiTagInfo	CT-01	cataloged	Tag/Library facade	-
-44	155	GET	/api/getBoxes	WEB	handleApiGetBoxes	CT-07	deferred	Gateway/Assignment	box scope, command or assignment behavior not cataloged
-45	156	POST	/api/assignUnknown	WEB	handleApiAssignUnknown	CT-07	deferred	Gateway/Assignment	box scope, command or assignment behavior not cataloged
-46	157	GET	/api/settings/getIndex	WEB	handleApiGetIndex	CT-06	deferred	Settings service	overlay, secret and reset behavior not cataloged
-47	158	GET	/api/settings/get/	WEB	handleApiSettingsGet	CT-06	deferred	Settings service	overlay, secret and reset behavior not cataloged
-48	159	POST	/api/settings/set/	WEB	handleApiSettingsSet	CT-06	deferred	Settings service	overlay, secret and reset behavior not cataloged
-49	160	POST	/api/settings/reset/	WEB	handleApiSettingsReset	CT-06	deferred	Settings service	overlay, secret and reset behavior not cataloged
-50	161	POST	/api/settings/removeOverlay	WEB	handleDeleteOverlay	CT-06	deferred	Settings service	overlay, secret and reset behavior not cataloged
-51	162	POST	/api/migrateContent2Lib	WEB	handleApiMigrateContent2Lib	CT-12	deferred	Content/Admin	index, cache and migration behavior not cataloged
-52	163	POST	/api/cacheFlush	WEB	handleApiCacheFlush	CT-12	deferred	Content/Admin	index, cache and migration behavior not cataloged
-53	164	GET	/api/cacheStats	WEB	handleApiCacheStats	CT-12	deferred	Content/Admin	index, cache and migration behavior not cataloged
-54	165	GET	/api/sse	WEB	handleApiSse	CT-08	cataloged	Gateway/Event Hub	-
-55	166	GET	/robots.txt	WEB	handleSecMitRobotsTxt	OTHER	deferred	Web boundary	robots response and static fallback not cataloged
-56	168	GET	/v1/time	BOTH	handleCloudTime	CT-15	deferred	Legacy gateway	one synthetic protobuf frame only; device effects remain untested
-57	169	GET	/v1/ota	BOTH	handleCloudOTA	CT-15	deferred	Legacy gateway	one synthetic protobuf frame only; device effects remain untested
-58	170	GET	/v1/claim	BOTH	handleCloudClaim	CT-15	deferred	Legacy gateway	one synthetic protobuf frame only; device effects remain untested
-59	171	GET	/v1/content	BOTH	handleCloudContentV1	CT-15	deferred	Legacy gateway	one synthetic protobuf frame only; device effects remain untested
-60	172	GET	/v2/content	BOTH	handleCloudContentV2	CT-15	deferred	Legacy gateway	one synthetic protobuf frame only; device effects remain untested
-61	173	POST	/v1/freshness-check	BOTH	handleCloudFreshnessCheck	CT-15	deferred	Legacy gateway	one synthetic protobuf frame only; device effects remain untested
-62	174	POST	/v1/log	BOTH	handleCloudLog	CT-15	deferred	Legacy gateway	one synthetic protobuf frame only; device effects remain untested
-63	175	POST	/v1/cloud-reset	BOTH	handleCloudReset	CT-15	deferred	Legacy gateway	one synthetic protobuf frame only; device effects remain untested
-64	177	POST	/v3/freshness-check	BOTH	handleCloudFreshnessCheckV3	CT-16	deferred	Legacy gateway	versioned payload and device behavior not cataloged
-65	178	POST	/v3/check-ota	BOTH	handleCloudCheckOtaV3	CT-16	deferred	Legacy gateway	versioned payload and device behavior not cataloged
-66	179	GET	/v3/ota	BOTH	handleCloudOtaV3	CT-16	deferred	Legacy gateway	versioned payload and device behavior not cataloged
-67	180	POST	/v3/setup-status	BOTH	handleCloudSetupStatusV3	CT-16	deferred	Legacy gateway	versioned payload and device behavior not cataloged
-68	181	GET	/v3/chapter	BOTH	handleCloudChapterV3	CT-16	deferred	Legacy gateway	versioned payload and device behavior not cataloged
-69	182	GET	/v3/content-meta	BOTH	handleCloudContentMetaV3	CT-16	deferred	Legacy gateway	versioned payload and device behavior not cataloged
+order	source_line	source_revision	method	prefix	server_type	handler	contract	coverage	owner	disposition_reason
+1	106	65d699b	ANY	*binary	BOTH	handleRtnl	CT-08	deferred	Gateway/Event Hub	literal *binary prefix; RTNL framing not cataloged
+2	108	65d699b	ANY	/reverseGeneric	WEB	handleReverseGeneric	CT-14	deferred	Connector boundary	proxy method, timeout and error behavior not cataloged
+3	109	65d699b	ANY	/reverse	WEB	handleReverseCloudGet	CT-14	deferred	Connector boundary	proxy method, timeout and error behavior not cataloged
+4	111	65d699b	GET	/cache/	WEB	handleCacheDownload	CT-03	deferred	Content worker	cache or download effects and ranges not cataloged
+5	113	65d699b	GET	/content/download/	WEB	handleApiContentDownload	CT-03	deferred	Content worker	cache or download effects and ranges not cataloged
+6	114	65d699b	GET	/content/json/get/	WEB	handleApiContentJsonGet	CT-02	cataloged	Assignment adapter	synthetic CT-02 raw JSON read path; wire MIME/range deferred
+7	115	65d699b	POST	/content/json/set/	WEB	handleApiContentJsonSet	CT-02	cataloged	Assignment adapter	synthetic CT-02 form update/readback; save-failure wire deferred
+8	116	65d699b	GET	/content/json/	WEB	handleApiContentJson	CT-02	deferred	Assignment adapter	raw content paths need missing-file and overlay fixtures
+9	117	65d699b	GET	/content/	WEB	handleApiContent	CT-02	deferred	Assignment adapter	raw content paths need missing-file and overlay fixtures
+10	119	65d699b	POST	/api/auth/login	WEB	handleApiAuthLogin	CT-09	deferred	Authentication boundary	session, cookie and denial behavior not cataloged
+11	120	65d699b	GET	/api/auth/logout	WEB	handleApiAuthLogout	CT-09	deferred	Authentication boundary	session, cookie and denial behavior not cataloged
+12	121	65d699b	POST	/api/auth/refresh-token	WEB	handleApiAuthRefreshToken	CT-09	deferred	Authentication boundary	session, cookie and denial behavior not cataloged
+13	123	65d699b	GET	/api/plugins/get	WEB	handleApiPluginsGet	CT-10	cataloged	Legacy extension adapter	synthetic CT-10 bare array; missing-directory wire deferred
+14	125	65d699b	POST	/api/fileDelete	WEB	handleApiFileDelete	CT-11	deferred	Content worker	file mutation, limits and partial failure not cataloged
+15	126	65d699b	POST	/api/fileMove	WEB	handleApiFileMove	CT-11	deferred	Content worker	file mutation, limits and partial failure not cataloged
+16	127	65d699b	POST	/api/dirDelete	WEB	handleApiDirectoryDelete	CT-11	deferred	Content worker	file mutation, limits and partial failure not cataloged
+17	128	65d699b	POST	/api/dirCreate	WEB	handleApiDirectoryCreate	CT-11	deferred	Content worker	file mutation, limits and partial failure not cataloged
+18	129	65d699b	POST	/api/uploadCert	WEB	handleApiUploadCert	CT-13	deferred	Gateway administration	firmware and certificate workflows need synthetic-only fixtures
+19	130	65d699b	GET	/api/getFile/ca.der	WEB	handleApiGetCaDer	CT-13	deferred	Gateway administration	firmware and certificate workflows need synthetic-only fixtures
+20	131	65d699b	GET	/api/getFile/c2.der	WEB	handleApiGetCaDer	CT-13	deferred	Gateway administration	firmware and certificate workflows need synthetic-only fixtures
+21	132	65d699b	POST	/api/esp32/uploadFirmware	WEB	handleApiESP32UploadFirmware	CT-13	deferred	Gateway administration	firmware and certificate workflows need synthetic-only fixtures
+22	133	65d699b	POST	/api/esp32/extractCerts	WEB	handleApiESP32ExtractCerts	CT-13	deferred	Gateway administration	firmware and certificate workflows need synthetic-only fixtures
+23	134	65d699b	GET	/api/esp32/patchFirmware	WEB	handleApiESP32PatchFirmware	CT-13	deferred	Gateway administration	firmware and certificate workflows need synthetic-only fixtures
+24	135	65d699b	POST	/api/fileUpload	WEB	handleApiFileUpload	CT-11	deferred	Content worker	file mutation, limits and partial failure not cataloged
+25	136	65d699b	POST	/api/fileEncode	WEB	handleApiEncodeFile	CT-11	deferred	Content worker	file mutation, limits and partial failure not cataloged
+26	137	65d699b	POST	/api/pcmUpload	WEB	handleApiPcmUpload	CT-11	deferred	Content worker	file mutation, limits and partial failure not cataloged
+27	138	65d699b	POST	/api/tafUpload	WEB	handleApiTafUpload	CT-11	deferred	Content worker	file mutation, limits and partial failure not cataloged
+28	139	65d699b	GET	/api/fileIndexV2	WEB	handleApiFileIndexV2	CT-12	deferred	Content/Admin	index, cache and migration behavior not cataloged
+29	140	65d699b	GET	/api/fileIndex	WEB	handleApiFileIndex	CT-12	deferred	Content/Admin	index, cache and migration behavior not cataloged
+30	141	65d699b	GET	/api/stats	WEB	handleApiStats	CT-12	deferred	Content/Admin	index, cache and migration behavior not cataloged
+31	142	65d699b	GET	/api/toniesJsonSearch	WEB	handleApiToniesJsonSearch	CT-04	deferred	Catalog service	catalog wrappers and precedence not cataloged
+32	143	65d699b	GET	/api/toniesJsonUpdate	WEB	handleApiToniesJsonUpdate	CT-05	deferred	Catalog service	catalog mutation and recovery not cataloged
+33	144	65d699b	GET	/api/toniesJsonReload	WEB	handleApiToniesJsonReload	CT-05	deferred	Catalog service	catalog mutation and recovery not cataloged
+34	145	65d699b	GET	/api/toniesJson	WEB	handleApiToniesJson	CT-04	deferred	Catalog service	catalog wrappers and precedence not cataloged
+35	146	65d699b	GET	/api/toniesCustomJson	WEB	handleApiToniesCustomJson	CT-04	deferred	Catalog service	catalog wrappers and precedence not cataloged
+36	147	65d699b	POST	/api/toniesCustomJsonUpsert	WEB	handleApiToniesCustomJsonUpsert	CT-05	deferred	Catalog service	catalog mutation and recovery not cataloged
+37	148	65d699b	POST	/api/toniesCustomJsonDelete	WEB	handleApiToniesCustomJsonDelete	CT-05	deferred	Catalog service	catalog mutation and recovery not cataloged
+38	149	65d699b	POST	/api/toniesCustomJsonRename	WEB	handleApiToniesCustomJsonRename	CT-05	deferred	Catalog service	catalog mutation and recovery not cataloged
+39	150	65d699b	GET	/api/tonieboxesJson	WEB	handleApiTonieboxJson	CT-04	deferred	Catalog service	catalog wrappers and precedence not cataloged
+40	151	65d699b	GET	/api/tonieboxesCustomJson	WEB	handleApiTonieboxCustomJson	CT-04	deferred	Catalog service	catalog wrappers and precedence not cataloged
+41	152	65d699b	GET	/api/trigger	WEB	handleApiTrigger	CT-07	deferred	Gateway/Assignment	box scope, command or assignment behavior not cataloged
+42	153	65d699b	GET	/api/getTagIndex	WEB	handleApiTagIndex	CT-01	cataloged	Tag/Library facade	synthetic CT-01 tags wrapper/write-back; scan failure deferred
+43	154	65d699b	GET	/api/getTagInfo	WEB	handleApiTagInfo	CT-01	cataloged	Tag/Library facade	synthetic CT-01 tagInfo wrapper/write-back; state diff deferred
+44	155	65d699b	GET	/api/getBoxes	WEB	handleApiGetBoxes	CT-07	deferred	Gateway/Assignment	box scope, command or assignment behavior not cataloged
+45	156	65d699b	POST	/api/assignUnknown	WEB	handleApiAssignUnknown	CT-07	deferred	Gateway/Assignment	box scope, command or assignment behavior not cataloged
+46	157	65d699b	GET	/api/settings/getIndex	WEB	handleApiGetIndex	CT-06	deferred	Settings service	overlay, secret and reset behavior not cataloged
+47	158	65d699b	GET	/api/settings/get/	WEB	handleApiSettingsGet	CT-06	deferred	Settings service	overlay, secret and reset behavior not cataloged
+48	159	65d699b	POST	/api/settings/set/	WEB	handleApiSettingsSet	CT-06	deferred	Settings service	overlay, secret and reset behavior not cataloged
+49	160	65d699b	POST	/api/settings/reset/	WEB	handleApiSettingsReset	CT-06	deferred	Settings service	overlay, secret and reset behavior not cataloged
+50	161	65d699b	POST	/api/settings/removeOverlay	WEB	handleDeleteOverlay	CT-06	deferred	Settings service	overlay, secret and reset behavior not cataloged
+51	162	65d699b	POST	/api/migrateContent2Lib	WEB	handleApiMigrateContent2Lib	CT-12	deferred	Content/Admin	index, cache and migration behavior not cataloged
+52	163	65d699b	POST	/api/cacheFlush	WEB	handleApiCacheFlush	CT-12	deferred	Content/Admin	index, cache and migration behavior not cataloged
+53	164	65d699b	GET	/api/cacheStats	WEB	handleApiCacheStats	CT-12	deferred	Content/Admin	index, cache and migration behavior not cataloged
+54	165	65d699b	GET	/api/sse	WEB	handleApiSse	CT-08	cataloged	Gateway/Event Hub	synthetic CT-08 placement event; removal/reconnect deferred
+55	166	65d699b	GET	/robots.txt	WEB	handleSecMitRobotsTxt	OTHER	deferred	Web boundary	robots response and static fallback not cataloged
+56	168	65d699b	GET	/v1/time	BOTH	handleCloudTime	CT-15	deferred	Legacy gateway	one synthetic protobuf frame only; device effects remain untested
+57	169	65d699b	GET	/v1/ota	BOTH	handleCloudOTA	CT-15	deferred	Legacy gateway	one synthetic protobuf frame only; device effects remain untested
+58	170	65d699b	GET	/v1/claim	BOTH	handleCloudClaim	CT-15	deferred	Legacy gateway	one synthetic protobuf frame only; device effects remain untested
+59	171	65d699b	GET	/v1/content	BOTH	handleCloudContentV1	CT-15	deferred	Legacy gateway	one synthetic protobuf frame only; device effects remain untested
+60	172	65d699b	GET	/v2/content	BOTH	handleCloudContentV2	CT-15	deferred	Legacy gateway	one synthetic protobuf frame only; device effects remain untested
+61	173	65d699b	POST	/v1/freshness-check	BOTH	handleCloudFreshnessCheck	CT-15	deferred	Legacy gateway	one synthetic protobuf frame only; device effects remain untested
+62	174	65d699b	POST	/v1/log	BOTH	handleCloudLog	CT-15	deferred	Legacy gateway	one synthetic protobuf frame only; device effects remain untested
+63	175	65d699b	POST	/v1/cloud-reset	BOTH	handleCloudReset	CT-15	deferred	Legacy gateway	one synthetic protobuf frame only; device effects remain untested
+64	177	65d699b	POST	/v3/freshness-check	BOTH	handleCloudFreshnessCheckV3	CT-16	deferred	Legacy gateway	versioned payload and device behavior not cataloged
+65	178	65d699b	POST	/v3/check-ota	BOTH	handleCloudCheckOtaV3	CT-16	deferred	Legacy gateway	versioned payload and device behavior not cataloged
+66	179	65d699b	GET	/v3/ota	BOTH	handleCloudOtaV3	CT-16	deferred	Legacy gateway	versioned payload and device behavior not cataloged
+67	180	65d699b	POST	/v3/setup-status	BOTH	handleCloudSetupStatusV3	CT-16	deferred	Legacy gateway	versioned payload and device behavior not cataloged
+68	181	65d699b	GET	/v3/chapter	BOTH	handleCloudChapterV3	CT-16	deferred	Legacy gateway	versioned payload and device behavior not cataloged
+69	182	65d699b	GET	/v3/content-meta	BOTH	handleCloudContentMetaV3	CT-16	deferred	Legacy gateway	versioned payload and device behavior not cataloged

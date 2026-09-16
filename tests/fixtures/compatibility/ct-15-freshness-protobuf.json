@@ -22,8 +22,10 @@
     "path": "/v1/freshness-check",
     "headers": {"Content-Type": "application/octet-stream", "Content-Length": "16"},
     "framing": "HTTP body is exactly one unprefixed TonieFreshnessCheckRequest protobuf message; no four-byte TAF length prefix",
+    "framing_version": "v1-freshness-check/proto2-unprefixed-http-body",
     "schema": "proto/toniebox.pb.freshness-check.fc-request.proto; proto2",
     "body_hex": "0a0e0988776655443322111501000000",
+    "body_sha256": "713bb370dc9f212dce832181aba7e15dcc95f27294a7e3606f3025c17364c308",
     "decoded": {"tonie_infos": [{"uid": "0x1122334455667788", "audio_id": 1}]},
     "byte_notes": "0a 0e outer repeated-message tag/length; 09 then little-endian fixed64 synthetic UID; 15 then little-endian fixed32 audio_id"
   },
@@ -31,8 +33,10 @@
     "status": "expected local success; numeric status not wire-verified",
     "headers": {"Content-Type": "application/octet-stream; charset=utf-8", "Content-Length": "14"},
     "framing": "HTTP body is exactly one unprefixed TonieFreshnessCheckResponse protobuf message; length is get_packed_size result",
+    "framing_version": "v1-freshness-check/proto2-unprefixed-http-body",
     "schema": "proto/toniebox.pb.freshness-check.fc-response.proto; proto2",
     "body_hex": "1000180220012800300038024000",
+    "body_sha256": "4a580254f6a22e6275b182f729b1cebd2ab29e3e8ca4b916364958c25e24cb16",
     "decoded": {"tonie_marked": [], "field2": 0, "max_vol_spk": 2, "slap_en": 1, "slap_dir": 0, "field6": 0, "max_vol_hdp": 2, "led": 0},
     "qualification": "Synthetic expected bytes assume no marked UID, overrideFields=false and the listed settings; not a measured server response"
   },

@@ -1,0 +1,5 @@
+order	source_revision	source_line	kind	condition	result	coverage	owner	disposition_reason
+1	65d699b	522-529	prefix_alias	WEB GET /api/plugins/getPlugins matches registered /api/plugins/get	calls handleApiPluginsGet and returns bare array	source-cataloged	Legacy extension adapter	pinned UI consumer and prefix dispatch proven by source; disposable alias/status test deferred
+2	65d699b	546-565	root_default	unhandled WEB / or index.shtm	legacy.html or HTTP 301 /web according to new_webgui_as_default	deferred	Web boundary	setting and redirect response need disposable check
+3	65d699b	566-571	web_spa	unhandled WEB /web path without asset suffix	serves /web/index.html	deferred	Web boundary	basename and missing-asset response need disposable check
+4	65d699b	573-578	static_file	unhandled WEB URI outside registered routes	serves wwwdir + URI via httpSendResponse	deferred	Web boundary	path traversal, missing file, MIME and install-root behavior need separate test

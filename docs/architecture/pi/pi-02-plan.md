@@ -43,7 +43,12 @@ needs fixture coverage reconciliation and source/runtime acceptance review.
 
 The [A acceptance audit](pi-02-a-acceptance-audit.md) found machine-readable
 revision/reason and positive binary-digest gaps, plus incomplete CF-01/03 and
-fallback/collision evidence. A is not complete; B remains dependency-blocked.
+fallback/collision evidence. The first two have since been corrected in the
+router/CT-15 fixtures; a separate
+[fallback manifest](../../../tests/fixtures/compatibility/router-fallback-manifest.tsv)
+reconciles the implicit plugin alias and static Web UI paths. CF-01/03 state,
+negative and collision cases remain. A is not complete; B remains
+dependency-blocked.
 
 A must inspect the pinned Web UI and installer for CF-04. Existing unit tests
 in enhancement repos are input evidence; importing their assumptions blindly
