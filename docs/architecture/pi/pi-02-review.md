@@ -1,6 +1,6 @@
 # PI-02 review
 
-Status: R, A and B delivered; milestone incomplete pending T
+Status: complete; milestone accepted at bounded offline/source-evidence scope
 
 R inventories the source router families and seven enhancement seams at pinned
 local revisions. It records confirmed GET write-back, different auth flag
@@ -110,6 +110,17 @@ and CF-03 model/auth normalization with ownership unsupported. B's initial
 offline acceptance is complete once this combined workflow is green. No test
 invokes a running TeddyCloud, device, TLS endpoint, provider or production data.
 
-Validation: architecture link/whitespace checks are required before publishing;
-remote check evidence is recorded in the local execution state. A/B/T remain
-open until their own artifacts and verification exist.
+Architecture link/whitespace, corpus and offline contract checks are required
+before publishing; remote check evidence is recorded in the local execution
+state. R/A/B/T now have published artifacts and verification.
+
+T's [final evidence audit](pi-02-t-audit.md) found 12 unique cases with no exact
+duplicates, resolved provenance/source references, zero findings across six
+strong secret-pattern classes, and complete 69-route/four-fallback/seven-seam
+accounting. CI `35096077623` passed documentation, corpus, mutation, bundled
+protobuf-c and reference-adapter checks at `ccec417`.
+
+PI-02 is accepted as reproducible initial compatibility evidence. Physical
+devices, TLS, browser/runtime, provider integrations, installed-suite behavior
+and deployment/cutover remain explicit downstream work. No production API,
+credentialed provider, device, merge or deployment action occurred.

@@ -1,6 +1,6 @@
 # PI-02 budget and admission
 
-Status: R executed; A source-checkpoint slices admitted; B/T pending
+Status: R/A/B/T executed; milestone accepted
 
 Use the [measurement method](pi-00-budget.md) within the same current weekly
 allowance as PI-01. The 1.9 B5 sprint cap and both 5% reserves remain in force.
