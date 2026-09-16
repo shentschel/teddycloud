@@ -1,6 +1,6 @@
 # PI-02 execution plan
 
-Status: R complete; A source-derived checkpoints; B/T pending
+Status: R and A complete; B/T pending
 Milestone: reproducible initial compatibility evidence
 
 ## Agent tasks and dependencies
@@ -8,7 +8,7 @@ Milestone: reproducible initial compatibility evidence
 | ID | Model | Depends on | Deliverable and acceptance |
 | --- | --- | --- | --- |
 | PI-02/R | `gpt-6-astra` | PI-01 baseline | Source-pinned contract inventory, effect risks, fixture schema and issue-ready A/B/T; complete |
-| [PI-02/A](https://github.com/shentschel/teddycloud/issues/5) | `gpt-5.6-sol` | R | Enumerated router manifest and initial sanitized HTTP/protobuf/event fixture catalog; trace CF-01 through CF-05 and mark unknowns |
+| [PI-02/A](https://github.com/shentschel/teddycloud/issues/5) | `gpt-5.6-sol` | R | Complete: enumerated router/fallback manifests, sanitized HTTP/protobuf/event/state catalogs, CF-01…05 trace and explicit unknowns |
 | [PI-02/B](https://github.com/shentschel/teddycloud/issues/6) | `gpt-5.6-sol` | A | Offline harness for fixture validation and initial adapter contracts; failures must detect swapped UID bytes, wrong wrappers, omitted side effects and malformed framing |
 | [PI-02/T](https://github.com/shentschel/teddycloud/issues/7) | `gpt-5.6-sol` | B, or checkpoint | Normalize duplicate fixtures, audit provenance/secret absence and unsupported cases, review CI and reconcile inventory coverage |
 
@@ -46,9 +46,11 @@ revision/reason and positive binary-digest gaps, plus incomplete CF-01/03 and
 fallback/collision evidence. The first two have since been corrected in the
 router/CT-15 fixtures; a separate
 [fallback manifest](../../../tests/fixtures/compatibility/router-fallback-manifest.tsv)
-reconciles the implicit plugin alias and static Web UI paths. CF-01/03 state,
-negative and collision cases remain. A is not complete; B remains
-dependency-blocked.
+reconciles the implicit plugin alias and static Web UI paths. The final
+[CF-01/03 state catalog](../../../tests/fixtures/compatibility/ct-01-03-negative-state.json)
+specifies disposable before/after capture, assigned/source/auth disagreement
+and a shared-audio/distinct-hash collision without claiming execution or card
+ownership. A is complete at source-artifact level; executable proof moves to B.
 
 A must inspect the pinned Web UI and installer for CF-04. Existing unit tests
 in enhancement repos are input evidence; importing their assumptions blindly

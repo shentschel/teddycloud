@@ -1,0 +1,253 @@
+{
+  "schema": "pi-02-a-source-negative-state/1",
+  "origin": "synthetic-source-derived; not executed or wire-observed",
+  "source_revision": "6ebe0a1960a38b0470f028caa75eac703aaf089d",
+  "identity_policy": "All identifiers, hashes, models and paths are synthetic. rUID reverses the eight UID bytes. No physical-card ownership, certificate, credential or household identity is represented.",
+  "cases": [
+    {
+      "id": "A-CF01-disposable-get-writeback",
+      "ct": "CT-01",
+      "finding": "CF-01",
+      "origin": "synthetic-source-derived",
+      "producer": "handleApiTagInfo/getTagInfoJson/getTonieInfo/saveTonieInfo",
+      "consumer": "Tag/Library facade and disposable file-state recorder",
+      "source_evidence": [
+        "src/handler_api.c:4340-4360: derive metadata path, load tag info, then call saveTonieInfo before response",
+        "src/handler_api.c:4389-4396: expose state fields",
+        "src/handler_api.c:4460-4491: rUID query and text/json response",
+        "src/contentJson.c:73-84: load persisted state",
+        "src/contentJson.c:124-132: existing non-TAF/non-TAP source sets live, nocloud and _updated",
+        "src/handler.c:951-961: save only when _updated and _create_if_missing",
+        "src/contentJson.c:170-227: serialize to temporary file and move into place"
+      ],
+      "synthetic_identity": {
+        "uid_compact": "1122334455667788",
+        "uid_display": "11:22:33:44:55:66:77:88",
+        "ruid": "8877665544332211"
+      },
+      "request": {
+        "method": "GET",
+        "path": "/api/getTagInfo?ruid=8877665544332211",
+        "headers": {"Accept": "application/json"},
+        "body": null
+      },
+      "response": {
+        "status": null,
+        "headers": {"Content-Type": "text/json"},
+        "body_source_expected_subset": {
+          "tagInfo": {
+            "ruid": "8877665544332211",
+            "uid": "11:22:33:44:55:66:77:88",
+            "live": true,
+            "nocloud": true,
+            "hasCloudAuth": false,
+            "tonieInfo": {"model": "synthetic-stream-assignment"}
+          }
+        },
+        "qualification": "Selected source-derived fields only; exact body and numeric status require disposable execution"
+      },
+      "initial_state": {
+        "fixture_root": "isolated disposable root",
+        "metadata_path_relative": "88776655/44332211.json",
+        "metadata_semantic_before": {
+          "_version": 5,
+          "live": false,
+          "nocloud": false,
+          "source": "disposable_root/stream-source.bin",
+          "tonie_model": "synthetic-stream-assignment"
+        },
+        "source_file": "exists inside disposable root; neither valid TAF nor .tap",
+        "cloud_auth": "absent"
+      },
+      "file_state_capture": {
+        "execution_status": "specified, not captured",
+        "paths_relative_to_fixture_root": [
+          "88776655/44332211.json",
+          "88776655/44332211.json.tmp"
+        ],
+        "before": "capture existence, raw-byte SHA-256 and parsed semantic fields immediately before GET",
+        "after": "capture the same data immediately after GET",
+        "expected_semantic_diff_if_save_succeeds": {"live": "false -> true", "nocloud": "false -> true"},
+        "exact_serialized_bytes": null,
+        "exact_before_digest": null,
+        "exact_after_digest": null
+      },
+      "final_state": {
+        "metadata_semantic_after_if_save_succeeds": {
+          "_version": 5,
+          "live": true,
+          "nocloud": true,
+          "source": "disposable_root/stream-source.bin",
+          "tonie_model": "synthetic-stream-assignment"
+        },
+        "source_file": "unchanged by cited branch"
+      },
+      "side_effects": [
+        {"effect": "GET conditionally rewrites metadata before response", "evidence": "observed-source conditional", "shadow_replay": "excluded"},
+        {"effect": "write uses .tmp then replacement move", "evidence": "observed-source conditional"}
+      ],
+      "assertions": [
+        "do not classify this GET as read-only",
+        "capture response and disposable before/after files as one transaction",
+        "require the semantic change only when _updated is set and save succeeds",
+        "do not assert unknown serialized bytes or digests"
+      ],
+      "unknowns": [
+        "serialized order, whitespace and before/after digests",
+        "save failure and numeric wire status",
+        "actual disposable file capture remains B/T-owned"
+      ]
+    },
+    {
+      "id": "A-CF03-assigned-source-auth-disagreement",
+      "ct": "CT-01",
+      "finding": "CF-03",
+      "origin": "synthetic-source-derived",
+      "producer": "getTagInfoJson/load_content_json/tonies_byModel",
+      "consumer": "Tag/Library facade and Common-compatible metadata reader",
+      "source_evidence": [
+        "src/contentJson.c:79-95: valid cloud_ruid/auth length derives _has_cloud_auth while cloud_override remains separate",
+        "src/handler_api.c:4390-4396: hasCloudAuth equals _has_cloud_auth and not cloud_override",
+        "src/handler_api.c:4407-4415: missing-content download eligibility tests _has_cloud_auth separately",
+        "src/handler_api.c:4421-4430: assigned tonieInfo and TAF-derived sourceInfo use different models; sourceInfo is direct",
+        "src/handler.c:899-918: valid TAF audio/hash can set _source_model",
+        "src/toniesJson.c:483-493: audio/hash lookup prefers custom catalog then standard catalog"
+      ],
+      "synthetic_identity": {
+        "uid_compact": "A1B2C3D4E5F60718",
+        "uid_display": "A1:B2:C3:D4:E5:F6:07:18",
+        "ruid": "1807F6E5D4C3B2A1"
+      },
+      "request": {
+        "method": "GET",
+        "path": "/api/getTagInfo?ruid=1807F6E5D4C3B2A1",
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": null,
+        "headers": {"Content-Type": "text/json"},
+        "body_source_expected_subset": {
+          "tagInfo": {
+            "ruid": "1807F6E5D4C3B2A1",
+            "uid": "A1:B2:C3:D4:E5:F6:07:18",
+            "exists": true,
+            "hasCloudAuth": false,
+            "tonieInfo": {"model": "synthetic-assigned-model"},
+            "sourceInfo": {"model": "synthetic-content-model"}
+          }
+        },
+        "qualification": "Source-derived subset; sourceInfo.model is direct, not nested under tonieInfo"
+      },
+      "initial_state": {
+        "metadata": {
+          "tonie_model": "synthetic-assigned-model",
+          "cloud_override": true,
+          "cloud_ruid": "1807F6E5D4C3B2A1",
+          "cloud_auth_len": 32,
+          "cloud_auth_bytes": "intentionally omitted symbolic precondition"
+        },
+        "derived_if_symbolic_auth_precondition_is_injected": {"_has_cloud_auth": true, "cloud_override": true},
+        "taf": "synthetically valid local TAF exists; audio/hash maps to synthetic-content-model",
+        "catalog": "assigned and content models resolve to distinct entries"
+      },
+      "final_state": {
+        "metadata": "expected unchanged if no _updated path occurs; exact diff unknown",
+        "physical_card_ownership": "unknown and not inferable from auth, override, model or sourceInfo"
+      },
+      "side_effects": [
+        {"effect": "conditional saveTonieInfo is still invoked", "evidence": "observed-source conditional", "shadow_replay": "excluded"},
+        {"effect": "hasCloudAuth is false when cloud_override is true even if _has_cloud_auth is true", "evidence": "observed-source expression"}
+      ],
+      "assertions": [
+        "assigned and source/content models remain distinct",
+        "sourceInfo.model is direct under sourceInfo",
+        "hasCloudAuth=false does not imply _has_cloud_auth=false",
+        "do not infer download eligibility solely from hasCloudAuth",
+        "never infer original physical-card ownership"
+      ],
+      "unknowns": [
+        "auth bytes are deliberately absent, so B must inject synthetic bytes in a disposable test",
+        "complete response, wire status and file diff",
+        "ownership, claim history and provider state are unsupported"
+      ]
+    },
+    {
+      "id": "A-CF03-shared-audio-distinct-hash-collision",
+      "ct": "CT-01",
+      "finding": "CF-03",
+      "origin": "synthetic-source-derived",
+      "producer": "getTonieInfoV2/tonies_byAudioIdHash/getTagInfoJson",
+      "consumer": "Tag/Library facade and catalog adapter",
+      "source_evidence": [
+        "src/toniesJson.c:446-467: matching requires audio ID and, when supplied, a 20-byte hash",
+        "src/toniesJson.c:483-493: custom catalog is searched before standard catalog",
+        "src/handler.c:899-918: valid TAF audio ID/hash selects _source_model",
+        "src/handler_api.c:4421-4430: assigned model and selected source model can appear separately"
+      ],
+      "synthetic_identities": [
+        {"uid_compact": "1020304050607080", "ruid": "8070605040302010"},
+        {"uid_compact": "90A0B0C0D0E0F001", "ruid": "01F0E0D0C0B0A090"}
+      ],
+      "request": {
+        "method": "GET",
+        "path": "/api/getTagInfo?ruid=8070605040302010",
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": null,
+        "headers": {"Content-Type": "text/json"},
+        "body_source_expected_subset": {
+          "tagInfo": {
+            "ruid": "8070605040302010",
+            "tonieInfo": {"model": "synthetic-assigned-shared"},
+            "sourceInfo": {"model": "synthetic-content-alpha"}
+          }
+        },
+        "qualification": "Conditional on synthetic catalog cache and valid TAF construction; not wire-observed"
+      },
+      "paired_probe": {
+        "request": {"method": "GET", "path": "/api/getTagInfo?ruid=01F0E0D0C0B0A090", "headers": {}, "body": null},
+        "response_source_expected_subset": {
+          "tagInfo": {
+            "ruid": "01F0E0D0C0B0A090",
+            "tonieInfo": {"model": "synthetic-assigned-shared"},
+            "sourceInfo": {"model": "synthetic-content-beta"}
+          }
+        }
+      },
+      "initial_state": {
+        "catalog_entries": [
+          {"model": "synthetic-content-alpha", "audio_id": 424242, "hash_hex": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+          {"model": "synthetic-content-beta", "audio_id": 424242, "hash_hex": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}
+        ],
+        "taf_headers": [
+          {"ruid": "8070605040302010", "audio_id": 424242, "sha1_hash_hex": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "validity": "synthetic precondition, not built"},
+          {"ruid": "01F0E0D0C0B0A090", "audio_id": 424242, "sha1_hash_hex": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "validity": "synthetic precondition, not built"}
+        ],
+        "metadata": "both tags have assigned model synthetic-assigned-shared; no TAF/audio bytes supplied"
+      },
+      "final_state": {
+        "catalog": "unchanged",
+        "metadata": "expected stable absent an _updated path; exact diff unknown",
+        "physical_card_ownership": "not inferred"
+      },
+      "side_effects": [
+        {"effect": "hash-specific lookup conditionally selects alpha or beta source model", "evidence": "observed-source conditional"},
+        {"effect": "tag GET still invokes conditional metadata save", "evidence": "observed-source conditional", "shadow_replay": "excluded"}
+      ],
+      "assertions": [
+        "audio ID 424242 alone is ambiguous",
+        "20-byte hash distinguishes alpha from beta in the cited lookup",
+        "do not collapse assigned model, source model or physical ownership",
+        "defer executable proof until disposable TAF and catalog construction"
+      ],
+      "unknowns": [
+        "no valid TAF/audio bytes or catalog cache were built in A",
+        "hashes are synthetic branch markers, not measured audio digests",
+        "exact responses and file diffs remain B/T-owned"
+      ]
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 # PI-02 review
 
-Status: R delivered; A source-derived checkpoint; milestone incomplete
+Status: R and A delivered; milestone incomplete pending B/T
 
 R inventories the source router families and seven enhancement seams at pinned
 local revisions. It records confirmed GET write-back, different auth flag
@@ -73,6 +73,16 @@ The bounded CF-01/03 fixture job hit its admitted cap before producing a file;
 the disposable state-diff, source/auth negative and synthetic collision cases
 remain open. The prior audit is a historical snapshot, not a claim that these
 later corrections closed A.
+
+After a verified quota reset, the same bounded job completed the
+[CF-01/03 synthetic catalog](../../../tests/fixtures/compatibility/ct-01-03-negative-state.json).
+It specifies conditional GET write-back capture, assigned versus content model
+and cloud-auth disagreement, and shared audio ID with distinct 20-byte hashes.
+All identities and hashes are synthetic; physical ownership is explicitly not
+inferred. Integration validated four JSON catalogs, 12 unique fixture IDs, UID/
+rUID reversal, binary lengths/digests, 69 ordered route rows and four fallback
+rows. A is complete as source-derived compatibility evidence. B must execute
+the disposable state/parser/harness cases; no wire or runtime claim exists.
 
 Validation: architecture link/whitespace checks are required before publishing;
 remote check evidence is recorded in the local execution state. A/B/T remain

@@ -1,6 +1,13 @@
 # PI-02/A acceptance audit — bounded checkpoint
 
-Audit at `teddycloud` `1ea6d5c7e69b266fba42c55ea632a0374ce40bd6`. Read [A plan](pi-02-plan.md), [contract inventory](pi-02-contract-inventory.md), [review](pi-02-review.md), [router manifest](../../../tests/fixtures/compatibility/router-manifest.tsv), all three current fixture JSON files, [deployment](pi-02-deployment-seams.md), [seven-seam disposition](pi-02-enhancement-coverage.md), [pinned Web UI](pi-02-webui-seam.md) and [status/framing](pi-02-status-framing.md). This is a source/artifact audit only. **Do not mark A complete.**
+Initial audit at `teddycloud` `1ea6d5c7e69b266fba42c55ea632a0374ce40bd6`.
+It read the [A plan](pi-02-plan.md), [contract inventory](pi-02-contract-inventory.md),
+[review](pi-02-review.md), [router manifest](../../../tests/fixtures/compatibility/router-manifest.tsv),
+then-current fixture JSON files, [deployment](pi-02-deployment-seams.md),
+[seven-seam disposition](pi-02-enhancement-coverage.md), [pinned Web UI](pi-02-webui-seam.md)
+and [status/framing](pi-02-status-framing.md). This remains a source/artifact
+audit only. The table records the initial findings; the closure section below
+is authoritative for A status.
 
 | A acceptance criterion | Result | Evidence and limit |
 | --- | --- | --- |
@@ -14,7 +21,7 @@ Audit at `teddycloud` `1ea6d5c7e69b266fba42c55ea632a0374ce40bd6`. Read [A plan](
 | All seven enhancement seams have coverage disposition | **Pass at disposition level** | [Seven-seam table](pi-02-enhancement-coverage.md) has exactly one row each for Common, Manager, Current, Unknown, YouTube2Tonie, NFC Sync and Meta installer, with cataloged source and deferred acceptance evidence. No installed-suite or provider conformance claim. |
 | Sanitization and synthetic identities | **Partial** | Read-only checks confirmed UID `1122334455667788` ↔ rUID `8877665544332211` by byte reversal, positive protobuf byte order/length, and the negative 3-byte digest. Across 11 reviewed A artifacts, 0 strong secret-pattern classes were flagged; this is not a complete secrecy proof. The inventory also asks to preserve synthetic audio/hash collisions, but no collision case exists. |
 
-## Conflicts and exact A-owned blockers
+## Initial conflicts and A-owned blockers
 
 1. Add a source revision to the machine-readable router manifest, meaningful reasons for the 6 cataloged rows, and a separate static-fallback/non-table inventory entry. The current row/order check alone does not pin the manifest across revisions.
 2. Add digest and explicit framing version for the positive CT-15 binary request/response; keep expected bytes labeled synthetic until B validates them.
@@ -27,3 +34,26 @@ The [review](pi-02-review.md) calls the manifest reasoned, while cataloged rows 
 Offline negative-test proof, adapter contracts and path-scoped CI are [B-owned](pi-02-plan.md), with provenance normalization/unsupported-case review reserved for T. Neither test execution nor CI was observed in this audit, so the PI-02 definition of done is **fail/pending** even if A-owned artifacts are later closed. Hardware/TLS/external-provider gaps retain downstream owners; no cutover claim. Public review and local usage state were read only and not updated here, per this job's scope. No commit or push.
 
 Read-only validation completed before the budget stop: 69/69 route tuples and order matched source; 63/63 deferred reasons present; 7/7 seam rows; 9 JSON fixture IDs unique; 33/33 source-line ranges valid at their declared revisions; identity/byte order and body lengths passed; negative SHA-256 passed; strong-pattern scanner flagged 0 classes without printing matches. This audit file itself needs only link/whitespace validation.
+
+## Follow-up closure
+
+The source-artifact blockers were closed without changing production state:
+
+- [router manifest](../../../tests/fixtures/compatibility/router-manifest.tsv)
+  now pins all 69 entries to `65d699b` and gives every cataloged/deferred row a
+  reason;
+- [positive CT-15 fixture](../../../tests/fixtures/compatibility/ct-15-freshness-protobuf.json)
+  now has explicit framing version and SHA-256 for request and response;
+- [fallback manifest](../../../tests/fixtures/compatibility/router-fallback-manifest.tsv)
+  separately inventories plugin prefix alias, root redirect, Web SPA and static
+  file fallback;
+- [CF-01/03 catalog](../../../tests/fixtures/compatibility/ct-01-03-negative-state.json)
+  specifies conditional metadata before/after capture, assigned/source/auth
+  disagreement and a shared-audio/distinct-hash collision.
+
+Integration revalidated four JSON catalogs, 12 unique fixture IDs, UID/rUID byte
+reversal, 20-byte collision hashes, positive/negative binary lengths and digests,
+69 ordered route rows and four fallback rows. All cases remain synthetic and
+source-derived. A therefore passes at the planned source-artifact level; B owns
+actual disposable execution, negative parser proof and adapter contracts. This
+does not establish server, device, browser, provider or production conformance.
