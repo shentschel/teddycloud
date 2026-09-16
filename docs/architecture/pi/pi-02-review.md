@@ -92,6 +92,14 @@ state capture and malformed protobuf framing. The path-scoped workflow runs the
 documentation, corpus and mutation checks. Server handlers, HTTP/SSE transport,
 actual file writes and adapter behavior are still unexecuted B scope.
 
+A follow-up B checkpoint adds a C harness around TeddyCloud's bundled
+`protobuf-c` runtime/generated CT-15 code. Its Python test builds only in a
+temporary directory and checks positive UID/audio decoding, exact 14-byte
+response packing and rejection of the three-byte truncation. The local host
+has no system C compiler and therefore reports an explicit skip; remote CI is
+the required execution evidence. Disposable file-state and adapter contracts
+remain open independently of this parser gate.
+
 Validation: architecture link/whitespace checks are required before publishing;
 remote check evidence is recorded in the local execution state. A/B/T remain
 open until their own artifacts and verification exist.

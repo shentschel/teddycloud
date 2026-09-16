@@ -63,6 +63,12 @@ accepts the source fixture corpus and its
 of swapped UID/rUID bytes, wrong plugin wrapper, missing CF-01 state capture and
 length-prefixed CT-15 framing. CI runs both without network access. This is a
 checkpoint: it does not execute TeddyCloud handlers or disposable file changes.
+The next B checkpoint adds a
+[bundled protobuf-c harness](../../../tests/ct15_protobuf_parser_harness.c) and
+[temporary-build test](../../../tests/test_ct15_protobuf_parser.py) for positive
+request decoding, exact response packing and truncated-request rejection. The
+local host has no C compiler, so CI must execute this gate before the parser
+blocker can be considered closed.
 
 ## Definition of done
 

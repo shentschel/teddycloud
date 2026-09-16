@@ -7,6 +7,8 @@ on:
       - "scripts/check_architecture_docs.py"
       - "scripts/check_compatibility_fixtures.py"
       - "tests/fixtures/compatibility/**"
+      - "tests/ct15_protobuf_parser_harness.c"
+      - "tests/test_ct15_protobuf_parser.py"
       - "tests/test_compatibility_fixtures.py"
       - ".github/workflows/check-architecture-docs.yml"
   push:
@@ -19,6 +21,8 @@ on:
       - "scripts/check_architecture_docs.py"
       - "scripts/check_compatibility_fixtures.py"
       - "tests/fixtures/compatibility/**"
+      - "tests/ct15_protobuf_parser_harness.c"
+      - "tests/test_ct15_protobuf_parser.py"
       - "tests/test_compatibility_fixtures.py"
       - ".github/workflows/check-architecture-docs.yml"
 
@@ -36,3 +40,5 @@ jobs:
         run: python3 scripts/check_compatibility_fixtures.py
       - name: Prove compatibility mismatch detection
         run: python3 -m unittest tests/test_compatibility_fixtures.py -v
+      - name: Exercise bundled CT-15 protobuf parser
+        run: python3 -m unittest tests/test_ct15_protobuf_parser.py -v
