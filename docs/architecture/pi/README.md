@@ -29,6 +29,7 @@ Current execution artifacts:
 - [Pinned Web UI/plugin seam checkpoint](pi-02-webui-seam.md)
 - [Status and framing checkpoint](pi-02-status-framing.md)
 - [Enhancement compatibility disposition](pi-02-enhancement-coverage.md)
+- [PI-02/A acceptance audit](pi-02-a-acceptance-audit.md)
 
 - [PI-00 plan](pi-00-plan.md)
 - [PI-00 budget method](pi-00-budget.md)

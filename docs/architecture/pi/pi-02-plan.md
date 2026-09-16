@@ -41,6 +41,10 @@ The [seven-seam disposition](pi-02-enhancement-coverage.md) maps each installed
 component/installer to cataloged source evidence and deferred tests. A still
 needs fixture coverage reconciliation and source/runtime acceptance review.
 
+The [A acceptance audit](pi-02-a-acceptance-audit.md) found machine-readable
+revision/reason and positive binary-digest gaps, plus incomplete CF-01/03 and
+fallback/collision evidence. A is not complete; B remains dependency-blocked.
+
 A must inspect the pinned Web UI and installer for CF-04. Existing unit tests
 in enhancement repos are input evidence; importing their assumptions blindly
 does not establish server conformance. Use disposable data and synthetic

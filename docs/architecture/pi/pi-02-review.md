@@ -59,6 +59,12 @@ have a cataloged/deferred disposition. No response bytes were recorded from a
 running server. Offline parser/harness and disposable installation remain B/T
 work; A completion needs a final coverage and provenance audit.
 
+The [bounded A audit](pi-02-a-acceptance-audit.md) did not pass A completion:
+cataloged route rows lack meaningful reasons/revision, positive binary framing
+lacks digest/version, and CF-01/03 state/negative/collision coverage is still
+schematic. Static fallback and alias scope also need a distinct reconciliation.
+These are A-owned source artifacts; executable negative proof remains B-owned.
+
 Validation: architecture link/whitespace checks are required before publishing;
 remote check evidence is recorded in the local execution state. A/B/T remain
 open until their own artifacts and verification exist.
