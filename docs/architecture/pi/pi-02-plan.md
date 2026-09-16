@@ -1,6 +1,6 @@
 # PI-02 execution plan
 
-Status: R and A complete; B/T pending
+Status: R and A complete; B offline-harness checkpoint; T pending
 Milestone: reproducible initial compatibility evidence
 
 ## Agent tasks and dependencies
@@ -9,7 +9,7 @@ Milestone: reproducible initial compatibility evidence
 | --- | --- | --- | --- |
 | PI-02/R | `gpt-6-astra` | PI-01 baseline | Source-pinned contract inventory, effect risks, fixture schema and issue-ready A/B/T; complete |
 | [PI-02/A](https://github.com/shentschel/teddycloud/issues/5) | `gpt-5.6-sol` | R | Complete: enumerated router/fallback manifests, sanitized HTTP/protobuf/event/state catalogs, CF-01…05 trace and explicit unknowns |
-| [PI-02/B](https://github.com/shentschel/teddycloud/issues/6) | `gpt-5.6-sol` | A | Offline harness for fixture validation and initial adapter contracts; failures must detect swapped UID bytes, wrong wrappers, omitted side effects and malformed framing |
+| [PI-02/B](https://github.com/shentschel/teddycloud/issues/6) | `gpt-5.6-sol` | A | In progress: offline corpus validator and four mutation proofs delivered; disposable state/parser/adapter execution remains |
 | [PI-02/T](https://github.com/shentschel/teddycloud/issues/7) | `gpt-5.6-sol` | B, or checkpoint | Normalize duplicate fixtures, audit provenance/secret absence and unsupported cases, review CI and reconcile inventory coverage |
 
 Use the [contract inventory](pi-02-contract-inventory.md) as the acceptance input.
@@ -56,6 +56,13 @@ A must inspect the pinned Web UI and installer for CF-04. Existing unit tests
 in enhancement repos are input evidence; importing their assumptions blindly
 does not establish server conformance. Use disposable data and synthetic
 credentials. Capturing live device traffic is a later explicitly bounded step.
+
+B's first [offline validator](../../../scripts/check_compatibility_fixtures.py)
+accepts the source fixture corpus and its
+[mutation suite](../../../tests/test_compatibility_fixtures.py) proves rejection
+of swapped UID/rUID bytes, wrong plugin wrapper, missing CF-01 state capture and
+length-prefixed CT-15 framing. CI runs both without network access. This is a
+checkpoint: it does not execute TeddyCloud handlers or disposable file changes.
 
 ## Definition of done
 

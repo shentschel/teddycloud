@@ -84,6 +84,14 @@ rUID reversal, binary lengths/digests, 69 ordered route rows and four fallback
 rows. A is complete as source-derived compatibility evidence. B must execute
 the disposable state/parser/harness cases; no wire or runtime claim exists.
 
+B's first checkpoint adds a standard-library
+[offline fixture validator](../../../scripts/check_compatibility_fixtures.py)
+and [five tests](../../../tests/test_compatibility_fixtures.py): one accepted
+corpus plus four mutations for identity byte order, plugin wrapper, omitted GET
+state capture and malformed protobuf framing. The path-scoped workflow runs the
+documentation, corpus and mutation checks. Server handlers, HTTP/SSE transport,
+actual file writes and adapter behavior are still unexecuted B scope.
+
 Validation: architecture link/whitespace checks are required before publishing;
 remote check evidence is recorded in the local execution state. A/B/T remain
 open until their own artifacts and verification exist.

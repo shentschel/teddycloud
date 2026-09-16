@@ -5,6 +5,9 @@ on:
     paths:
       - "docs/architecture/**"
       - "scripts/check_architecture_docs.py"
+      - "scripts/check_compatibility_fixtures.py"
+      - "tests/fixtures/compatibility/**"
+      - "tests/test_compatibility_fixtures.py"
       - ".github/workflows/check-architecture-docs.yml"
   push:
     branches:
@@ -14,6 +17,9 @@ on:
     paths:
       - "docs/architecture/**"
       - "scripts/check_architecture_docs.py"
+      - "scripts/check_compatibility_fixtures.py"
+      - "tests/fixtures/compatibility/**"
+      - "tests/test_compatibility_fixtures.py"
       - ".github/workflows/check-architecture-docs.yml"
 
 permissions:
@@ -26,3 +32,7 @@ jobs:
       - uses: actions/checkout@v7
       - name: Validate local documentation contracts
         run: python3 scripts/check_architecture_docs.py
+      - name: Validate compatibility fixture corpus
+        run: python3 scripts/check_compatibility_fixtures.py
+      - name: Prove compatibility mismatch detection
+        run: python3 -m unittest tests/test_compatibility_fixtures.py -v
