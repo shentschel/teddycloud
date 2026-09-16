@@ -34,7 +34,9 @@ cannot be used alone as evidence of server behavior.
 The router's `/api/plugins/get` handler reads plugin directory names and
 serializes the array itself. It does not validate `plugin.json` or wrap the
 result under a `plugins` key. The pinned Web UI submodule is uninitialized in
-this checkout; its navigation/iframe rendering still needs direct inspection.
+this checkout. Its exact source has since been inspected read-only in the
+[Web UI seam note](pi-02-webui-seam.md); navigation/iframe runtime behavior
+still needs disposable validation.
 
 Sources in the sibling repository: `install.sh`, `components.lock`,
 `scripts/test-meta-installer.sh`,

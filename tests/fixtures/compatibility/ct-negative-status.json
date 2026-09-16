@@ -1,0 +1,125 @@
+{
+  "schema": "pi-02-a-negative-status/1",
+  "origin": "synthetic-source-derived; no wire observation or replay",
+  "source_revision": "d816c2c4f87c41334269c306ca05add0a1658c3f",
+  "cases": [
+    {
+      "id": "A-CT10-missing-plugin-directory",
+      "ct": "CT-10",
+      "producer": "handleApiPluginsGet",
+      "consumer": "legacy extension adapter and pinned Web UI",
+      "source_evidence": [
+        "src/server.c:123: GET /api/plugins/get route",
+        "src/server.c:522-540: prefix dispatch; generic error-to-500 callback disabled",
+        "src/handler_api.c:4769-4800: fsOpenDir check; array only written on success; otherwise ERROR_FAILURE",
+        "src/cyclone/cyclone_tcp/http/http_server.c:606-639: framework handles selected errors, then closes on remaining errors"
+      ],
+      "request": {
+        "method": "GET",
+        "path": "/api/plugins/get",
+        "headers": {"Accept": "application/json"},
+        "body": null
+      },
+      "initial_state": {
+        "internal.pluginsdirfull": "points to a deliberately absent directory inside a disposable synthetic fixture root",
+        "plugins": "none; no manifest or real plugin data supplied"
+      },
+      "source_branch_result": {
+        "handler_error": "ERROR_FAILURE",
+        "handler_response_write": false,
+        "router_500_translation": false
+      },
+      "response": {
+        "status": null,
+        "headers": null,
+        "body": null,
+        "wire_disposition": "unknown; no numeric HTTP status, Content-Type or body asserted"
+      },
+      "final_state": {
+        "plugins_dir": "still absent",
+        "external_state": "unchanged"
+      },
+      "side_effects": [
+        {"effect": "no directory discovery or manifest validation", "evidence": "observed-source"},
+        {"effect": "no production, browser, device or cloud call", "evidence": "fixture scope"}
+      ],
+      "assertions": [
+        "missing directory is not equivalent to an empty successful bare array",
+        "ERROR_FAILURE is not asserted as an HTTP 500",
+        "no handler JSON response writer is reached"
+      ],
+      "unknowns": [
+        "exact framework/socket wire outcome requires disposable offline execution",
+        "pinned UI behavior after this failure is not measured"
+      ]
+    },
+    {
+      "id": "A-CT15-truncated-protobuf-message",
+      "ct": "CT-15",
+      "producer": "handleCloudFreshnessCheck",
+      "consumer": "offline legacy-gateway compatibility harness",
+      "source_evidence": [
+        "src/server.c:173: POST /v1/freshness-check route",
+        "include/handler_cloud.h:15: 4096-byte body buffer",
+        "src/handler_cloud.c:1044-1068: timestamp MQTT before single receive and protobuf-c unpack",
+        "src/handler_cloud.c:1094-1109: cache update and packed response only after successful unpack",
+        "src/handler_cloud.c:1111-1114: failed-unpack/oversize path returns NO_ERROR without handler response write",
+        "proto/toniebox.pb.freshness-check.fc-request.proto:3-10: outer repeated message, required fixed64 UID and fixed32 audio ID"
+      ],
+      "request": {
+        "method": "POST",
+        "path": "/v1/freshness-check",
+        "headers": {
+          "Content-Type": "application/octet-stream",
+          "Content-Length": "3"
+        },
+        "framing": "complete HTTP request body of three bytes, but incomplete unprefixed proto2 TonieFreshnessCheckRequest message; not a four-byte-length-prefixed TAF",
+        "body_hex": "0a0e09",
+        "body_sha256": "fbcd48a55ab7116dd3bc1ec876a19dc642a78b140836ff47fc207314957fa962",
+        "schema": "proto/toniebox.pb.freshness-check.fc-request.proto; proto2",
+        "byte_notes": "outer field 1 announces 14 nested bytes but only field-1 fixed64 tag follows; no UID or audio ID is present"
+      },
+      "initial_state": {
+        "cloud.enabled": false,
+        "internal.freshnessCache": [],
+        "synthetic_card_data": "none; no real UID, card file, certificate or credential"
+      },
+      "source_branch_result": {
+        "preparse_effect": "LastCloudFreshnessCheckTime MQTT event",
+        "expected_unpack": "NULL for truncated protobuf; parser outcome not yet exercised",
+        "if_unpack_null": {
+          "handler_return": "NO_ERROR",
+          "handler_response_write": false,
+          "cache_write": false,
+          "cloud_forward": false
+        }
+      },
+      "response": {
+        "status": null,
+        "headers": null,
+        "body": null,
+        "wire_disposition": "unknown; no 200, 400, 500, Content-Type or protobuf response asserted"
+      },
+      "final_state": {
+        "internal.freshnessCache": [],
+        "internal.freshnessCacheChanged": "unchanged if unpack fails",
+        "mqtt": "timestamp event emitted before unpack; timestamp value nondeterministic"
+      },
+      "side_effects": [
+        {"effect": "preparse MQTT timestamp", "evidence": "observed-source"},
+        {"effect": "no local freshness processing if unpack is NULL", "evidence": "observed-source conditional"},
+        {"effect": "no production, device or cloud request", "evidence": "fixture scope"}
+      ],
+      "assertions": [
+        "reject a successful packed protobuf response for this invalid message",
+        "separate preparse MQTT event from postparse cache effects",
+        "do not infer an HTTP status from handler NO_ERROR without a response write"
+      ],
+      "unknowns": [
+        "protobuf-c failure on these exact bytes needs offline parser validation",
+        "single httpReceive may read fewer bytes than declared even for valid bodies",
+        "framework/socket wire outcome requires disposable offline execution"
+      ]
+    }
+  ]
+}

@@ -34,6 +34,13 @@ plugin and library mechanisms, plus narrow CF-01…05 dispositions. These are
 not wire-observed. Remaining A work includes handler/status detail, fixture
 coverage reconciliation and clear source/runtime separation.
 
+The [status/framing checkpoint](pi-02-status-framing.md) distinguishes
+source-known success/404 paths from unknown error wire outcomes and adds two
+[synthetic negative cases](../../../tests/fixtures/compatibility/ct-negative-status.json).
+The [seven-seam disposition](pi-02-enhancement-coverage.md) maps each installed
+component/installer to cataloged source evidence and deferred tests. A still
+needs fixture coverage reconciliation and source/runtime acceptance review.
+
 A must inspect the pinned Web UI and installer for CF-04. Existing unit tests
 in enhancement repos are input evidence; importing their assumptions blindly
 does not establish server conformance. Use disposable data and synthetic

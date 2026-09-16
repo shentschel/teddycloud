@@ -50,6 +50,15 @@ CF-01…05 have source-level dispositions, not closure of runtime behavior.
 Complete handler/status tracing, catalog reconciliation and harness tests
 remain A/B work. Do not treat this as a PI-02 milestone or deployable UI.
 
+A further [status/framing matrix](pi-02-status-framing.md) establishes the
+router's source-selected 404 paths and explains why an `ERROR_FAILURE` does
+not prove HTTP 500. Two [negative source-derived cases](../../../tests/fixtures/compatibility/ct-negative-status.json)
+cover absent plugin directory and truncated protobuf without asserting wire
+status. The [seven enhancement seams](pi-02-enhancement-coverage.md) now each
+have a cataloged/deferred disposition. No response bytes were recorded from a
+running server. Offline parser/harness and disposable installation remain B/T
+work; A completion needs a final coverage and provenance audit.
+
 Validation: architecture link/whitespace checks are required before publishing;
 remote check evidence is recorded in the local execution state. A/B/T remain
 open until their own artifacts and verification exist.
