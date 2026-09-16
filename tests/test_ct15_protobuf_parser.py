@@ -61,6 +61,8 @@ class Ct15ProtobufParserTests(unittest.TestCase):
                 "-I",
                 str(ROOT / "include"),
                 "-I",
+                str(ROOT / "include" / "protobuf-c"),
+                "-I",
                 str(PROTO_ROOT),
                 str(HARNESS),
                 str(RUNTIME_SOURCE),
