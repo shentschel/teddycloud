@@ -6,10 +6,12 @@ on:
       - "docs/architecture/**"
       - "scripts/check_architecture_docs.py"
       - "scripts/check_compatibility_fixtures.py"
+      - "scripts/pi02_reference_adapter.py"
       - "tests/fixtures/compatibility/**"
       - "tests/ct15_protobuf_parser_harness.c"
       - "tests/test_ct15_protobuf_parser.py"
       - "tests/test_compatibility_fixtures.py"
+      - "tests/test_pi02_reference_adapter.py"
       - ".github/workflows/check-architecture-docs.yml"
   push:
     branches:
@@ -20,10 +22,12 @@ on:
       - "docs/architecture/**"
       - "scripts/check_architecture_docs.py"
       - "scripts/check_compatibility_fixtures.py"
+      - "scripts/pi02_reference_adapter.py"
       - "tests/fixtures/compatibility/**"
       - "tests/ct15_protobuf_parser_harness.c"
       - "tests/test_ct15_protobuf_parser.py"
       - "tests/test_compatibility_fixtures.py"
+      - "tests/test_pi02_reference_adapter.py"
       - ".github/workflows/check-architecture-docs.yml"
 
 permissions:
@@ -42,3 +46,5 @@ jobs:
         run: python3 -m unittest tests/test_compatibility_fixtures.py -v
       - name: Exercise bundled CT-15 protobuf parser
         run: python3 -m unittest tests/test_ct15_protobuf_parser.py -v
+      - name: Exercise initial reference adapter contracts
+        run: python3 -m unittest tests/test_pi02_reference_adapter.py -v

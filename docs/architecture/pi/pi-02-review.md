@@ -1,6 +1,6 @@
 # PI-02 review
 
-Status: R and A delivered; milestone incomplete pending B/T
+Status: R, A and B delivered; milestone incomplete pending T
 
 R inventories the source router families and seven enhancement seams at pinned
 local revisions. It records confirmed GET write-back, different auth flag
@@ -99,6 +99,16 @@ response packing and rejection of the three-byte truncation. The local host
 has no system C compiler and therefore reports an explicit skip; remote CI is
 the required execution evidence. Disposable file-state and adapter contracts
 remain open independently of this parser gate.
+
+Remote CI `35095653065` compiled TeddyCloud's bundled protobuf-c sources and
+passed positive decode, exact response pack and truncated-input rejection. The
+final B slice adds a small
+[reference adapter](../../../scripts/pi02_reference_adapter.py) with
+[three tests](../../../tests/test_pi02_reference_adapter.py): atomic CF-01 JSON
+replacement in a disposable directory, CT-02 optional form/readback behavior,
+and CF-03 model/auth normalization with ownership unsupported. B's initial
+offline acceptance is complete once this combined workflow is green. No test
+invokes a running TeddyCloud, device, TLS endpoint, provider or production data.
 
 Validation: architecture link/whitespace checks are required before publishing;
 remote check evidence is recorded in the local execution state. A/B/T remain

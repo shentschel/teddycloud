@@ -1,6 +1,6 @@
 # PI-02 execution plan
 
-Status: R and A complete; B offline-harness checkpoint; T pending
+Status: R, A and B complete; T pending
 Milestone: reproducible initial compatibility evidence
 
 ## Agent tasks and dependencies
@@ -9,7 +9,7 @@ Milestone: reproducible initial compatibility evidence
 | --- | --- | --- | --- |
 | PI-02/R | `gpt-6-astra` | PI-01 baseline | Source-pinned contract inventory, effect risks, fixture schema and issue-ready A/B/T; complete |
 | [PI-02/A](https://github.com/shentschel/teddycloud/issues/5) | `gpt-5.6-sol` | R | Complete: enumerated router/fallback manifests, sanitized HTTP/protobuf/event/state catalogs, CF-01…05 trace and explicit unknowns |
-| [PI-02/B](https://github.com/shentschel/teddycloud/issues/6) | `gpt-5.6-sol` | A | In progress: offline corpus validator and four mutation proofs delivered; disposable state/parser/adapter execution remains |
+| [PI-02/B](https://github.com/shentschel/teddycloud/issues/6) | `gpt-5.6-sol` | A | Complete: offline corpus validator, four mutation proofs, bundled protobuf-c execution and initial disposable reference-adapter contracts |
 | [PI-02/T](https://github.com/shentschel/teddycloud/issues/7) | `gpt-5.6-sol` | B, or checkpoint | Normalize duplicate fixtures, audit provenance/secret absence and unsupported cases, review CI and reconcile inventory coverage |
 
 Use the [contract inventory](pi-02-contract-inventory.md) as the acceptance input.
@@ -69,6 +69,15 @@ The next B checkpoint adds a
 request decoding, exact response packing and truncated-request rejection. The
 local host has no C compiler, so CI must execute this gate before the parser
 blocker can be considered closed.
+
+The final B slice adds a
+[fixture reference adapter](../../../scripts/pi02_reference_adapter.py) and
+[three disposable tests](../../../tests/test_pi02_reference_adapter.py). They
+atomically apply the CF-01 state diff to a temporary JSON copy, prove CT-02
+optional assignment/readback and preserve CF-03 assigned/source/raw/effective
+auth separation without deriving ownership. Together with successful CI parser
+execution, B meets its offline acceptance; handler/wire conformance is outside
+this milestone and remains explicitly unsupported.
 
 ## Definition of done
 
