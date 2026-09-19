@@ -75,6 +75,7 @@ under [PI-03 budget rules](pi-03-budget.md).
 ## PI-03/A — Scaffold backend, Web UI and SDK workspaces
 
 Recommended model: `gpt-5.6-sol`
+GitHub issue: [#8](https://github.com/shentschel/teddycloud/issues/8)
 
 ### Objective and non-goals
 
@@ -126,6 +127,7 @@ used. Generated code includes provenance and license metadata where supported.
 ## PI-03/B — Add CI, linting, tests and dependency checks
 
 Recommended model: `gpt-5.6-sol`
+GitHub issue: [#9](https://github.com/shentschel/teddycloud/issues/9)
 
 Depends on: accepted PI-03/A.
 
@@ -182,6 +184,7 @@ remains locally buildable.
 ## PI-03/T — Pin tools and remove unsafe defaults
 
 Recommended model: `gpt-5.6-sol`
+GitHub issue: [#10](https://github.com/shentschel/teddycloud/issues/10)
 
 Depends on: PI-03/A and B, or their explicitly accepted checkpoint.
 
