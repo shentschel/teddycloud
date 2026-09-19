@@ -22,6 +22,10 @@ assumed.
 
 Current execution artifacts:
 
+- [PI-03 execution plan](pi-03-plan.md)
+- [PI-03 budget method](pi-03-budget.md)
+- [PI-03 review](pi-03-review.md)
+
 - [PI-02 execution plan](pi-02-plan.md)
 - [PI-02 contract inventory](pi-02-contract-inventory.md)
 - [PI-02 budget method](pi-02-budget.md)
