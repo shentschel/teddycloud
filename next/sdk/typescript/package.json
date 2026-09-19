@@ -1,0 +1,28 @@
+{
+  "name": "@teddycloud-next/sdk",
+  "version": "0.0.0",
+  "description": "Generated TeddyCloud Next TypeScript client scaffold",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "node --test test/*.test.mjs",
+    "lint": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "7.0.2"
+  },
+  "engines": {
+    "node": "24.21.0"
+  },
+  "license": "AGPL-3.0-only"
+}

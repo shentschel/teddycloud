@@ -33,3 +33,8 @@ fake-server-tb2/*
 /dev-sandbox/.teddycloud-native.pid
 *.pcap
 .pi-automation-state.json
+
+# TeddyCloud Next generated output and package caches
+/next/dist/
+/next/node_modules/
+/next/**/node_modules/

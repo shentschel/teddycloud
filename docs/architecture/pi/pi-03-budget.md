@@ -1,6 +1,6 @@
 # PI-03 budget and admission
 
-Status: R refined; A/B/T not admitted by this document
+Status: R and A executed; B/T not admitted by this document
 
 PI-03 follows the [PI-00 measurement method](pi-00-budget.md). Exact account
 usage, reset identifiers and agent run IDs remain in ignored local automation
@@ -36,3 +36,12 @@ do not duplicate its issue or restart completed work.
 No reset credits, purchased credits or API billing are authorized. Release,
 deployment and production validation remain outside this PI.
 
+## A observation
+
+A completed as one bounded scaffold slice. The host had no usable Linux Go,
+Node, pnpm or Make installation, so verification used checksum-validated official
+Go and Node archives plus temporary pnpm and GNU Make extraction under `/tmp`.
+No system package, credit or production host was used. Dependency restore and a
+clean local check completed within the admitted cap. This is one local engineering
+observation, not a CI, clean-host or future-sprint cost guarantee. Recheck both
+live windows before admitting B and continue to reserve T.

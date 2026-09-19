@@ -1,0 +1,24 @@
+{
+  "name": "@teddycloud-next/sdk",
+  "version": "0.0.0",
+  "description": "Generated TeddyCloud Next TypeScript client scaffold",
+  "type": "module",
+  "types": "./index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    }
+  },
+  "files": [
+    "*.js",
+    "*.js.map",
+    "*.d.ts",
+    "*.d.ts.map",
+    "README.md"
+  ],
+  "engines": {
+    "node": "24.21.0"
+  },
+  "license": "AGPL-3.0-only"
+}
