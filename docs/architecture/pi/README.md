@@ -22,6 +22,10 @@ assumed.
 
 Current execution artifacts:
 
+- [PI-04 execution plan](pi-04-plan.md)
+- [PI-04 budget method](pi-04-budget.md)
+- [PI-04 review](pi-04-review.md)
+
 - [PI-03 execution plan](pi-03-plan.md)
 - [PI-03 budget method](pi-03-budget.md)
 - [PI-03 review](pi-03-review.md)
@@ -52,8 +56,9 @@ Current execution artifacts:
 GitHub Issues are enabled in this fork. The [PI-01 backlog](pi-01-backlog.md)
 links the four open findings; the [PI-02 plan](pi-02-plan.md) links its three
 completed sprint tasks, and the [PI-03 plan](pi-03-plan.md) links its three
-delivery tasks; A and B are complete, while T remains open. Search by stable ID
-before creating any further issue.
+delivery tasks; R/A/B/T are complete according to its review. The
+[PI-04 plan](pi-04-plan.md) links its open A/B/T tasks as issues #11-#13.
+Search by stable ID before creating any further issue.
 Run `python3 scripts/check_architecture_docs.py` before publishing architecture
 changes. The path-scoped documentation workflow runs the same check without
 creating release artifacts.
