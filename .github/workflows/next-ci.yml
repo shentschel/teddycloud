@@ -29,7 +29,7 @@ env:
   PNPM_VERSION: "12.4.2"
   PYTHON_VERSION: "3.14.4"
   PNPM: "corepack pnpm"
-  COREPACK_HOME: ${{ runner.temp }}/corepack
+  COREPACK_HOME: ${{ github.workspace }}/next/.cache/corepack
   PYTHONDONTWRITEBYTECODE: "1"
   PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/next/.cache/ms-playwright
 
@@ -64,7 +64,7 @@ jobs:
         with:
           path: |
             ${{ runner.temp }}/pnpm-store
-            ${{ runner.temp }}/corepack
+            next/.cache/corepack
           key: ${{ runner.os }}-node-${{ env.NODE_VERSION }}-pnpm-${{ hashFiles('next/package.json', 'next/pnpm-lock.yaml') }}
 
       - name: Verify pinned pnpm through Corepack
@@ -132,7 +132,7 @@ jobs:
         with:
           path: |
             ${{ runner.temp }}/pnpm-store
-            ${{ runner.temp }}/corepack
+            next/.cache/corepack
           key: ${{ runner.os }}-node-${{ env.NODE_VERSION }}-pnpm-${{ hashFiles('next/package.json', 'next/pnpm-lock.yaml') }}
 
       - name: Verify pinned pnpm through Corepack
@@ -174,7 +174,7 @@ jobs:
         with:
           path: |
             ${{ runner.temp }}/pnpm-store
-            ${{ runner.temp }}/corepack
+            next/.cache/corepack
           key: ${{ runner.os }}-node-${{ env.NODE_VERSION }}-pnpm-${{ hashFiles('next/package.json', 'next/pnpm-lock.yaml') }}
 
       - name: Verify pinned pnpm through Corepack
