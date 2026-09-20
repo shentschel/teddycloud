@@ -1,6 +1,6 @@
 # PI-03 budget and admission
 
-Status: R/A/B executed; T checkpoint delivered and under final verification
+Status: R/A/B/T executed; PI-03 complete
 
 PI-03 follows the [PI-00 measurement method](pi-00-budget.md). Exact account
 usage, reset identifiers and agent run IDs remain in ignored local automation
@@ -61,5 +61,5 @@ T was admitted after B's green remote run with a bounded five-hour and weekly
 cap. The agent stopped at the requested checkpoint before the cap. It delivered
 immutable action pins, exact runtime/tool pins, a locked `govulncheck` tool
 module, disabled JavaScript lifecycle scripts and a two-directory byte
-reproducibility gate. Parent verification and remote CI remain required before
-completion; no reset credit or paid capacity was used.
+reproducibility gate. Parent verification and remote CI completed successfully;
+no reset credit or paid capacity was used.

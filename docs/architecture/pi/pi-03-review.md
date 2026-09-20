@@ -1,7 +1,7 @@
 # PI-03 review
 
-Status: B complete; T implementation checkpoint under verification
-Milestone: not accepted
+Status: complete
+Milestone: accepted
 
 ## R outcome
 
@@ -24,9 +24,9 @@ verification, compatibility, rollback and security requirements.
 | Task | State | Evidence |
 | --- | --- | --- |
 | PI-03/R | complete | plan, budget and this review skeleton |
-| PI-03/A | complete locally | additive scaffold, locks, generator, local checks and artifacts |
+| PI-03/A | complete | additive scaffold, locks, generator, local checks and artifacts |
 | PI-03/B | complete | local gates plus remote CI and browser evidence |
-| PI-03/T | checkpoint | hardening and reproducibility implementation; remote CI pending |
+| PI-03/T | complete | immutable pins, locked tools, byte reproducibility and green remote CI |
 
 ## A outcome
 
@@ -99,17 +99,14 @@ smoke, artifact creation/validation and seven-day artifact upload. The separate
 network advisory job also passed. Artifact `10595366382` contains the integrated
 layout and manifest for commit `91d97f9` and expires after seven days.
 
-## Open evidence and acceptance decision
+## Acceptance decision
 
-The following prevent milestone acceptance:
-
-- The two-environment reproducibility comparison and final pin/security audit
-  remain T scope.
-- A's SDK package name is a local workspace identity. Public registry ownership
-  and publication remain deliberately undecided until a later release PI.
-
-PI-03 remains incomplete until A, B and T satisfy the milestone evidence in the
-plan. R changes only documentation; rollback is a documentation revert.
+PI-03 is accepted. A clean Next workspace generates, builds, checks, tests,
+packages and reproduces its non-release artifacts using documented exact tools.
+Generated SDK drift and forbidden Web/backend coupling fail deterministic gates.
+No legacy build, deployment, schema, production data or release path changed.
+A's SDK package name remains a local workspace identity; public registry
+ownership and publication are deliberately deferred to a later release PI.
 
 ## T checkpoint
 
@@ -132,6 +129,8 @@ plan. R changes only documentation; rollback is a documentation revert.
   caches contain only dependency/browser downloads and evidence retention
   remains seven days.
 
-Final acceptance still requires the reviewed commit to pass the deterministic,
-browser, reproducibility and advisory jobs in remote CI. No deferred
-high-severity security or supply-chain finding is known at this checkpoint.
+Remote [Next CI run 35479744336](https://github.com/shentschel/teddycloud/actions/runs/35479744336)
+passed its deterministic/browser, two-work-directory reproducibility and
+network advisory jobs for commit `9c92632`. Evidence artifact `10595074636`
+contains the integrated layout and digest manifest and expires after seven
+days. No unresolved high-severity security or supply-chain finding is known.
