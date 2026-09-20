@@ -1,6 +1,6 @@
 # PI-04 budget and admission
 
-Status: R/A complete; B local checkpoint within revised estimate; T not admitted
+Status: R/A/B complete within revised estimates; T not admitted
 
 PI-04 uses the measurement method from PI-00. Exact account usage, reset
 identifiers, request IDs and agent IDs remain in ignored local automation state.

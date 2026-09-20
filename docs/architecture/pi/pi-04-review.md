@@ -1,6 +1,6 @@
 # PI-04 review
 
-Status: R/A complete; B implemented locally, remote CI pending; T not started
+Status: R/A/B complete; T not started
 Milestone: not accepted
 Phase gate: Gate A not accepted
 
@@ -34,7 +34,7 @@ second membership model or synthetic Boxine model IDs.
 | --- | --- | --- |
 | PI-04/R | complete | plan, budget, this review, issues #11-#13 and green docs CI |
 | PI-04/A | complete | commit `a12d773`; green Next CI run 35510774321 and architecture CI run 35510774314 |
-| PI-04/B | local validation complete | pure Set, Assignment, evidence and sanitized migration packages; remote CI pending |
+| PI-04/B | complete | commit `59abd77`; green Next CI run 35529019182 and architecture CI run 35529019417 |
 | PI-04/T | not started | no final audit |
 
 ## Validation and open evidence
@@ -90,5 +90,7 @@ identifier or final PI-13 wire vocabulary was introduced.
 
 Unit tests, four bounded fuzz runs, the architecture boundary, full `next`
 checks, artifact verification, two-directory reproducibility, documentation
-validation and diff validation pass locally. B remains a checkpoint until its
-published commit passes remote CI.
+validation and diff validation pass locally. Commit `59abd77` passed
+[Next CI run 35529019182](https://github.com/shentschel/teddycloud/actions/runs/35529019182)
+and
+[architecture CI run 35529019417](https://github.com/shentschel/teddycloud/actions/runs/35529019417).
