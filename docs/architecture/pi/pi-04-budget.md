@@ -1,6 +1,6 @@
 # PI-04 budget and admission
 
-Status: R/A complete within cap; B/T not admitted
+Status: R/A complete; B local checkpoint within revised estimate; T not admitted
 
 PI-04 uses the measurement method from PI-00. Exact account usage, reset
 identifiers, request IDs and agent IDs remain in ignored local automation state.
@@ -57,3 +57,13 @@ architecture, artifact and reproducibility checks. No unused allowance is
 transferred to B: B still requires a fresh reading of both live windows while
 preserving the full T, integration and final-margin reserves. Exact account and
 dispatch observations remain only in ignored local state.
+
+## B observation
+
+B was admitted after a verified five-hour reset using comparable Astra delivery
+samples plus the integration variance observed in A. The agent stopped at its
+explicit cap with a compiling checkpoint. Parent integration corrected one
+cross-record acceptance seam, added its regression test and completed fuzz,
+workspace, artifact and reproducibility validation within the revised
+end-to-end B estimate. This actual is retained for recalibrating later Astra
+relationship/migration work; it does not reduce the reserved T allowance.

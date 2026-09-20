@@ -1,6 +1,6 @@
 # PI-04 review
 
-Status: R/A complete; B/T not started
+Status: R/A complete; B implemented locally, remote CI pending; T not started
 Milestone: not accepted
 Phase gate: Gate A not accepted
 
@@ -34,7 +34,7 @@ second membership model or synthetic Boxine model IDs.
 | --- | --- | --- |
 | PI-04/R | complete | plan, budget, this review, issues #11-#13 and green docs CI |
 | PI-04/A | complete | commit `a12d773`; green Next CI run 35510774321 and architecture CI run 35510774314 |
-| PI-04/B | not started | no relationship/migration prototype |
+| PI-04/B | local validation complete | pure Set, Assignment, evidence and sanitized migration packages; remote CI pending |
 | PI-04/T | not started | no final audit |
 
 ## Validation and open evidence
@@ -71,3 +71,24 @@ introduced. Commit `a12d773` passed
 [Next CI run 35510774321](https://github.com/shentschel/teddycloud/actions/runs/35510774321)
 and
 [architecture CI run 35510774314](https://github.com/shentschel/teddycloud/actions/runs/35510774314).
+
+## B checkpoint
+
+PI-04/B adds ordered Set-to-Content relations, immutable effective-dated
+Assignment history, provenance-bearing observations and accepted facts, and a
+read-only in-memory legacy migration seam. Sanitized fixtures cover a normal
+Original, a protected Custom Card, duplicate physical/logical tags, unavailable
+TAF/source state, crossed and unequal audio/hash arrays, conflicting evidence
+and a four-member Set with independent Content identities.
+
+Migration outcomes retain raw records and source references while reporting
+accepted, review-required, ambiguous or rejected reasons deterministically.
+Tracks never create Set membership, the Set article is not copied into member
+models, and a Set is not published when any referenced member fails acceptance.
+No persistence, HTTP, filesystem, provider call, destructive dedupe, production
+identifier or final PI-13 wire vocabulary was introduced.
+
+Unit tests, four bounded fuzz runs, the architecture boundary, full `next`
+checks, artifact verification, two-directory reproducibility, documentation
+validation and diff validation pass locally. B remains a checkpoint until its
+published commit passes remote CI.
