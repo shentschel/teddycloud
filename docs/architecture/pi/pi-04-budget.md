@@ -1,6 +1,6 @@
 # PI-04 budget and admission
 
-Status: R/A/B complete within revised estimates; T not admitted
+Status: R/A/B complete; B exceeded its revised estimate; T not admitted
 
 PI-04 uses the measurement method from PI-00. Exact account usage, reset
 identifiers, request IDs and agent IDs remain in ignored local automation state.
@@ -64,6 +64,8 @@ B was admitted after a verified five-hour reset using comparable Astra delivery
 samples plus the integration variance observed in A. The agent stopped at its
 explicit cap with a compiling checkpoint. Parent integration corrected one
 cross-record acceptance seam, added its regression test and completed fuzz,
-workspace, artifact and reproducibility validation within the revised
-end-to-end B estimate. This actual is retained for recalibrating later Astra
-relationship/migration work; it does not reduce the reserved T allowance.
+workspace, artifact, reproducibility, publication and remote-CI validation.
+End-to-end consumption exceeded the revised B estimate, so later Astra
+relationship/migration work must use this larger observed total plus uncertainty
+rather than the earlier delivery sample. The variance does not reduce or borrow
+from the reserved T allowance.
