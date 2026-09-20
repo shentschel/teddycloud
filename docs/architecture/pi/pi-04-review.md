@@ -1,6 +1,6 @@
 # PI-04 review
 
-Status: R complete locally; A/B/T not started
+Status: R complete; A/B/T not started
 Milestone: not accepted
 Phase gate: Gate A not accepted
 
@@ -32,7 +32,7 @@ second membership model or synthetic Boxine model IDs.
 
 | Task | State | Evidence |
 | --- | --- | --- |
-| PI-04/R | complete locally | plan, budget, this review and issues #11-#13 |
+| PI-04/R | complete | plan, budget, this review, issues #11-#13 and green docs CI |
 | PI-04/A | not started | no domain implementation |
 | PI-04/B | not started | no relationship/migration prototype |
 | PI-04/T | not started | no final audit |
@@ -44,7 +44,8 @@ searches found no existing PI-04 tasks, and issues
 [#11](https://github.com/shentschel/teddycloud/issues/11),
 [#12](https://github.com/shentschel/teddycloud/issues/12) and
 [#13](https://github.com/shentschel/teddycloud/issues/13) now carry the routed
-delivery scopes. Publication and green documentation CI remain required.
+delivery scopes. Commit `f22f2fc` passed
+[architecture CI run 35494117118](https://github.com/shentschel/teddycloud/actions/runs/35494117118).
 
 No code, database schema, production migration, hardware/cloud call or legacy
 mutation belongs to R. The milestone and Gate A remain open until the executable

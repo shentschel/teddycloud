@@ -1,6 +1,6 @@
 # PI-04 budget and admission
 
-Status: R complete locally; A/B/T not admitted
+Status: R complete; A/B/T not admitted
 
 PI-04 uses the measurement method from PI-00. Exact account usage, reset
 identifiers, request IDs and agent IDs remain in ignored local automation state.
@@ -45,6 +45,6 @@ The first Astra refinement dispatch hit its bounded checkpoint without producing
 the three planned PI files because its file-creation patch failed. The
 orchestrator recovered the documentation from the accepted roadmap, ADRs,
 Set-metadata exploration and PI-02 evidence. This R remains incomplete until the
-recovered artifacts passed local review and documentation validation. R remains
-open until publication and green documentation CI. The failed dispatch is
-retained only in ignored local state and must not be repeated.
+recovered artifacts passed local review, publication and documentation CI. The
+failed dispatch is retained only in ignored local state and must not be
+repeated.
