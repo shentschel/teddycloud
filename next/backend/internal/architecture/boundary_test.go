@@ -21,9 +21,16 @@ func TestDomainDoesNotImportAdaptersOrTransports(t *testing.T) {
 	domainRoot := filepath.Clean(filepath.Join(filepath.Dir(filename), "..", "domain"))
 	forbidden := []string{
 		"database/sql",
+		"io/fs",
+		"log",
+		"log/slog",
 		"net/http",
+		"os",
+		"path",
+		"path/filepath",
 		"github.com/shentschel/teddycloud/next/backend/internal/adapters",
 	}
+	const domainPrefix = "github.com/shentschel/teddycloud/next/backend/internal/domain/"
 
 	err := filepath.WalkDir(domainRoot, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -45,6 +52,10 @@ func TestDomainDoesNotImportAdaptersOrTransports(t *testing.T) {
 				if name == prefix || strings.HasPrefix(name, prefix+"/") {
 					t.Errorf("domain file %s imports forbidden package %s", path, name)
 				}
+			}
+			firstSegment := strings.SplitN(name, "/", 2)[0]
+			if strings.Contains(firstSegment, ".") && !strings.HasPrefix(name, domainPrefix) {
+				t.Errorf("domain file %s imports non-domain or third-party package %s", path, name)
 			}
 		}
 		return nil

@@ -1,6 +1,6 @@
 # PI-04 budget and admission
 
-Status: R complete; A/B/T not admitted
+Status: R complete; A local checkpoint within cap; B/T not admitted
 
 PI-04 uses the measurement method from PI-00. Exact account usage, reset
 identifiers, request IDs and agent IDs remain in ignored local automation state.
@@ -48,3 +48,12 @@ Set-metadata exploration and PI-02 evidence. This R remains incomplete until the
 recovered artifacts passed local review, publication and documentation CI. The
 failed dispatch is retained only in ignored local state and must not be
 repeated.
+
+## A observation
+
+The bounded Sol dispatch produced the planned pure-Go value objects and tests
+and stopped before its cap. Parent integration independently reran unit, fuzz,
+architecture, artifact and reproducibility checks. No unused allowance is
+transferred to B: B still requires a fresh reading of both live windows while
+preserving the full T, integration and final-margin reserves. Exact account and
+dispatch observations remain only in ignored local state.

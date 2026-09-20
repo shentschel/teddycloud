@@ -1,6 +1,6 @@
 # PI-04 execution plan
 
-Status: R complete; A/B/T not delivered
+Status: R complete; A implemented locally, remote CI pending; B/T not delivered
 Milestone: domain/schema prototype accepted
 Phase gate: Gate A — approved domain vocabulary and executable skeleton
 Repository: `shentschel/teddycloud`

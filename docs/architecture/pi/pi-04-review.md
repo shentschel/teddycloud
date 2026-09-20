@@ -1,6 +1,6 @@
 # PI-04 review
 
-Status: R complete; A/B/T not started
+Status: R complete; A implemented locally, remote CI pending; B/T not started
 Milestone: not accepted
 Phase gate: Gate A not accepted
 
@@ -33,7 +33,7 @@ second membership model or synthetic Boxine model IDs.
 | Task | State | Evidence |
 | --- | --- | --- |
 | PI-04/R | complete | plan, budget, this review, issues #11-#13 and green docs CI |
-| PI-04/A | not started | no domain implementation |
+| PI-04/A | local validation complete | dependency-free identity, tag-codec and catalog/version domain packages; remote CI pending |
 | PI-04/B | not started | no relationship/migration prototype |
 | PI-04/T | not started | no final audit |
 
@@ -51,3 +51,20 @@ No code, database schema, production migration, hardware/cloud call or legacy
 mutation belongs to R. The milestone and Gate A remain open until the executable
 domain prototype, sanitized migration evidence, technical audit and all CI
 evidence in the plan are complete.
+
+## A checkpoint
+
+PI-04/A adds opaque `TagID`, `ContentID`, `ContentVersionID` and `ProductID`
+value objects; strict eight-byte UID/rUID codecs; typed model, article, audio ID
+and hash observations; immutable Content/ContentVersion values; and a
+deterministic in-memory revision index. Exact-pair and audio-ID lookups return
+typed no-match, unique or ambiguous outcomes. Crossed pairs do not match,
+duplicate candidates are deterministic, and explicit ordering evidence is the
+only source of version order.
+
+Unit tests, three bounded fuzz runs, the architecture boundary, the full
+`next` check, artifact verification, two-directory reproducibility,
+architecture-document validation and diff validation pass locally. The code is
+pure additive domain work: no persistence, HTTP, filesystem, logging,
+third-party dependency, production identifier or legacy-file mutation was
+introduced. A remains a checkpoint until its published commit passes remote CI.
