@@ -8,9 +8,13 @@ PYTHON ?= python3
 GO_VERSION := go1.27.1
 NODE_VERSION := v24.21.0
 PNPM_VERSION := 12.4.2
+GOVULNCHECK_VERSION := v1.8.0
 DIST := $(CURDIR)/dist
+BROWSER_CACHE := $(CURDIR)/.cache/ms-playwright
 
-.PHONY: bootstrap generate generate-check build test lint check clean verify-tools
+.PHONY: bootstrap generate generate-check build test lint check clean verify-tools \
+	contract-check workspace-check quality-gate-tests license-check browser-install \
+	browser-smoke advisory artifact artifact-check
 
 verify-tools:
 	@test "$$($(GO) version | awk '{print $$3}')" = "$(GO_VERSION)" || \
@@ -39,6 +43,20 @@ build: verify-tools generate-check
 	cp sdk/typescript/README.md $(DIST)/sdk/README.md
 	cd $(DIST)/sdk && $(PNPM) pack --pack-destination ../sdk-package
 
+contract-check:
+	$(PYTHON) tools/validate_contract.py contracts/openapi.json
+
+workspace-check:
+	$(PYTHON) tools/check_workspace_boundaries.py
+
+quality-gate-tests:
+	$(PYTHON) -m unittest discover -s tests -p 'test_*.py' -v
+
+license-check: verify-tools
+	@mkdir -p $(DIST)/reports
+	$(PNPM) licenses list --json > $(DIST)/reports/js-licenses.json
+	$(PYTHON) tools/check_licenses.py $(DIST)/reports/js-licenses.json
+
 test: verify-tools generate-check
 	$(GO) test ./backend/...
 	$(PNPM) run test
@@ -49,7 +67,23 @@ lint: verify-tools generate-check
 	$(GO) vet ./backend/...
 	$(PNPM) run lint
 
-check: lint test build
+check: contract-check quality-gate-tests workspace-check lint test build license-check
+
+browser-install: verify-tools
+	PLAYWRIGHT_BROWSERS_PATH=$(BROWSER_CACHE) $(PNPM) exec playwright install chromium
+
+browser-smoke: verify-tools build
+	PLAYWRIGHT_BROWSERS_PATH=$(BROWSER_CACHE) $(PNPM) run browser:test
+
+advisory: verify-tools
+	cd backend && $(GO) run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
+	$(PNPM) audit --audit-level high
+
+artifact: build
+	$(PYTHON) tools/artifact_manifest.py create
+
+artifact-check:
+	$(PYTHON) tools/artifact_manifest.py verify
 
 clean:
 	rm -rf $(DIST)

@@ -1,6 +1,6 @@
 # PI-03 review
 
-Status: A complete locally; B/T not started
+Status: B local checkpoint complete; remote browser/CI evidence pending; T not started
 Milestone: not accepted
 
 ## R outcome
@@ -25,7 +25,7 @@ verification, compatibility, rollback and security requirements.
 | --- | --- | --- |
 | PI-03/R | complete | plan, budget and this review skeleton |
 | PI-03/A | complete locally | additive scaffold, locks, generator, local checks and artifacts |
-| PI-03/B | not started | no next-only CI or remote run evidence |
+| PI-03/B | local checkpoint | deterministic/advisory/artifact checks pass; browser and remote CI pending |
 | PI-03/T | not started | no pin/reproducibility/security audit |
 
 ## A outcome
@@ -62,14 +62,45 @@ The built executable returned the expected lower-case health/build metadata.
 Browser/runtime, remote CI, dependency advisory, reproducibility comparison,
 migration, hardware and deployment checks remain outside A.
 
+## B outcome
+
+- New path-scoped `.github/workflows/next-ci.yml` has read-only contents
+  permission, cancellation concurrency, explicit job timeouts, lock-keyed pnpm,
+  Go and browser caches, and no publish/deploy/write/secret step.
+- The required job restores locks and invokes the same `next/Makefile` check,
+  browser and artifact commands documented for local use. Its non-release
+  artifact retention is seven days.
+- Deterministic checks cover Go format/vet/tests, TypeScript types/tests/build,
+  OpenAPI structure, SDK drift, Web-to-SDK boundaries, dependency licenses and
+  five mutation proofs for custom negative gates.
+- Playwright `1.63.0` pins bundled Chromium `v1243`, viewport 1440 x 900 and
+  device scale 1. The test is a static load check and makes no performance claim.
+- `artifact` stages the backend/Web/contract application layout and compiled SDK
+  tarball under `next/dist/artifact`; `artifact-check` verifies its complete
+  sorted SHA-256 manifest.
+- Go `govulncheck v1.8.0` and locked pnpm audit run in a separate visible,
+  non-blocking network job. Local execution reported no known vulnerabilities.
+  The deterministic pnpm license allowlist passed.
+
+## B verification
+
+`make -C next clean check` passed, including five negative-gate tests, one Go
+architecture test and one typed SDK client test. `make -C next artifact
+artifact-check` passed for five payload files plus `SHA256SUMS`. The bundled
+Chromium and FFmpeg downloaded successfully, but local browser launch stopped
+before page creation because this host lacks `libnspr4.so`. The CI workflow uses
+Playwright's `--with-deps` installation on Ubuntu and must supply the required
+browser evidence after publication. No remote run exists at this checkpoint.
+
 ## Open evidence and acceptance decision
 
 The following prevent milestone acceptance:
 
-- No next-only CI run, browser smoke or artifact digest manifest exists; B owns
-  those gates.
-- No dependency advisory/license result or two-environment reproducibility
-  comparison exists; B/T own those gates.
+- No next-only remote CI run or successful browser launch exists yet; B remains
+  incomplete until the parent publishes this checkpoint and the required job is
+  green.
+- The two-environment reproducibility comparison and final pin/security audit
+  remain T scope.
 - A's SDK package name is a local workspace identity. Public registry ownership
   and publication remain deliberately undecided until a later release PI.
 

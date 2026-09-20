@@ -36,5 +36,6 @@ fake-server-tb2/*
 
 # TeddyCloud Next generated output and package caches
 /next/dist/
+/next/.cache/
 /next/node_modules/
 /next/**/node_modules/

@@ -10,7 +10,11 @@
   },
   "scripts": {
     "build": "pnpm --filter @teddycloud-next/sdk build && pnpm --filter @teddycloud-next/web build",
+    "browser:test": "playwright test",
     "test": "pnpm --filter @teddycloud-next/sdk build && pnpm --filter @teddycloud-next/sdk test",
     "lint": "pnpm --recursive lint"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0"
   }
 }

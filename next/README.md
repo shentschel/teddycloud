@@ -9,6 +9,7 @@ release ZIP, containers, production data or installed services.
 - Go `1.27.1` (`go1.27.1` toolchain)
 - Node.js `24.21.0` LTS
 - pnpm `12.4.2`, selected through the root `packageManager` field
+- Playwright `1.63.0` with its bundled Chromium build `v1243`
 - Python 3 for the repository-owned SDK generator `1.0.0`
 - GNU Make
 
@@ -27,7 +28,11 @@ make -C next generate   # derive the TypeScript client from OpenAPI
 make -C next build      # build backend, SDK, Web UI and SDK test package
 make -C next test       # Go tests and typed SDK client smoke test
 make -C next lint       # Go formatting/vet and TypeScript type checks
-make -C next check      # generation drift, lint, test and build
+make -C next check      # deterministic contracts, boundaries, licenses and build
+make -C next browser-install                 # install bundled Chromium locally
+make -C next browser-smoke                   # 1440x900, device scale 1 load test
+make -C next artifact artifact-check         # layout plus SHA-256 validation
+make -C next advisory                        # network Go/JS vulnerability queries
 make -C next clean      # remove next/dist only
 ```
 
@@ -35,6 +40,12 @@ make -C next clean      # remove next/dist only
 the network. Subsequent commands use the committed lockfile and installed cache.
 The repository-owned generator reads `contracts/openapi.json`; it has no package
 dependency and emits `sdk/typescript/src/generated.ts` with provenance.
+
+`check` also runs five mutation tests proving that stale generation, an invalid
+OpenAPI success response, direct Web API access, an unapproved license and a
+changed artifact digest are rejected. `advisory` is intentionally separate: it
+uses pinned `govulncheck v1.8.0` and the locked pnpm audit, but requires current
+network advisory services.
 
 ## Boundaries and output
 
@@ -48,6 +59,23 @@ dependency and emits `sdk/typescript/src/generated.ts` with provenance.
 - `web/` is a minimal React/TypeScript compile proof, not a production UI.
 - All build/test/package output is under ignored `next/dist/`. Package caches are
   ignored separately. Nothing is copied into legacy or production paths.
+- `artifact` stages `dist/artifact/application`, the compiled SDK tarball and a
+  sorted `SHA256SUMS`; `artifact-check` rejects missing, added or changed files.
 
-PI-03/A does not publish packages, run a server, access a live host, use secrets,
-change schemas/data or add a CI/release workflow.
+## Local and CI support
+
+| Gate | Local reproduction | CI behavior |
+| --- | --- | --- |
+| Locked restore | `make -C next bootstrap` | required, pnpm/Go caches keyed by lock/module files |
+| Deterministic acceptance | `make -C next clean check` | required, 25-minute timeout |
+| Browser load | `make -C next browser-install browser-smoke` | required; CI installs Chromium host libraries |
+| Artifact | `make -C next artifact artifact-check` | required; uploaded for 7 days as non-release evidence |
+| Advisories | `make -C next advisory` | separate, visible non-blocking network job |
+
+The browser check loads only built static files and verifies its viewport and
+device scale. It is not a performance measurement. The path-scoped workflow has
+read-only repository permission, cancellation concurrency and no publish,
+deployment or secret-bearing step.
+
+PI-03 does not publish packages, access a live host, use secrets, change
+schemas/data or invoke a legacy release workflow.

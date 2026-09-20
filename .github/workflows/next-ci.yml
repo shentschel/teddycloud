@@ -1,0 +1,119 @@
+name: TeddyCloud Next CI
+
+on:
+  pull_request:
+    paths:
+      - "next/**"
+      - "docs/architecture/pi/pi-03-*.md"
+      - ".github/workflows/next-ci.yml"
+  push:
+    branches:
+      - master
+      - develop
+      - "docs/pi-*"
+    paths:
+      - "next/**"
+      - "docs/architecture/pi/pi-03-*.md"
+      - ".github/workflows/next-ci.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: next-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GO_VERSION: "1.27.1"
+  NODE_VERSION: "24.21.0"
+  PNPM_VERSION: "12.4.2"
+  PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/next/.cache/ms-playwright
+
+jobs:
+  deterministic:
+    name: Deterministic build and smoke checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: next/backend/go.mod
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Activate pinned pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@${PNPM_VERSION} --activate
+          pnpm config set store-dir "${RUNNER_TEMP}/pnpm-store"
+
+      - name: Cache pnpm store
+        uses: actions/cache@v5
+        with:
+          path: ${{ runner.temp }}/pnpm-store
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('next/pnpm-lock.yaml') }}
+
+      - name: Cache bundled Chromium
+        uses: actions/cache@v5
+        with:
+          path: next/.cache/ms-playwright
+          key: ${{ runner.os }}-chromium-${{ hashFiles('next/pnpm-lock.yaml') }}
+
+      - name: Restore locked dependencies
+        run: make -C next bootstrap
+
+      - name: Install Playwright Chromium and host libraries
+        working-directory: next
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run deterministic workspace gates
+        run: make -C next check
+
+      - name: Run pinned browser load smoke
+        run: make -C next browser-smoke
+
+      - name: Build and validate non-release artifact
+        run: make -C next artifact artifact-check
+
+      - name: Upload non-release evidence
+        uses: actions/upload-artifact@v7
+        with:
+          name: teddycloud-next-${{ github.sha }}
+          path: next/dist/artifact
+          if-no-files-found: error
+          retention-days: 7
+
+  advisory:
+    name: Network advisory checks
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: next/backend/go.mod
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Activate pinned pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@${PNPM_VERSION} --activate
+
+      - name: Restore locked dependencies
+        run: make -C next bootstrap
+
+      - name: Query locked dependency advisories
+        run: make -C next advisory
