@@ -1,6 +1,6 @@
 # PI-03 review
 
-Status: B local checkpoint complete; remote browser/CI evidence pending; T not started
+Status: B complete; T not started
 Milestone: not accepted
 
 ## R outcome
@@ -25,7 +25,7 @@ verification, compatibility, rollback and security requirements.
 | --- | --- | --- |
 | PI-03/R | complete | plan, budget and this review skeleton |
 | PI-03/A | complete locally | additive scaffold, locks, generator, local checks and artifacts |
-| PI-03/B | local checkpoint | deterministic/advisory/artifact checks pass; browser and remote CI pending |
+| PI-03/B | complete | local gates plus remote CI and browser evidence |
 | PI-03/T | not started | no pin/reproducibility/security audit |
 
 ## A outcome
@@ -90,15 +90,19 @@ artifact-check` passed for five payload files plus `SHA256SUMS`. The bundled
 Chromium and FFmpeg downloaded successfully, but local browser launch stopped
 before page creation because this host lacks `libnspr4.so`. The CI workflow uses
 Playwright's `--with-deps` installation on Ubuntu and must supply the required
-browser evidence after publication. No remote run exists at this checkpoint.
+browser evidence after publication.
+
+Remote [Next CI run 35478551044](https://github.com/shentschel/teddycloud/actions/runs/35478551044)
+completed successfully. Its required job passed locked restore, Chromium host
+library installation, deterministic workspace gates, the 1440 x 900 browser
+smoke, artifact creation/validation and seven-day artifact upload. The separate
+network advisory job also passed. Artifact `10595366382` contains the integrated
+layout and manifest for commit `91d97f9` and expires after seven days.
 
 ## Open evidence and acceptance decision
 
 The following prevent milestone acceptance:
 
-- No next-only remote CI run or successful browser launch exists yet; B remains
-  incomplete until the parent publishes this checkpoint and the required job is
-  green.
 - The two-environment reproducibility comparison and final pin/security audit
   remain T scope.
 - A's SDK package name is a local workspace identity. Public registry ownership

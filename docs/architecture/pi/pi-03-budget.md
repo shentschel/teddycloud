@@ -1,6 +1,6 @@
 # PI-03 budget and admission
 
-Status: R/A executed; B at local checkpoint; T not admitted by this document
+Status: R/A/B executed; T not admitted by this document
 
 PI-03 follows the [PI-00 measurement method](pi-00-budget.md). Exact account
 usage, reset identifiers and agent run IDs remain in ignored local automation
@@ -51,7 +51,6 @@ live windows before admitting B and continue to reserve T.
 B reached a bounded local checkpoint. Deterministic build, mutation, boundary,
 license, artifact and network advisory checks completed within its cap. The
 bundled Chromium downloaded, but this minimal host lacks `libnspr4.so`; local
-browser launch therefore did not run. The path-scoped CI job installs Chromium
-host libraries and is the required remaining browser/remote evidence after the
-parent publishes this checkpoint. Do not admit T from this documentation alone;
-recheck both live windows after B is published and CI has completed.
+browser launch therefore did not run. Remote CI installed the host libraries and
+passed the browser, deterministic, artifact and advisory jobs. Recheck both live
+windows before admitting T.

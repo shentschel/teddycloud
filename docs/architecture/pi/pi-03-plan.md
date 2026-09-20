@@ -1,6 +1,6 @@
 # PI-03 execution plan
 
-Status: R complete; A/B/T refined but not delivered
+Status: R/A/B complete; T refined but not delivered
 Milestone: empty TeddyCloud Next product builds reproducibly
 Repository: `shentschel/teddycloud`
 Recommended model for R/A/B/T: `gpt-5.6-sol`
