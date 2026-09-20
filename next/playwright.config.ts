@@ -13,7 +13,8 @@ export default defineConfig({
     viewport: { height: 900, width: 1440 },
   },
   webServer: {
-    command: "pnpm --filter @teddycloud-next/web exec vite preview --host 127.0.0.1 --port 4173",
+    command:
+      "corepack pnpm --filter @teddycloud-next/web exec vite preview --host 127.0.0.1 --port 4173",
     reuseExistingServer: false,
     timeout: 30_000,
     url: "http://127.0.0.1:4173",
