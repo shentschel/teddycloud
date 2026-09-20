@@ -1,6 +1,6 @@
 # PI-03 budget and admission
 
-Status: R/A/B executed; T not admitted by this document
+Status: R/A/B executed; T checkpoint delivered and under final verification
 
 PI-03 follows the [PI-00 measurement method](pi-00-budget.md). Exact account
 usage, reset identifiers and agent run IDs remain in ignored local automation
@@ -54,3 +54,12 @@ bundled Chromium downloaded, but this minimal host lacks `libnspr4.so`; local
 browser launch therefore did not run. Remote CI installed the host libraries and
 passed the browser, deterministic, artifact and advisory jobs. Recheck both live
 windows before admitting T.
+
+## T observation
+
+T was admitted after B's green remote run with a bounded five-hour and weekly
+cap. The agent stopped at the requested checkpoint before the cap. It delivered
+immutable action pins, exact runtime/tool pins, a locked `govulncheck` tool
+module, disabled JavaScript lifecycle scripts and a two-directory byte
+reproducibility gate. Parent verification and remote CI remain required before
+completion; no reset credit or paid capacity was used.

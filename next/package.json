@@ -3,16 +3,16 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "packageManager": "pnpm@12.4.2",
+  "packageManager": "pnpm@12.4.2+sha512.08adc6613180275c7c9edada39dcf08c9c61ad4e7eaf330a4f3461f102b0f907423454d117f98e72d47fef0616070644d7bffc973a6a57f5090a6d7c368b07c9",
   "engines": {
     "node": "24.21.0",
     "pnpm": "12.4.2"
   },
   "scripts": {
-    "build": "pnpm --filter @teddycloud-next/sdk build && pnpm --filter @teddycloud-next/web build",
+    "build": "corepack pnpm --filter @teddycloud-next/sdk build && corepack pnpm --filter @teddycloud-next/web build",
     "browser:test": "playwright test",
-    "test": "pnpm --filter @teddycloud-next/sdk build && pnpm --filter @teddycloud-next/sdk test",
-    "lint": "pnpm --recursive lint"
+    "test": "corepack pnpm --filter @teddycloud-next/sdk build && corepack pnpm --filter @teddycloud-next/sdk test",
+    "lint": "corepack pnpm --recursive lint"
   },
   "devDependencies": {
     "@playwright/test": "1.63.0"

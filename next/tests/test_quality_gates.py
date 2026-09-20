@@ -15,6 +15,7 @@ import artifact_manifest  # noqa: E402
 import check_licenses  # noqa: E402
 import check_workspace_boundaries  # noqa: E402
 import generate_sdk  # noqa: E402
+import reproducibility_check  # noqa: E402
 import validate_contract  # noqa: E402
 
 
@@ -60,6 +61,18 @@ class QualityGateNegativeTests(unittest.TestCase):
             output = Path(directory) / "generated.ts"
             output.write_text("stale\n", encoding="utf-8")
             self.assertNotEqual(output.read_text(encoding="utf-8"), generate_sdk.render())
+
+    def test_reproducibility_gate_rejects_changed_or_missing_file(self) -> None:
+        self.assertEqual(
+            reproducibility_check.differences(
+                {"application/bin": "same", "sdk/package.tgz": "before"},
+                {"application/bin": "same", "contract.json": "new"},
+            ),
+            [
+                "digest mismatch: contract.json: None != new",
+                "digest mismatch: sdk/package.tgz: before != None",
+            ],
+        )
 
 
 if __name__ == "__main__":

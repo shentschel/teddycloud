@@ -27,40 +27,53 @@ env:
   GO_VERSION: "1.27.1"
   NODE_VERSION: "24.21.0"
   PNPM_VERSION: "12.4.2"
+  PYTHON_VERSION: "3.14.4"
+  PNPM: "corepack pnpm"
+  COREPACK_HOME: ${{ runner.temp }}/corepack
+  PYTHONDONTWRITEBYTECODE: "1"
   PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/next/.cache/ms-playwright
 
 jobs:
   deterministic:
     name: Deterministic build and smoke checks
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
-          cache-dependency-path: next/backend/go.mod
+          cache-dependency-path: |
+            next/backend/go.mod
+            next/tools/go.mod
+            next/tools/go.sum
+            next/go.work
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: ${{ env.NODE_VERSION }}
 
-      - name: Activate pinned pnpm
-        run: |
-          corepack enable
-          corepack prepare pnpm@${PNPM_VERSION} --activate
-          pnpm config set store-dir "${RUNNER_TEMP}/pnpm-store"
-
-      - name: Cache pnpm store
-        uses: actions/cache@v5
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
-          path: ${{ runner.temp }}/pnpm-store
-          key: ${{ runner.os }}-pnpm-${{ hashFiles('next/pnpm-lock.yaml') }}
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Cache pnpm and Corepack downloads
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: |
+            ${{ runner.temp }}/pnpm-store
+            ${{ runner.temp }}/corepack
+          key: ${{ runner.os }}-node-${{ env.NODE_VERSION }}-pnpm-${{ hashFiles('next/package.json', 'next/pnpm-lock.yaml') }}
+
+      - name: Verify pinned pnpm through Corepack
+        run: |
+          corepack pnpm --version
+          corepack pnpm config set store-dir "${RUNNER_TEMP}/pnpm-store"
 
       - name: Cache bundled Chromium
-        uses: actions/cache@v5
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: next/.cache/ms-playwright
           key: ${{ runner.os }}-chromium-${{ hashFiles('next/pnpm-lock.yaml') }}
@@ -70,7 +83,7 @@ jobs:
 
       - name: Install Playwright Chromium and host libraries
         working-directory: next
-        run: pnpm exec playwright install --with-deps chromium
+        run: corepack pnpm exec playwright install --with-deps chromium
 
       - name: Run deterministic workspace gates
         run: make -C next check
@@ -82,35 +95,92 @@ jobs:
         run: make -C next artifact artifact-check
 
       - name: Upload non-release evidence
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: teddycloud-next-${{ github.sha }}
           path: next/dist/artifact
           if-no-files-found: error
           retention-days: 7
 
-  advisory:
-    name: Network advisory checks
-    continue-on-error: true
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+  reproducibility:
+    name: Two-work-directory reproducibility
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
-          cache-dependency-path: next/backend/go.mod
+          cache-dependency-path: |
+            next/backend/go.mod
+            next/tools/go.mod
+            next/tools/go.sum
+            next/go.work
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: ${{ env.NODE_VERSION }}
 
-      - name: Activate pinned pnpm
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Cache pnpm and Corepack downloads
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: |
+            ${{ runner.temp }}/pnpm-store
+            ${{ runner.temp }}/corepack
+          key: ${{ runner.os }}-node-${{ env.NODE_VERSION }}-pnpm-${{ hashFiles('next/package.json', 'next/pnpm-lock.yaml') }}
+
+      - name: Verify pinned pnpm through Corepack
         run: |
-          corepack enable
-          corepack prepare pnpm@${PNPM_VERSION} --activate
+          corepack pnpm --version
+          corepack pnpm config set store-dir "${RUNNER_TEMP}/pnpm-store"
+
+      - name: Compare two fresh artifact builds
+        run: make -C next reproducibility-check
+
+  advisory:
+    name: Network advisory checks
+    continue-on-error: true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: |
+            next/backend/go.mod
+            next/tools/go.mod
+            next/tools/go.sum
+            next/go.work
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Cache pnpm and Corepack downloads
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: |
+            ${{ runner.temp }}/pnpm-store
+            ${{ runner.temp }}/corepack
+          key: ${{ runner.os }}-node-${{ env.NODE_VERSION }}-pnpm-${{ hashFiles('next/package.json', 'next/pnpm-lock.yaml') }}
+
+      - name: Verify pinned pnpm through Corepack
+        run: |
+          corepack pnpm --version
+          corepack pnpm config set store-dir "${RUNNER_TEMP}/pnpm-store"
 
       - name: Restore locked dependencies
         run: make -C next bootstrap

@@ -1,6 +1,6 @@
 # PI-03 review
 
-Status: B complete; T not started
+Status: B complete; T implementation checkpoint under verification
 Milestone: not accepted
 
 ## R outcome
@@ -26,7 +26,7 @@ verification, compatibility, rollback and security requirements.
 | PI-03/R | complete | plan, budget and this review skeleton |
 | PI-03/A | complete locally | additive scaffold, locks, generator, local checks and artifacts |
 | PI-03/B | complete | local gates plus remote CI and browser evidence |
-| PI-03/T | not started | no pin/reproducibility/security audit |
+| PI-03/T | checkpoint | hardening and reproducibility implementation; remote CI pending |
 
 ## A outcome
 
@@ -110,3 +110,28 @@ The following prevent milestone acceptance:
 
 PI-03 remains incomplete until A, B and T satisfy the milestone evidence in the
 plan. R changes only documentation; rollback is a documentation revert.
+
+## T checkpoint
+
+- Go `1.27.1`, Node `24.21.0`, pnpm `12.4.2` with registry SHA-512,
+  Corepack `0.36.0`, Python `3.14.4`, Playwright `1.63.0`/Chromium
+  `v1243`, generator `1.0.0` and `govulncheck v1.8.0` are reconciled
+  across manifests, commands, CI and documentation.
+- All third-party actions use immutable commit SHAs with reviewed release tags
+  in comments. CI uses the fixed `ubuntu-24.04` label. No container or base
+  image is used, so an image digest is not applicable.
+- Restore disables package lifecycle scripts. Corepack verifies the exact pnpm
+  package integrity without a mutable global install. The Go advisory tool and
+  transitive modules are locked by `next/tools/go.mod` and `go.sum`.
+- Workflow permissions remain read-only. No secret, publish, deployment,
+  production-directory or write-capable pull-request path was added.
+- A local reference run passed deterministic checks, six negative quality
+  tests, artifact validation and two fresh-directory builds. Both artifacts
+  contained the same six files with byte-identical SHA-256 digests.
+- Generated SDK provenance remains embedded. Dependency licenses are checked,
+  caches contain only dependency/browser downloads and evidence retention
+  remains seven days.
+
+Final acceptance still requires the reviewed commit to pass the deterministic,
+browser, reproducibility and advisory jobs in remote CI. No deferred
+high-severity security or supply-chain finding is known at this checkpoint.
