@@ -25,6 +25,7 @@ Current execution artifacts:
 - [PI-04 execution plan](pi-04-plan.md)
 - [PI-04 budget method](pi-04-budget.md)
 - [PI-04 review](pi-04-review.md)
+- [PI-04/T domain and migration-safety audit](pi-04-t-audit.md)
 
 - [PI-03 execution plan](pi-03-plan.md)
 - [PI-03 budget method](pi-03-budget.md)

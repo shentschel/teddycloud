@@ -35,7 +35,7 @@ func TestUIDRUIDCanonicalRoundTrip(t *testing.T) {
 }
 
 func TestPhysicalIdentifierRejectsMalformedAndOversizedInput(t *testing.T) {
-	uidCases := []string{"", "E00403501F9921B2", "E0:04:03:50:1F:99:21", "GG:04:03:50:1F:99:21:B2", strings.Repeat("A", 4096)}
+	uidCases := []string{"", "1122334455667788", "11:22:33:44:55:66:77", "GG:22:33:44:55:66:77:88", strings.Repeat("A", 4096)}
 	for _, text := range uidCases {
 		if _, err := ParseUID(text); !errors.Is(err, ErrMalformedUID) {
 			t.Fatalf("UID input should be rejected, got %v", err)

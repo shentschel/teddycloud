@@ -47,6 +47,9 @@ func (evidence VersionOrderEvidence) Position() uint64  { return evidence.positi
 // file times, and import position are intentionally unavailable to this rule.
 func CompareVersions(left, right ContentVersion) VersionOrdering {
 	if left.ID() == right.ID() {
+		if left != right {
+			return VersionOrderingConflict
+		}
 		return VersionOrderingSame
 	}
 	leftOrder, rightOrder := left.OrderEvidence(), right.OrderEvidence()
