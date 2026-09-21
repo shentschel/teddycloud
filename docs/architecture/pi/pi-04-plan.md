@@ -1,8 +1,8 @@
 # PI-04 execution plan
 
-Status: R/A/B complete; T not delivered
+Status: R/A/B/T complete
 Milestone: domain/schema prototype accepted
-Phase gate: Gate A — approved domain vocabulary and executable skeleton
+Phase gate: Gate A accepted — approved domain vocabulary and executable skeleton
 Repository: `shentschel/teddycloud`
 
 ## R decision: identity is not metadata

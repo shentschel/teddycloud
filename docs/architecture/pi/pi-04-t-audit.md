@@ -1,6 +1,6 @@
 # PI-04/T domain and migration-safety audit
 
-Status: implementation complete; final workspace and remote-CI evidence pending
+Status: complete; local and remote evidence green
 Scope: additive `next/backend` prototype only
 
 ## Audit conclusion
@@ -75,3 +75,10 @@ cutover. Those require their named later PIs and real fixtures. Gate A may accep
 only the pure executable domain vocabulary and sanitized migration seam after
 the full workspace, reproducibility, advisory, architecture and remote-CI
 checks recorded in the PI-04 review pass.
+
+Remote evidence: Next CI run
+[35643831229](https://github.com/shentschel/teddycloud/actions/runs/35643831229)
+passed deterministic workspace, browser, artifact, advisory and reproducibility
+jobs; architecture CI run
+[35643831194](https://github.com/shentschel/teddycloud/actions/runs/35643831194)
+passed the documentation contract.

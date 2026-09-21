@@ -1,8 +1,8 @@
 # PI-04 review
 
-Status: R/A/B complete; T not started
-Milestone: not accepted
-Phase gate: Gate A not accepted
+Status: R/A/B/T complete
+Milestone: accepted
+Phase gate: Gate A accepted
 
 ## R outcome
 
@@ -35,7 +35,7 @@ second membership model or synthetic Boxine model IDs.
 | PI-04/R | complete | plan, budget, this review, issues #11-#13 and green docs CI |
 | PI-04/A | complete | commit `a12d773`; green Next CI run 35510774321 and architecture CI run 35510774314 |
 | PI-04/B | complete | commit `59abd77`; green Next CI run 35529019182 and architecture CI run 35529019417 |
-| PI-04/T | not started | no final audit |
+| PI-04/T | complete | commit `33aa192`; audit report; green Next CI run 35643831229 and architecture CI run 35643831194 |
 
 ## Validation and open evidence
 
@@ -48,9 +48,9 @@ delivery scopes. Commit `f22f2fc` passed
 [architecture CI run 35494117118](https://github.com/shentschel/teddycloud/actions/runs/35494117118).
 
 No code, database schema, production migration, hardware/cloud call or legacy
-mutation belongs to R. The milestone and Gate A remain open until the executable
-domain prototype, sanitized migration evidence, technical audit and all CI
-evidence in the plan are complete.
+mutation belongs to R. The executable domain prototype, sanitized migration
+evidence, technical audit and CI evidence that were still open after R are
+recorded in the completed checkpoints below.
 
 ## A checkpoint
 
@@ -94,3 +94,33 @@ validation and diff validation pass locally. Commit `59abd77` passed
 [Next CI run 35529019182](https://github.com/shentschel/teddycloud/actions/runs/35529019182)
 and
 [architecture CI run 35529019417](https://github.com/shentschel/teddycloud/actions/runs/35529019417).
+
+## T checkpoint and Gate A decision
+
+PI-04/T adds mutation-equivalent negative tests across every prototype domain
+seam and the [migration-safety audit](pi-04-t-audit.md). The audit maps MR-01
+through MR-10 to later PIs and executable acceptance criteria. It found and
+fixed one comparison defect: two ContentVersion values that reused an ID with
+different immutable facts could be reported as the same version even though the
+index rejected them. They now produce an explicit conflict.
+
+The final suite proves that identity codecs do not normalize malformed input,
+audio/hash pairs do not cross, import or audio-ID order cannot imply recency,
+Set positions remain explicit, Assignment intervals reject conflicting history,
+provenance identity cannot be overwritten, and shared title/model/fingerprint
+metadata cannot merge an Original with a protected Custom Card. A production-
+derived UID test value was replaced with synthetic data.
+
+Seven bounded fuzz targets, the full Go and TypeScript workspace, quality gates,
+license allowlist, artifact manifest, two-work-directory reproducibility,
+network advisory checks and architecture-document validation pass. Local
+Chromium execution lacked `libnspr4.so`; the same pinned smoke test passed on
+the declared GitHub runner with its host dependencies. Commit `33aa192` passed
+[Next CI run 35643831229](https://github.com/shentschel/teddycloud/actions/runs/35643831229)
+and
+[architecture CI run 35643831194](https://github.com/shentschel/teddycloud/actions/runs/35643831194).
+
+Gate A accepts only the pure domain vocabulary and sanitized, read-only
+migration seam. It does not approve the PI-13 public V3 schema, persistence,
+production migration, provider/NFC integration, destructive deduplication,
+hardware support or deployment cutover. Those remain with their named later PIs.

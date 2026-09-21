@@ -1,6 +1,6 @@
 # PI-04 budget and admission
 
-Status: R/A/B complete; B exceeded its revised estimate; T not admitted
+Status: R/A/B/T complete; B exceeded its revised estimate
 
 PI-04 uses the measurement method from PI-00. Exact account usage, reset
 identifiers, request IDs and agent IDs remain in ignored local automation state.
@@ -44,7 +44,7 @@ outside PI-04 and must not be inferred from synthetic tests.
 The first Astra refinement dispatch hit its bounded checkpoint without producing
 the three planned PI files because its file-creation patch failed. The
 orchestrator recovered the documentation from the accepted roadmap, ADRs,
-Set-metadata exploration and PI-02 evidence. This R remains incomplete until the
+Set-metadata exploration and PI-02 evidence. R became complete only after the
 recovered artifacts passed local review, publication and documentation CI. The
 failed dispatch is retained only in ignored local state and must not be
 repeated.
@@ -53,8 +53,8 @@ repeated.
 
 The bounded Sol dispatch produced the planned pure-Go value objects and tests
 and stopped before its cap. Parent integration independently reran unit, fuzz,
-architecture, artifact and reproducibility checks. No unused allowance is
-transferred to B: B still requires a fresh reading of both live windows while
+architecture, artifact and reproducibility checks. No unused allowance was
+transferred to B; B received a fresh reading of both live windows while
 preserving the full T, integration and final-margin reserves. Exact account and
 dispatch observations remain only in ignored local state.
 
@@ -69,3 +69,18 @@ End-to-end consumption exceeded the revised B estimate, so later Astra
 relationship/migration work must use this larger observed total plus uncertainty
 rather than the earlier delivery sample. The variance does not reduce or borrow
 from the reserved T allowance.
+
+## T observation
+
+T was admitted only after a verified five-hour reset. The Astra subagent stopped
+at its explicit weekly checkpoint after adding the first mutation-equivalent
+tests. Parent integration corrected the discovered same-version-ID comparison
+seam, completed provenance, migration and Custom-preservation coverage, removed
+a production-derived UID example, and produced the migration-risk audit.
+
+All unit and bounded fuzz tests, workspace checks, artifacts, two-directory
+reproducibility, advisory queries and architecture checks passed. The local
+browser launch could not load a missing host library; the pinned GitHub runner
+installed the declared host dependencies and passed the browser smoke test in
+Next CI run 35643831229. This is environment evidence, not a waived test.
+Exact before/after account observations remain only in ignored local state.
