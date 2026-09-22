@@ -1,6 +1,6 @@
 # PI-05 budget and admission
 
-Status: **R/A complete; B/T require fresh admission**
+Status: **R/A complete; B transaction/repository checkpoint recorded; remaining B/T require fresh admission**
 
 Personal usage snapshots and agent identifiers remain only in the ignored
 automation state. Repository documentation records estimates and outcomes, not
@@ -45,3 +45,10 @@ client did not expose live account percentages during execution, so the run is
 not added as an actual-velocity sample. Acceptance instead uses the published
 implementation, local checks and green remote CI. B and T retain their original
 conservative estimates.
+
+
+A bounded B checkpoint implemented the transaction port and representative
+Content repository without reducing B acceptance. Its account-window snapshot
+is kept only in the ignored automation state. Remaining B work retains the
+unused portion of the original conservative estimate and requires a fresh
+admission before backup/restore work starts.

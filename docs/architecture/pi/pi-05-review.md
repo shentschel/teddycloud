@@ -1,6 +1,6 @@
 # PI-05 review
 
-Status: **R/A complete; B/T not started**
+Status: **R/A complete; B transaction/repository checkpoint complete; B/T not complete**
 
 The PI milestone—versioned database upgrade and rollback by verified restore—is
 not yet accepted. PI-05 contributes persistence evidence to Gate B; it does not
@@ -18,7 +18,7 @@ outside R.
 |---|---|---|
 | R | Complete | Plan, budget and review; documentation checks |
 | A | Complete | [Driver decision](pi-05-a-sqlite-driver.md), commit 3421501, [Next CI](https://github.com/shentschel/teddycloud/actions/runs/35750113413), [docs CI](https://github.com/shentschel/teddycloud/actions/runs/35750113522) |
-| B | Not started | Repository and restore evidence missing |
+| B | Partial checkpoint | Content transaction/repository implementation and local tests; restore evidence missing |
 | T | Not started | Hardening and final milestone audit missing |
 
 The delegated Sol refinement reached its budget checkpoint without producing
@@ -39,6 +39,18 @@ and govulncheck passed. Both remote workflows passed; Next CI also proved the
 deterministic artifact and two-work-directory reproducibility checks. The local
 race test remains unavailable because the host has no C compiler, but remote CI
 is green and no race-specific concurrency was added in A.
+
+## B transaction/repository checkpoint
+
+The application now defines storage-neutral Content repository and transaction
+ports. The SQLite adapter supplies an immutable catalog-content migration and
+proves commit/round-trip, operation-error rollback, serialized writes and that a
+second operation cannot observe an uncommitted write through the current
+single-connection boundary. Full backend tests, vet, architecture-document
+checks and diff checks pass locally.
+
+B remains open: bounded busy/retry behavior, restart evidence, explicit bounded
+readers and verified backup/restore have not yet been implemented or accepted.
 
 ## Open decisions
 
