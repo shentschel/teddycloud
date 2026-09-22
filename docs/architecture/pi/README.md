@@ -25,6 +25,7 @@ Current execution artifacts:
 - [PI-05 execution plan](pi-05-plan.md)
 - [PI-05 budget method](pi-05-budget.md)
 - [PI-05 review](pi-05-review.md)
+- [PI-05/A SQLite driver decision](pi-05-a-sqlite-driver.md)
 
 - [PI-04 execution plan](pi-04-plan.md)
 - [PI-04 budget method](pi-04-budget.md)
