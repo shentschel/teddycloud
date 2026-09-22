@@ -18,7 +18,7 @@ outside R.
 |---|---|---|
 | R | Complete | Plan, budget and review; documentation checks |
 | A | Complete | [Driver decision](pi-05-a-sqlite-driver.md), commit 3421501, [Next CI](https://github.com/shentschel/teddycloud/actions/runs/35750113413), [docs CI](https://github.com/shentschel/teddycloud/actions/runs/35750113522) |
-| B | Partial checkpoint | Content transaction/repository implementation and local tests; restore evidence missing |
+| B | Partial checkpoint | Content repository and [database backup smoke](pi-05-b-backup-checkpoint.md); remaining failure evidence missing |
 | T | Not started | Hardening and final milestone audit missing |
 
 The delegated Sol refinement reached its budget checkpoint without producing
@@ -50,13 +50,19 @@ single-connection boundary. Full backend tests, vet, architecture-document
 checks and diff checks pass locally.
 
 B remains open: bounded busy/retry behavior, restart evidence, explicit bounded
-readers and verified backup/restore have not yet been implemented or accepted.
+readers and coordinated backup/restore of a live database path have not yet been
+implemented or accepted.
+
+The database-only smoke covers a WAL-mode snapshot, digest, integrity and
+migration-ledger verification, plus restore to a new path with committed-value
+readback. Existing destinations and tampered backups are rejected. See the
+[checkpoint](pi-05-b-backup-checkpoint.md).
 
 ## Open decisions
 
 - Finalize repository shapes only with B tests.
 - Calibrate busy timeout and retry counts from measured contention tests.
-- Exercise the selected driver's backup API in B.
+- Integrate a verified pre-upgrade backup before incompatible migration.
 
-No runtime, migration, security-scan or restore claim is made by this
-documentation-only refinement. Those are required before accepting PI-05.
+Production migration, coordinated media/credential restore and hardware
+durability evidence remain outside this checkpoint.
