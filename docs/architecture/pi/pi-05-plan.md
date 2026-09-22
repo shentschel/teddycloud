@@ -1,6 +1,6 @@
 # PI-05 persistence execution plan
 
-Status: **R complete; A/B/T not started**
+Status: **R/A complete; B/T not started**
 
 PI-05 proves that a versioned local database can be upgraded and restored
 without leaking storage details into domain code. The milestone and Gate B are

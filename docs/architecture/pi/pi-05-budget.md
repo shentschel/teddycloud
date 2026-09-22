@@ -1,6 +1,6 @@
 # PI-05 budget and admission
 
-Status: **R complete; A/B/T require fresh admission**
+Status: **R/A complete; B/T require fresh admission**
 
 Personal usage snapshots and agent identifiers remain only in the ignored
 automation state. Repository documentation records estimates and outcomes, not
@@ -40,3 +40,8 @@ recovered the refinement. That attempt is not treated as delivered velocity.
 If the next slice does not fit, publish the current evidence and wait for the
 next verified reset rather than shrinking acceptance criteria.
 
+PI-05/A was executed after the prior five-hour reset with its 24/4 cap. The
+client did not expose live account percentages during execution, so the run is
+not added as an actual-velocity sample. Acceptance instead uses the published
+implementation, local checks and green remote CI. B and T retain their original
+conservative estimates.
