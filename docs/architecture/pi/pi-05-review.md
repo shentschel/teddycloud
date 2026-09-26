@@ -49,7 +49,11 @@ second operation cannot observe an uncommitted write through the current
 single-connection boundary. Full backend tests, vet, architecture-document
 checks and diff checks pass locally.
 
-B remains open: bounded busy/retry behavior, restart evidence, explicit bounded
+The [contention checkpoint](pi-05-b-contention-checkpoint.md) proves bounded
+busy exhaustion, cancellation, callback non-replay and connection-setting
+restoration after rollback.
+
+B remains open: restart evidence, explicit bounded
 readers and coordinated backup/restore of a live database path have not yet been
 implemented or accepted.
 

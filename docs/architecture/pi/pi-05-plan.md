@@ -101,7 +101,11 @@ Current B checkpoint: the application owns a domain-typed Content repository and
 transaction port; the SQLite adapter implements commit, rollback, round-trip and
 serialized-write tests through an immutable baseline application migration.
 This does not complete B. Bounded busy/retry behavior, restart evidence,
-bounded reader behavior and verified backup/restore remain required.
+bounded reader behavior and coordinated backup/restore remain required.
+The [contention checkpoint](pi-05-b-contention-checkpoint.md) now proves bounded
+lock exhaustion and cancellation; the [backup checkpoint](pi-05-b-backup-checkpoint.md)
+proves verified database-only snapshots and restore to a new path. Neither
+checkpoint establishes full B acceptance.
 
 ### [PI-05/T](https://github.com/shentschel/teddycloud/issues/16) — Persistence leakage and failure hardening
 
