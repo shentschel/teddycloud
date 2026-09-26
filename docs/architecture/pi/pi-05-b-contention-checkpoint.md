@@ -19,7 +19,9 @@ Evidence: two real handles on a temporary WAL database; bounded lock exhaustion,
 exactly one callback invocation, rollback, successful subsequent save, context
 cancellation and connection-setting restoration. Full backend tests and vet,
 25 repetitions of the contention tests, architecture-document and diff checks
-are required before publication. SQL LOCKED shares the primary-code mapper but
+passed before publication. [Next CI](https://github.com/shentschel/teddycloud/actions/runs/36267119143)
+and [documentation CI](https://github.com/shentschel/teddycloud/actions/runs/36267119145)
+passed for commit `7a5524f`; the local govulncheck scan also reported no vulnerabilities. SQL LOCKED shares the primary-code mapper but
 has no separate real-lock fixture. Local race evidence remains unavailable
 without a C compiler; no production or hardware durability claim is made.
 

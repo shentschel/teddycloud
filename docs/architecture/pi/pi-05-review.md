@@ -53,9 +53,14 @@ The [contention checkpoint](pi-05-b-contention-checkpoint.md) proves bounded
 busy exhaustion, cancellation, callback non-replay and connection-setting
 restoration after rollback.
 
-B remains open: restart evidence, explicit bounded
-readers and coordinated backup/restore of a live database path have not yet been
-implemented or accepted.
+The [restart and bounded-access checkpoint](pi-05-b-restart-checkpoint.md)
+proves committed-value and migration-ledger preservation after terminating a
+helper with an uncommitted write, plus deadline-bounded pool wait and recovery.
+The single connection deliberately serializes read and write transactions;
+this is not a parallel reader-pool implementation.
+
+B remains open: pre-upgrade backup failure fencing and coordinated
+backup/restore of a live database path have not yet been implemented or accepted.
 
 The database-only smoke covers a WAL-mode snapshot, digest, integrity and
 migration-ledger verification, plus restore to a new path with committed-value
