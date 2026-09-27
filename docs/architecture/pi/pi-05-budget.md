@@ -64,3 +64,15 @@ are not imputed as zero. The original B cap is therefore not described as an
 unused allowance across all checkpoints. Remaining upgrade fencing and lifecycle
 restore each receive a fresh bounded admission; T and integration remain reserved.
 The five-hour and weekly windows are checked independently after publication.
+
+## Updated bounded-delivery calibration
+
+Completed comparable persistence deliveries now inform the median-based admission
+method. The private samples include orchestration, integration, publication and
+CI, not isolated implementation billing. A conservative uncertainty factor is
+applied independently to each window; missing samples remain unavailable.
+Do not add an integration allowance twice when using an integrated estimate.
+T keeps an explicit final-verification allowance; a newly discovered failure
+requires a documented small verification extension and fresh live-window check,
+not silent reuse of its implementation cap. Estimates are admission guidance,
+not delivered scope, duration or a replenished quota bucket.

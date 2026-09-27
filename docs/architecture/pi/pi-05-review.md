@@ -1,6 +1,6 @@
 # PI-05 review
 
-Status: **R/A complete; B implemented and locally verified; T not complete**
+Status: **R/A complete; B complete; T locally verified, remote acceptance pending**
 
 The PI milestone—versioned database upgrade and rollback by verified restore—is
 not yet accepted. PI-05 contributes persistence evidence to Gate B; it does not
@@ -18,8 +18,8 @@ outside R.
 |---|---|---|
 | R | Complete | Plan, budget and review; documentation checks |
 | A | Complete | [Driver decision](pi-05-a-sqlite-driver.md), commit 3421501, [Next CI](https://github.com/shentschel/teddycloud/actions/runs/35750113413), [docs CI](https://github.com/shentschel/teddycloud/actions/runs/35750113522) |
-| B | Local acceptance complete; remote delivery check pending | Repository, contention, restart, upgrade fencing and [restore owner](pi-05-b-restore-checkpoint.md) |
-| T | Not started | Hardening and final milestone audit missing |
+| B | Complete | Repository, contention, restart, upgrade fencing and [restore owner](pi-05-b-restore-checkpoint.md); green delivery CI |
+| T | Local acceptance complete; remote check pending | [Failure checkpoint](pi-05-t-failure-checkpoint.md) and [milestone audit](pi-05-t-audit.md) |
 
 The delegated Sol refinement reached its budget checkpoint without producing
 files and was stopped. The parent recovered the bounded R deliverable; private
@@ -85,3 +85,19 @@ readback. Existing destinations and tampered backups are rejected. See the
 
 Production migration, coordinated media/credential restore and hardware
 durability evidence remain outside this checkpoint.
+
+## T local outcome
+
+Storage-origin errors no longer expose driver/SQL details through application
+ports. Read-only startup integrity/ownership checks retain corrupt and unknown
+originals. Import guards enforce the application boundary, and CI adds focused
+SQLite repetition/race evidence. The combined Content V1-to-V2 upgrade and exact
+pre-upgrade restore passed 25 independent repetitions; the entire SQLite suite
+also passed 25 times. Full backend tests/vet, docs, formatting/diff and the
+advisory scan are green locally.
+
+The [audit](pi-05-t-audit.md) explicitly reconciles the premature missing-blob row
+with PI-07/T-01 (#17), not as passed evidence. Foreign-key snapshot validation is
+tracked in F-PERSIST-01 (#18). Final milestone acceptance requires successful
+remote CI for the published T delivery. Gate B, production migration, hardware,
+media and secret restore are not accepted by this database-only milestone.

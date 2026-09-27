@@ -5,6 +5,7 @@ on:
     paths:
       - "next/**"
       - "docs/architecture/pi/pi-03-*.md"
+      - "docs/architecture/pi/pi-05-*.md"
       - ".github/workflows/next-ci.yml"
   push:
     branches:
@@ -14,6 +15,7 @@ on:
     paths:
       - "next/**"
       - "docs/architecture/pi/pi-03-*.md"
+      - "docs/architecture/pi/pi-05-*.md"
       - ".github/workflows/next-ci.yml"
 
 permissions:
@@ -101,6 +103,33 @@ jobs:
           path: next/dist/artifact
           if-no-files-found: error
           retention-days: 7
+
+  sqlite-persistence:
+    name: SQLite persistence regression and race evidence
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: |
+            next/backend/go.mod
+            next/tools/go.mod
+            next/tools/go.sum
+            next/go.work
+
+      - name: Run focused SQLite regressions and repetition
+        working-directory: next
+        run: |
+          go test ./backend/internal/adapters/sqlite ./backend/internal/architecture
+          go test -count=10 ./backend/internal/adapters/sqlite
+
+      - name: Run focused SQLite race evidence
+        working-directory: next
+        run: go test -race ./backend/internal/adapters/sqlite ./backend/internal/architecture
 
   reproducibility:
     name: Two-work-directory reproducibility

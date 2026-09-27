@@ -31,6 +31,8 @@ Current execution artifacts:
 - [PI-05/B restart and bounded-access checkpoint](pi-05-b-restart-checkpoint.md)
 - [PI-05/B verified upgrade backup checkpoint](pi-05-b-upgrade-checkpoint.md)
 - [PI-05/B closed/fenced restore lifecycle checkpoint](pi-05-b-restore-checkpoint.md)
+- [PI-05/T failure checkpoint](pi-05-t-failure-checkpoint.md)
+- [PI-05/T persistence and milestone audit](pi-05-t-audit.md)
 
 - [PI-04 execution plan](pi-04-plan.md)
 - [PI-04 budget method](pi-04-budget.md)
@@ -92,3 +94,6 @@ run is active or unresolved. A queued handoff is only a request: on a later run
 with the correct model, check the actual task and repository state, then execute
 the same request ID when no work has started. A completed sprint may be followed
 by the next admitted sprint within the same run and quota week.
+
+Open persistence follow-ups: [PI-07/T-01 missing external blob evidence](https://github.com/shentschel/teddycloud/issues/17)
+and [F-PERSIST-01 foreign-key snapshot validation](https://github.com/shentschel/teddycloud/issues/18).

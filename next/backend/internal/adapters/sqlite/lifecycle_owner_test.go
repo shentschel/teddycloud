@@ -13,7 +13,6 @@ import (
 
 	applicationcatalog "github.com/shentschel/teddycloud/next/backend/internal/application/catalog"
 	domaincatalog "github.com/shentschel/teddycloud/next/backend/internal/domain/catalog"
-	sqliteDriver "modernc.org/sqlite"
 )
 
 func TestLifecycleRestoreDrainsAndSwitchesBeforeLaterCallbacks(t *testing.T) {
@@ -255,12 +254,11 @@ func TestLifecycleRestoreFailureAfterCloseFailsClosedAndKeepsOriginal(t *testing
 		t.Fatalf("version after failed switch = %v, want closed", err)
 	}
 	var entered atomic.Bool
-	if err := owner.WithinTransaction(t.Context(), func(applicationcatalog.ContentRepository) error {
+	err := owner.WithinTransaction(t.Context(), func(applicationcatalog.ContentRepository) error {
 		entered.Store(true)
 		return nil
-	}); !errors.Is(err, ErrLifecycleClosed) {
-		t.Fatalf("transaction after failed switch = %v, want closed", err)
-	}
+	})
+	assertApplicationRepositoryFailure(t, err)
 	if entered.Load() {
 		t.Fatal("callback entered after failed switch")
 	}
@@ -312,26 +310,20 @@ func TestLifecycleTransactionSanitizesRepositoryAndDriverFailures(t *testing.T) 
 		_, _, err := repository.FindByID(t.Context(), testContent(t, "Missing", false).ID())
 		return err
 	})
-	if !errors.Is(err, ErrLifecycleRepository) {
-		t.Fatalf("repository error = %v, want sanitized boundary", err)
-	}
-	var driverError *sqliteDriver.Error
-	if errors.As(err, &driverError) || containsStorageDetail(err) {
-		t.Fatalf("repository leaked SQL/driver detail: %v", err)
-	}
+	assertApplicationRepositoryFailure(t, err)
 
 	if err := owner.database.Close(); err != nil {
 		t.Fatal(err)
 	}
+	entered := false
 	err = owner.WithinTransaction(t.Context(), func(applicationcatalog.ContentRepository) error {
+		entered = true
 		return errors.New("must not enter")
 	})
-	if !errors.Is(err, ErrLifecycleTransaction) {
-		t.Fatalf("closed handle error = %v, want lifecycle transaction failure", err)
+	if entered {
+		t.Fatal("callback entered through a closed lifecycle database")
 	}
-	if errors.As(err, &driverError) || containsStorageDetail(err) {
-		t.Fatalf("transaction leaked SQL/driver detail: %v", err)
-	}
+	assertApplicationRepositoryFailure(t, err)
 }
 
 func lifecycleFixture(t *testing.T) (*LifecycleOwner, BackupFile, string, string) {

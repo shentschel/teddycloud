@@ -121,6 +121,21 @@ func TestInvalidLedgerRefusesBeforeCreatingUpgradeBackup(t *testing.T) {
 			want:      ErrDirtyMigration,
 		},
 		{
+			name: "gap",
+			prepare: func(t *testing.T, path string) {
+				database, err := Open(t.Context(), Config{Path: path}, testMigrations())
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := database.Close(); err != nil {
+					t.Fatal(err)
+				}
+				setLedgerValue(t, path, `DELETE FROM tc_schema_migrations WHERE version = 1`)
+			},
+			supported: testMigrations,
+			want:      ErrSchemaNewer,
+		},
+		{
 			name: "newer",
 			prepare: func(t *testing.T, path string) {
 				database, err := Open(t.Context(), Config{Path: path}, testMigrations())

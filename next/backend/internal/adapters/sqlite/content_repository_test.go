@@ -1,6 +1,7 @@
 package sqlite
 
 import (
+	"database/sql"
 	"errors"
 	"path/filepath"
 	"reflect"
@@ -11,6 +12,7 @@ import (
 	applicationcatalog "github.com/shentschel/teddycloud/next/backend/internal/application/catalog"
 	domaincatalog "github.com/shentschel/teddycloud/next/backend/internal/domain/catalog"
 	"github.com/shentschel/teddycloud/next/backend/internal/domain/identity"
+	sqliteDriver "modernc.org/sqlite"
 )
 
 const contentIDText = "cnt_0123456789abcdefghjkmnpqrs"
@@ -36,6 +38,82 @@ func TestContentRepositoryCommitRoundTrip(t *testing.T) {
 	}
 	if !found || !reflect.DeepEqual(got, want) {
 		t.Fatalf("round trip = (%#v, %t), want (%#v, true)", got, found, want)
+	}
+}
+
+func TestContentRepositorySanitizesStorageFailures(t *testing.T) {
+	for _, operation := range []struct {
+		name string
+		run  func(applicationcatalog.ContentRepository) error
+	}{
+		{
+			name: "save",
+			run: func(repository applicationcatalog.ContentRepository) error {
+				return repository.Save(t.Context(), testContent(t, "Failure", true))
+			},
+		},
+		{
+			name: "find",
+			run: func(repository applicationcatalog.ContentRepository) error {
+				_, _, err := repository.FindByID(t.Context(), testContent(t, "Failure", false).ID())
+				return err
+			},
+		},
+	} {
+		t.Run(operation.name, func(t *testing.T) {
+			database := openApplicationDatabase(t)
+			if _, err := database.db.ExecContext(t.Context(), `DROP TABLE tc_catalog_content`); err != nil {
+				t.Fatal(err)
+			}
+			err := database.WithinTransaction(
+				t.Context(),
+				func(repository applicationcatalog.ContentRepository) error {
+					return operation.run(repository)
+				},
+			)
+			assertApplicationRepositoryFailure(t, err)
+		})
+	}
+}
+
+func TestContentRepositorySanitizesClosedHandle(t *testing.T) {
+	database := openApplicationDatabase(t)
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+	entered := false
+	err := database.WithinTransaction(
+		t.Context(),
+		func(applicationcatalog.ContentRepository) error {
+			entered = true
+			return nil
+		},
+	)
+	if entered {
+		t.Fatal("callback entered through a closed database")
+	}
+	assertApplicationRepositoryFailure(t, err)
+}
+
+func assertApplicationRepositoryFailure(t *testing.T, err error) {
+	t.Helper()
+	if !errors.Is(err, applicationcatalog.ErrRepositoryUnavailable) {
+		t.Fatalf("repository error = %v, want %v", err, applicationcatalog.ErrRepositoryUnavailable)
+	}
+	var driverError *sqliteDriver.Error
+	if errors.As(err, &driverError) {
+		t.Fatalf("driver error crossed application boundary: %v", err)
+	}
+	for _, storageError := range []error{sql.ErrNoRows, sql.ErrTxDone, sql.ErrConnDone} {
+		if errors.Is(err, storageError) {
+			t.Fatalf("database/sql sentinel crossed application boundary: %v", err)
+		}
+	}
+	message := strings.ToLower(err.Error())
+	for _, detail := range []string{"tc_catalog_content", "no such table", "sql logic", "database is closed"} {
+		if strings.Contains(message, detail) {
+			t.Fatalf("storage diagnostic %q crossed application boundary: %v", detail, err)
+		}
 	}
 }
 

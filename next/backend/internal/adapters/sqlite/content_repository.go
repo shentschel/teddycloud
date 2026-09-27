@@ -52,7 +52,10 @@ func (database *Database) WithinTransaction(
 		restoreCtx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
 		if _, err := connection.ExecContext(restoreCtx, busyTimeoutPragma(busyTimeoutMillis)); err != nil {
-			resultErr = errors.Join(resultErr, fmt.Errorf("restore transaction busy timeout: %w", err))
+			resultErr = errors.Join(
+				resultErr,
+				fmt.Errorf("restore transaction wait budget: %w", repositoryError(restoreCtx, err)),
+			)
 		}
 	}()
 	transaction, err := connection.BeginTx(ctx, nil)
@@ -127,7 +130,10 @@ func (repository contentRepository) execWithContention(
 			restoreCtx,
 			busyTimeoutPragma(busyTimeoutMillis),
 		); err != nil {
-			resultErr = errors.Join(resultErr, fmt.Errorf("restore sqlite busy timeout: %w", err))
+			resultErr = errors.Join(
+				resultErr,
+				fmt.Errorf("restore repository wait budget: %w", repositoryError(restoreCtx, err)),
+			)
 		}
 	}()
 
@@ -174,11 +180,11 @@ func (repository contentRepository) FindByID(
 
 	product, err := productIdentifiers(modelText, articleText)
 	if err != nil {
-		return domaincatalog.Content{}, false, fmt.Errorf("rebuild catalog content: %w", err)
+		return domaincatalog.Content{}, false, applicationcatalog.ErrRepositoryUnavailable
 	}
 	content, err := domaincatalog.NewContent(id, domaincatalog.NewContentFacts(title, product))
 	if err != nil {
-		return domaincatalog.Content{}, false, fmt.Errorf("rebuild catalog content: %w", err)
+		return domaincatalog.Content{}, false, applicationcatalog.ErrRepositoryUnavailable
 	}
 	return content, true, nil
 }
@@ -190,11 +196,17 @@ func repositoryError(ctx context.Context, err error) error {
 	if contextErr := ctx.Err(); contextErr != nil {
 		return contextErr
 	}
+	if errors.Is(err, context.Canceled) {
+		return context.Canceled
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return context.DeadlineExceeded
+	}
 	code, ok := sqlitePrimaryCode(err)
 	if ok && (code == sqlite3.SQLITE_BUSY || code == sqlite3.SQLITE_LOCKED) {
 		return applicationcatalog.ErrRepositoryContention
 	}
-	return err
+	return applicationcatalog.ErrRepositoryUnavailable
 }
 
 func sqlitePrimaryCode(err error) (int, bool) {

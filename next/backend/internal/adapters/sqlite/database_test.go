@@ -1,7 +1,9 @@
 package sqlite
 
 import (
+	"bytes"
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -32,6 +34,84 @@ func TestOpenCreatesAndReopensSchema(t *testing.T) {
 	if got := currentVersion(t, reopened); got != 1 {
 		t.Fatalf("reopened version = %d, want 1", got)
 	}
+}
+
+func TestOpenAcceptsPreexistingEmptyDatabase(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "empty.sqlite")
+	raw := openRawDatabase(t, path)
+	if _, err := raw.ExecContext(t.Context(), `VACUUM`); err != nil {
+		t.Fatal(err)
+	}
+	if err := raw.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	database, err := Open(t.Context(), Config{Path: path}, testMigrations()[:1])
+	if err != nil {
+		t.Fatalf("open empty database: %v", err)
+	}
+	defer database.Close()
+	if got := currentVersion(t, database); got != 1 {
+		t.Fatalf("empty database version = %d, want 1", got)
+	}
+}
+
+func TestOpenRejectsCorruptDatabaseWithoutMutation(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "corrupt.sqlite")
+	before := []byte("not a sqlite database\x00with retained bytes")
+	if err := os.WriteFile(path, before, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := Open(t.Context(), Config{Path: path}, testMigrations())
+	if !errors.Is(err, ErrDatabaseInvalid) {
+		t.Fatalf("open corrupt database error = %v, want %v", err, ErrDatabaseInvalid)
+	}
+	after, readErr := os.ReadFile(path)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if !bytes.Equal(after, before) {
+		t.Fatal("corrupt database bytes changed")
+	}
+	assertNoDatabaseSidecars(t, path)
+}
+
+func TestOpenRejectsUnownedDatabaseBeforeMutation(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "unknown.sqlite")
+	raw := openRawDatabase(t, path)
+	if _, err := raw.ExecContext(
+		t.Context(),
+		`CREATE TABLE foreign_catalog (id INTEGER PRIMARY KEY, value TEXT NOT NULL)`,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := raw.ExecContext(
+		t.Context(),
+		`INSERT INTO foreign_catalog (id, value) VALUES (1, 'retain')`,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := raw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = Open(t.Context(), Config{Path: path}, testMigrations())
+	if !errors.Is(err, ErrDatabaseUnowned) {
+		t.Fatalf("open unowned database error = %v, want %v", err, ErrDatabaseUnowned)
+	}
+	after, readErr := os.ReadFile(path)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if !bytes.Equal(after, before) {
+		t.Fatal("unowned database bytes changed")
+	}
+	assertNoDatabaseSidecars(t, path)
 }
 
 func TestOpenUpgradesSchema(t *testing.T) {
@@ -207,6 +287,15 @@ func TestDriverEvidence(t *testing.T) {
 	}
 	t.Logf("SQLite version: %s", version)
 	t.Logf("SQLite compile options: %s", strings.Join(options, ","))
+}
+
+func assertNoDatabaseSidecars(t *testing.T, path string) {
+	t.Helper()
+	for _, sidecar := range []string{path + "-wal", path + "-shm"} {
+		if _, err := os.Lstat(sidecar); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("unexpected database sidecar %s: %v", filepath.Base(sidecar), err)
+		}
+	}
 }
 
 func testMigrations() []Migration {

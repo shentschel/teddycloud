@@ -1,6 +1,6 @@
 # PI-05 persistence execution plan
 
-Status: **R/A complete; B implemented and locally verified; T not complete**
+Status: **R/A complete; B complete; T locally verified, remote acceptance pending**
 
 PI-05 proves that a versioned local database can be upgraded and restored
 without leaking storage details into domain code. The milestone and Gate B are
@@ -71,7 +71,7 @@ executable evidence; R does not select a driver.
 | Backup failure | Upgrade aborts before schema mutation | B smoke test |
 | Restore | Closed/fenced restore verifies and reopens | B smoke test |
 | Corrupt database | Fail closed; original file retained | T failure test |
-| Missing external blob | Repository reports missing content without DB corruption | T boundary test |
+| Missing external blob | Report missing media without DB corruption | [PI-07/T-01](https://github.com/shentschel/teddycloud/issues/17); unproven and deferred |
 | Readers during write | Bounded readers see valid transaction states | B concurrency test |
 
 ## Issue-ready delivery slices
@@ -103,8 +103,7 @@ serialized-write tests through an immutable baseline application migration.
 Contention, restart and bounded serialized-access checkpoints cover their B
 rows. The [restore lifecycle checkpoint](pi-05-b-restore-checkpoint.md) now proves
 closed/fenced selection of a verified restored handle at its exact snapshot
-schema, with the original database retained. B publication still requires green
-remote CI; T retains the final failure and boundary audit.
+schema, with the original database retained. B publication passed remote CI. T retains the final failure and boundary audit.
 The [contention checkpoint](pi-05-b-contention-checkpoint.md) now proves bounded
 lock exhaustion and cancellation; the [backup checkpoint](pi-05-b-backup-checkpoint.md)
 proves verified database-only snapshots and restore to a new path. Those
@@ -117,10 +116,12 @@ or schema mutation; fresh and same-version opens stay idempotent.
 ### [PI-05/T](https://github.com/shentschel/teddycloud/issues/16) — Persistence leakage and failure hardening
 
 - Audit dependency direction, error mapping and direct database access.
-- Add corruption, missing-content and migration edge-case tests.
+- Add corruption, missing-record and migration edge-case tests.
+- Keep missing external-blob evidence explicitly unproven under PI-07/T-01;
+  the representative repository has no file reference or filesystem port.
 - Wire focused tests into CI and record unresolved operational evidence.
 
-Acceptance: no SQL/driver types leak into domain/application contracts, all T
+Acceptance: no SQL/driver types leak into domain/application contracts, all in-scope T
 rows pass, and the PI milestone has reproducible local and remote evidence.
 
 All three slices route to **gpt-5.6-sol** with high reasoning. Each slice needs a
@@ -139,3 +140,10 @@ git diff --check
 Also require focused persistence tests, the repository security/advisory scan,
 and successful remote CI. No production deployment, live database migration,
 destructive cleanup or mainline merge is authorized by this plan.
+
+## T ownership clarification
+
+The [final persistence audit](pi-05-t-audit.md) preserves the missing-external-blob
+row as unproven under PI-07/T-01, consistent with this plan's existing PI-07
+lifecycle deferral. It is not a passing PI-05 database test and does not expand
+the database-only milestone to coordinated media or credential restore.

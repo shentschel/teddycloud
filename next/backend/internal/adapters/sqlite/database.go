@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -23,6 +24,8 @@ const (
 
 var (
 	ErrConnectionInvariant   = errors.New("sqlite connection invariant not satisfied")
+	ErrDatabaseInvalid       = errors.New("sqlite database is invalid")
+	ErrDatabaseUnowned       = errors.New("sqlite database is not owned by this application")
 	ErrUpgradeBackupRequired = errors.New("sqlite upgrade backup destination is required")
 )
 
@@ -65,6 +68,13 @@ func Open(ctx context.Context, config Config, migrations []Migration) (*Database
 
 	dsn, busyTimeoutMillis, err := connectionDSN(config)
 	if err != nil {
+		return nil, err
+	}
+	absolutePath, err := filepath.Abs(config.Path)
+	if err != nil {
+		return nil, fmt.Errorf("resolve sqlite path: %w", err)
+	}
+	if err := preflightExistingDatabase(ctx, absolutePath); err != nil {
 		return nil, err
 	}
 	connector, err := sqliteDriver.NewConnector(dsn)
@@ -180,6 +190,61 @@ func connectionDSN(config Config) (string, int, error) {
 	location.RawQuery = query.Encode()
 
 	return location.String(), timeoutMillis, nil
+}
+
+func preflightExistingDatabase(ctx context.Context, path string) error {
+	info, err := os.Stat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil || !info.Mode().IsRegular() {
+		return ErrDatabaseInvalid
+	}
+	if info.Size() == 0 {
+		return nil
+	}
+
+	connector, err := sqliteDriver.NewConnector(fileURI(path, true))
+	if err != nil {
+		return ErrDatabaseInvalid
+	}
+	db := sql.OpenDB(connector)
+	db.SetMaxOpenConns(1)
+	defer db.Close()
+
+	var ledgerExists bool
+	var applicationObjectsExist bool
+	if err := db.QueryRowContext(
+		ctx,
+		`SELECT
+			EXISTS(
+				SELECT 1 FROM sqlite_schema
+				WHERE type = 'table' AND name = 'tc_schema_migrations'
+			),
+			EXISTS(
+				SELECT 1 FROM sqlite_schema
+				WHERE lower(substr(name, 1, 7)) != 'sqlite_'
+			)`,
+	).Scan(&ledgerExists, &applicationObjectsExist); err != nil {
+		if contextErr := ctx.Err(); contextErr != nil {
+			return contextErr
+		}
+		return ErrDatabaseInvalid
+	}
+	if !ledgerExists && applicationObjectsExist {
+		return ErrDatabaseUnowned
+	}
+	var integrity string
+	if err := db.QueryRowContext(ctx, "PRAGMA integrity_check").Scan(&integrity); err != nil {
+		if contextErr := ctx.Err(); contextErr != nil {
+			return contextErr
+		}
+		return ErrDatabaseInvalid
+	}
+	if integrity != "ok" {
+		return ErrDatabaseInvalid
+	}
+	return nil
 }
 
 func verifyConnection(ctx context.Context, db *sql.DB, expectedBusyTimeout int) error {

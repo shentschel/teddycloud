@@ -9,16 +9,12 @@ import (
 	"sync"
 
 	applicationcatalog "github.com/shentschel/teddycloud/next/backend/internal/application/catalog"
-	domaincatalog "github.com/shentschel/teddycloud/next/backend/internal/domain/catalog"
-	"github.com/shentschel/teddycloud/next/backend/internal/domain/identity"
 )
 
 var (
 	ErrLifecycleClosed           = errors.New("sqlite lifecycle owner is closed")
 	ErrLifecycleOpen             = errors.New("sqlite lifecycle owner open failed")
 	ErrLifecycleClose            = errors.New("sqlite lifecycle owner close failed")
-	ErrLifecycleTransaction      = errors.New("sqlite lifecycle transaction failed")
-	ErrLifecycleRepository       = errors.New("sqlite lifecycle repository operation failed")
 	ErrLifecycleVersion          = errors.New("sqlite lifecycle version read failed")
 	ErrLifecycleRestore          = errors.New("sqlite lifecycle restore failed")
 	ErrRestoreSameDestination    = errors.New("sqlite restore destination is the current database")
@@ -79,19 +75,19 @@ func (owner *LifecycleOwner) WithinTransaction(
 		return ErrNilTransactionOperation
 	}
 	if owner == nil || owner.gate == nil {
-		return ErrLifecycleClosed
+		return applicationcatalog.ErrRepositoryUnavailable
 	}
 	if err := owner.gate.enterOperation(ctx); err != nil {
 		return err
 	}
 	defer owner.gate.leave()
 	if owner.database == nil {
-		return ErrLifecycleClosed
+		return applicationcatalog.ErrRepositoryUnavailable
 	}
 
 	var callbackFailure *lifecycleCallbackFailure
 	err := owner.database.WithinTransaction(ctx, func(repository applicationcatalog.ContentRepository) error {
-		callbackErr := operation(lifecycleRepository{delegate: repository})
+		callbackErr := operation(repository)
 		if callbackErr == nil {
 			return nil
 		}
@@ -105,9 +101,9 @@ func (owner *LifecycleOwner) WithinTransaction(
 		return callbackFailure.err
 	}
 	if callbackFailure != nil && errors.Is(err, callbackFailure) {
-		return errors.Join(callbackFailure.err, ErrLifecycleTransaction)
+		return errors.Join(callbackFailure.err, repositoryBoundaryError(ctx, err))
 	}
-	return lifecycleError(ctx, ErrLifecycleTransaction)
+	return repositoryBoundaryError(ctx, err)
 }
 
 // CurrentVersion reports the selected handle's clean schema version.
@@ -264,36 +260,20 @@ func (owner *LifecycleOwner) restorePreflight(
 	return target, nil
 }
 
-type lifecycleRepository struct {
-	delegate applicationcatalog.ContentRepository
-}
-
-func (repository lifecycleRepository) Save(ctx context.Context, content domaincatalog.Content) error {
-	return sanitizeRepositoryError(ctx, repository.delegate.Save(ctx, content))
-}
-
-func (repository lifecycleRepository) FindByID(
-	ctx context.Context,
-	id identity.ContentID,
-) (domaincatalog.Content, bool, error) {
-	content, found, err := repository.delegate.FindByID(ctx, id)
-	if err != nil {
-		return domaincatalog.Content{}, false, sanitizeRepositoryError(ctx, err)
+func repositoryBoundaryError(ctx context.Context, err error) error {
+	if contextErr := ctx.Err(); contextErr != nil {
+		return contextErr
 	}
-	return content, found, nil
-}
-
-func sanitizeRepositoryError(ctx context.Context, err error) error {
-	if err == nil {
-		return nil
+	if errors.Is(err, context.Canceled) {
+		return context.Canceled
 	}
-	if ctx.Err() != nil {
-		return ctx.Err()
+	if errors.Is(err, context.DeadlineExceeded) {
+		return context.DeadlineExceeded
 	}
 	if errors.Is(err, applicationcatalog.ErrRepositoryContention) {
 		return applicationcatalog.ErrRepositoryContention
 	}
-	return ErrLifecycleRepository
+	return applicationcatalog.ErrRepositoryUnavailable
 }
 
 type lifecycleCallbackFailure struct {
