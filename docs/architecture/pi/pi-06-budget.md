@@ -1,0 +1,75 @@
+# PI-06 budget and admission
+
+Status: R design accepted; delivery requires fresh admission.
+All numbers below are uncertain planning bands or authorized ceilings, not
+personal measured usage. Five-hour and weekly points are independent units.
+
+## Separate allowances
+
+| Work | Model / reasoning | Five-hour points | Weekly points | Interpretation |
+| --- | --- | ---: | ---: | --- |
+| R design checkpoint | `gpt-6-astra` / high | 8–12 target; 36 hard maximum | 1–3 estimate; 6 hard maximum | Useful reviewable files should exist by the first checkpoint; exploration must stop if scope grows |
+| Parent R integration | Parent-selected | 8 maximum | 2 maximum | Separate from the R agent ceiling |
+| A1 domain/ports | `gpt-5.6-sol` / high | 8–14 | 1–3 | Provisional, not admitted |
+| A2 persistence seam | `gpt-5.6-sol` / high | 12–20 | 2–4 | Provisional, not admitted |
+| B1 metadata/evidence | `gpt-5.6-sol` / high | 12–22 | 2–4 | Provisional, not admitted |
+| B2 lifecycle/recovery | `gpt-5.6-sol` / high | 12–24 | 2–5 | Provisional; #18 dependency may block acceptance |
+| T reserve | `gpt-6-astra` / high | 40 | 8 | Separate protected allowance, not available to R/A/B |
+
+R, parent integration and T therefore reserve up to 84 five-hour points and
+16 weekly points in aggregate planning. This is not a grant of live capacity,
+a shared agent budget, or an estimate that all work fits the current window.
+A/B parent integration and any external #18 work require separate estimates
+and admission; they are not silently included in R or the T reserve.
+
+## Measurement and stop rule
+
+The parent owns the private limit ledger and admission. Sample both available
+windows before/after bounded work and at checkpoints, storing observations only
+in private orchestration state. Shared-account movement includes concurrent
+parent/other work and cannot be claimed as this agent's actual consumption.
+Check availability without copying account details into public artifacts.
+
+Calibrate from integrated account-wide intervals grouped by work type and
+routed model/reasoning. Record sample quality privately: complete comparable
+interval, mixed concurrent work with known overlap, or incomplete/unavailable.
+Complete integrated intervals remain usable even though parent orchestration,
+review and checks are included; isolated agent consumption is not required.
+Known overlap lowers attribution quality and increases the uncertainty margin;
+never subtract guessed concurrent usage or label account movement agent usage.
+
+Until three comparable usable intervals exist, use the largest relevant
+integrated sample or provisional estimate plus an explicit quality-dependent
+margin, independently for both windows. Then apply the roadmap's rolling
+calibration, retaining the quality labels and conservative allowance for mixed
+work. Do not double-count parent integration already included in a calibrated
+interval; the separate authorization ceilings above still apply. Incomplete
+samples remain unavailable, never zero; elapsed minutes and token counts are
+not a quota conversion. Public files retain methodology and uncertain bands,
+not personal measurements.
+
+At the first checkpoint, hand off files even if review is pending. On scope
+growth, stop exploration, document the unresolved decision and return a runnable
+documentation checkpoint. Never consume the parent or T allowance to extend R.
+At either R ceiling, stop and report remaining work; do not reduce acceptance
+tests or mark the design accepted to fit the budget. If limits become unavailable,
+hand off the current checkpoint and let the parent re-admit work.
+
+Follow the roadmap's sprint/weekly ceilings and leave its five-percent reserve.
+The parent must fit all active work and remaining required reserves inside live
+capacity before admitting another checkpoint. Reset credits, purchased capacity
+and future resets are not presumed. No personal actual-use figures, reset times,
+execution identifiers or account information belong in these files.
+
+## Current checkpoint disposition
+
+R supplies an independently reviewed plan, contract, budget and review.
+The parent records the completed integrated interval and quality privately;
+no isolated agent consumption or delivered implementation is inferred.
+The early-checkpoint target was not met; draft review required an explicit
+bounded correction and fresh publication-only admission. Future Astra
+refinements use this larger comparable interval plus uncertainty instead of
+reusing the optimistic early target. This does not authorize A, B, T or #18.
+If FK recovery or the bounded evidence representation needs broader design,
+return that decision to refinement under a fresh admission instead of growing
+the current job.

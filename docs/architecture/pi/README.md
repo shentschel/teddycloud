@@ -22,6 +22,11 @@ assumed.
 
 Current execution artifacts:
 
+- [PI-06 execution plan](pi-06-plan.md)
+- [PI-06 budget method](pi-06-budget.md)
+- [PI-06 review](pi-06-review.md)
+- [PI-06 Tag Registry contract](pi-06-tag-registry-contract.md)
+
 - [PI-05 execution plan](pi-05-plan.md)
 - [PI-05 budget method](pi-05-budget.md)
 - [PI-05 review](pi-05-review.md)
@@ -73,6 +78,8 @@ delivery tasks; R/A/B/T are complete according to its review. The
 [PI-04 plan](pi-04-plan.md) links its completed A/B/T tasks as issues #11-#13.
 The [PI-05 plan](pi-05-plan.md) links completed persistence slices as issues
 #14-#16; its review accepts the database-only upgrade/rollback milestone.
+The [PI-06 plan](pi-06-plan.md) links its newly refined A/B/T tasks as issues
+#19–#21; R accepts the design only, not transactional Tag implementation.
 Search by stable ID before creating any further issue.
 Run `python3 scripts/check_architecture_docs.py` before publishing architecture
 changes. The path-scoped documentation workflow runs the same check without
