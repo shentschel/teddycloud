@@ -46,6 +46,39 @@ Remaining weekly capacity may be filled with ordered delivery sprints, each also
 limited to `1.9 B5`. The PI stops at 95% weekly consumption even when a sprint or
 milestone is incomplete. The remaining 5% is never planned.
 
+## Admission by window (active policy)
+
+The five-hour window protects only work executing now: the next bounded job,
+orchestration, independent review, verification, publication, uncertainty and
+already-running commitments, plus five percentage points left free. Future R/T
+sprints do not reserve five-hour capacity in an earlier window.
+
+The weekly window additionally protects all remaining mandatory refinement and
+technical-debt work for admitted PI scope. Count each future reserve once; when
+its job executes, remove that job from the future-reserve term, retaining its
+actual estimate in current work. No reservation is released by merely renaming
+or skipping mandatory acceptance.
+
+```text
+five_hour_remaining >= current_integrated_job + outstanding_commitments + 5
+weekly_remaining >= current_integrated_job_weekly
+                    + outstanding_commitments_weekly
+                    + remaining_future_mandatory_reserve_weekly + 5
+```
+
+Integrated estimates already include parent work; do not add it twice. Preserve
+independent calibration and uncertainty by work class. Recheck both live windows
+after every completion, continuing within the same run whenever safe work fits.
+If the next whole slice cannot fit, consider a reviewable smaller checkpoint or
+another dependency-ready task. Do not burn quota on unnecessary work, weaken
+acceptance or assume a future reset/credit. Stop only when no useful authorized
+work fits, a real blocker exists, or a live ceiling is reached. The five-percent
+safety margin and 1.9-B5 sprint ceiling remain unchanged.
+
+This active policy supersedes earlier documents' requirement to hold future
+five-hour R/T allowances in every current window. Historical results and weekly
+mandatory reserves remain valid.
+
 ## PI-00: quota calibration
 
 The first PI calibrates capacity instead of promising feature scope:

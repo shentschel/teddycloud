@@ -95,7 +95,10 @@ The optional six-hour automation stores the current quota-window identifiers and
 status in the repository-local `.pi-automation-state.json`. The file survives a
 host restart but is intentionally ignored by Git because it belongs to one Codex
 host. It resumes the next unfinished idempotent sprint whenever both current
-windows have safe capacity. An exhausted window sets `waiting_budget`; a verified
+windows have safe capacity under the roadmap's active window-specific admission
+policy: future R/T reserves are weekly only; the five-hour gate includes current
+work, integration, uncertainty and five-percent safety. Older budget text that
+held future R/T capacity in each five-hour window is superseded by this policy. An exhausted window sets `waiting_budget`; a verified
 reset resumes that same work instead of skipping to a new PI. Reset timestamps
 may drift by seconds, so a timestamp difference alone is not treated as proof of
 a new weekly window. The fixed six-hour cadence checks each five-hour reset no

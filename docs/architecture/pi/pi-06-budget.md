@@ -14,10 +14,10 @@ personal measured usage. Five-hour and weekly points are independent units.
 | A2 persistence seam | `gpt-5.6-sol` / high | 12–20 | 2–4 | Provisional, not admitted |
 | B1 metadata/evidence | `gpt-5.6-sol` / high | 12–22 | 2–4 | Provisional, not admitted |
 | B2 lifecycle/recovery | `gpt-5.6-sol` / high | 12–24 | 2–5 | Provisional; #18 dependency may block acceptance |
-| T reserve | `gpt-6-astra` / high | 40 | 8 | Separate protected allowance, not available to R/A/B |
+| Future T planning | `gpt-6-astra` / high | 40 | 8 | Five-hour estimate used when T executes; weekly reserve protected from R/A/B |
 
-R, parent integration and T therefore reserve up to 84 five-hour points and
-16 weekly points in aggregate planning. This is not a grant of live capacity,
+R, parent integration and T sum to up to 84 five-hour points and
+16 weekly points in aggregate planning, not a current five-hour reservation. This is not a grant of live capacity,
 a shared agent budget, or an estimate that all work fits the current window.
 A/B parent integration and any external #18 work require separate estimates
 and admission; they are not silently included in R or the T reserve.
@@ -56,8 +56,10 @@ tests or mark the design accepted to fit the budget. If limits become unavailabl
 hand off the current checkpoint and let the parent re-admit work.
 
 Follow the roadmap's sprint/weekly ceilings and leave its five-percent reserve.
-The parent must fit all active work and remaining required reserves inside live
-capacity before admitting another checkpoint. Reset credits, purchased capacity
+The parent must fit current work, integration, uncertainty and five-percent
+safety inside the live five-hour capacity. Future mandatory R/T costs are
+protected only in the weekly gate; do not deduct them again in an earlier
+five-hour window. Current R/T work is not counted twice as a future reserve. Reset credits, purchased capacity
 and future resets are not presumed. No personal actual-use figures, reset times,
 execution identifiers or account information belong in these files.
 
@@ -85,7 +87,9 @@ Remaining aggregate-bound work provisionally uses a 35/6 integrated ceiling,
 including parent review/verification, derived conservatively from the completed
 service interval with independent uncertainty factors. Do not add parent overhead
 again to that integrated estimate. It is not isolated agent billing or a promise.
-The fixed T reserve and final safety margin remain required in both windows.
+The future T reserve is weekly only; five-percent safety remains required in
+both windows. The 35/6 integrated job therefore needs 40 five-hour points and
+19 weekly points while the future T weekly reserve remains 8.
 If actual representation design broadens the remaining scope, refine/re-route
 it first and update this ceiling rather than treating an empty aggregate or
 caller-supplied byte count as proof of bounded decoding.
@@ -106,9 +110,11 @@ The retained representation and exact size accounting are an architectural
 question, so this narrow follow-up is routed to `gpt-6-astra` before execution.
 Its small uncalibrated expenditure cap is 22/4 for the agent, 10/2 for parent
 review/publication and 8/2 uncertainty: 40/8 integrated, plus protected T and
-final safety reserves. This buys a reviewable partial design checkpoint, not
+final safety reserves under the active window-specific policy. This buys a reviewable partial design checkpoint, not
 an estimate or authorization to finish a whole refinement under that ceiling.
 Produce an early usable handoff and stop on scope growth. Keep any unresolved
 representation questions explicit; Sol implementation requires accepted design
 and separate live admission. Do not discount full architecture work using the
 codec or count-gate sample class.
+
+This admission rule follows the [roadmap's active policy](../teddycloud-next-pi-roadmap.md).
