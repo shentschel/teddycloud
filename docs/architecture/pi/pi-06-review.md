@@ -117,3 +117,17 @@ The APIs are composable gates, not yet called by metadata mutations or storage
 loading. Full retained-history/encoded aggregate preflight remains open.
 32-bit compilation passed; execution was sandbox-blocked, not claimed passing.
 Local race evidence is unavailable without a C compiler; remote CI owns it.
+
+## A1 internal encoding refinement
+
+The [encoding refinement](pi-06-a1-encoding-refinement.md) is accepted as design
+only. Parent independently checked every positional length formula and boundary
+fixture arithmetic: maximal escaped history is 10816539 bytes, with valid field
+adjustments reaching exactly 8388608 and 8388609. Implementation tests remain
+future evidence, not arithmetic alone. Tag-specific UTC year range 0000..9999 is
+accepted without changing generic evidence. Introduced revision preserves active
+support reconstruction; it does not introduce a timestamp winner.
+Parent removed a new-reader requirement from current A1 scope: it has no actual
+consumer. Complete domain encoding and persisted preflight still need separate
+implementation admission. No runtime, migration, B1 transition or public format
+was implemented or accepted as delivered here.

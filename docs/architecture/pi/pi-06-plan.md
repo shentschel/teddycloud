@@ -75,7 +75,9 @@ The [decision-ID codec](pi-06-a1-decision-checkpoint.md) is implemented separate
 The [history-count gate](pi-06-a1-counts-checkpoint.md) checks real slices without
 copies, including cumulative support; retained representation, complete encoded
 size/worst-case and adapter integration remain open. These subsets alone do not
-complete A1 or issue #19.
+complete A1 or issue #19. The [encoding refinement](pi-06-a1-encoding-refinement.md)
+settles the internal shape, timestamps and exact byte accounting as design only;
+a serialized-input reader has no current consumer and is not A1 scope.
 
 ### A2: durable identity checkpoint
 

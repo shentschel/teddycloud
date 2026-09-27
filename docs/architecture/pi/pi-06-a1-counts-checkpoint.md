@@ -20,9 +20,15 @@ evidence validation remains unchanged. Errors contain no caller identifiers.
 
 ## Verification and limitations
 
-Exact limits, one-over limits, cumulative overflow despite individually bounded
-support lists, repeated historical links and zero-allocation checks are required.
-Arithmetic tests must reject overflow without allocating enormous slices.
+Parent full backend tests/vet, 25 focused Tag/application/architecture repetitions
+and all 58 architecture-document checks passed. Exact limits, one-over limits,
+cumulative overflow despite individually bounded support lists, repeated
+historical links and zero-allocation tests passed. Native-int overflow is tested
+without enormous allocation. Parent independently compiled the Tag tests for
+386; 32-bit execution is not claimed.
+[Next CI](https://github.com/shentschel/teddycloud/actions/runs/36345279370)
+and [documentation CI](https://github.com/shentschel/teddycloud/actions/runs/36345279428)
+passed for the implementation, including all four Next jobs and Linux race.
 
 This checkpoint is not integrated into registry mutations or a SQLite loader:
 neither exists for retained metadata yet. B1 and storage integration must invoke

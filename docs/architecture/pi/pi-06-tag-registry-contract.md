@@ -215,6 +215,18 @@ combinations must be rejected even when their individual field limits pass.
 Reaching a limit preserves existing evidence; expanding it requires separate
 refinement and does not silently introduce pagination or history pruning.
 
+## Accepted private encoding refinement
+
+The [A1 encoding refinement](pi-06-a1-encoding-refinement.md) fixes the private
+TREG/1 complete representation and exact byte-accounting rules. Observation
+introduced revision is retained for reconstructing active support after explicit
+resolutions; relational storage remains authoritative. Tag observedAt is limited
+to UTC years 0000..9999 with explicit rejection outside that range, without
+changing generic evidence validation. A1 requires actual counting/encoder parity
+before copies; SQL loads require the bounded scalar/base-row preflight phases.
+No serialized-input reader is A1 scope without an admitted real consumer.
+This accepts design only; worst-case byte and storage tests remain pending.
+
 ## Failure and acceptance matrix
 
 The named tests below are future acceptance targets, not tests already present.

@@ -99,3 +99,16 @@ The remaining encoded representation must be refined before implementation
 if it introduces an architectural decision, using the largest comparable
 integrated Astra refinement sample plus uncertainty and the existing T reserve.
 Do not use the small codec/count work class to discount architecture work.
+
+## Bounded encoding refinement
+
+The retained representation and exact size accounting are an architectural
+question, so this narrow follow-up is routed to `gpt-6-astra` before execution.
+Its small uncalibrated expenditure cap is 22/4 for the agent, 10/2 for parent
+review/publication and 8/2 uncertainty: 40/8 integrated, plus protected T and
+final safety reserves. This buys a reviewable partial design checkpoint, not
+an estimate or authorization to finish a whole refinement under that ceiling.
+Produce an early usable handoff and stop on scope growth. Keep any unresolved
+representation questions explicit; Sol implementation requires accepted design
+and separate live admission. Do not discount full architecture work using the
+codec or count-gate sample class.
