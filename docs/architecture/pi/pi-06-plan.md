@@ -1,6 +1,6 @@
 # PI-06 execution plan
 
-Status: R accepted; A1 identity/service and decision-codec checkpoints implemented; bounds, A2/B/T pending.
+Status: R accepted; A1 identity/service, decision-codec and count-gate checkpoints implemented; encoded aggregate, A2/B/T pending.
 R milestone: accepted Tag Registry design only.
 Delivery milestone: Tags are managed transactionally; not established by R.
 
@@ -72,8 +72,10 @@ go test ./backend/internal/domain/tag ./backend/internal/application/tagregistry
 
 Current identity/service subset: [checkpoint](pi-06-a1-identity-checkpoint.md).
 The [decision-ID codec](pi-06-a1-decision-checkpoint.md) is implemented separately.
-Cumulative-support and encoded-size/worst-case checks remain A1 acceptance;
-these subsets alone do not complete A1 or issue #19.
+The [history-count gate](pi-06-a1-counts-checkpoint.md) checks real slices without
+copies, including cumulative support; retained representation, complete encoded
+size/worst-case and adapter integration remain open. These subsets alone do not
+complete A1 or issue #19.
 
 ### A2: durable identity checkpoint
 

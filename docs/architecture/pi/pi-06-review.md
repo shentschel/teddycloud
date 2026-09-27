@@ -1,6 +1,6 @@
 # PI-06 review
 
-Status: R accepted; A1 identity/service checkpoint implemented; remaining A/B/T pending.
+Status: R accepted; A1 identity/service, decision-ID and count-gate checkpoints implemented; remaining encoded aggregate and A2/B/T pending.
 R milestone: design acceptance only. A/B/T and transactional Tags are not complete.
 Reviewed source baseline: `2aedabbd141adb5aaf02746ae041eb7e5596317c`.
 
@@ -105,3 +105,15 @@ the fixed internal value codec and malformed/oversized/privacy tests. It does
 not implement evidence decisions, aggregate limits or a public wire schema.
 Full A1 remains open pending real retained-history/cumulative-support and
 encoded-size preflight with worst-case/overflow evidence; A2/B/T remain pending.
+
+## A1 count-only preflight checkpoint
+
+The [history-count checkpoint](pi-06-a1-counts-checkpoint.md) adds allocation-free
+checks over actual slices, including all retained cumulative support links and
+the independent command observation count. Exact, one-over, native-int overflow
+and zero-allocation tests pass. Independent parent review confirms bounded
+iteration, no copies, no semantic scanning and generic errors.
+The APIs are composable gates, not yet called by metadata mutations or storage
+loading. Full retained-history/encoded aggregate preflight remains open.
+32-bit compilation passed; execution was sandbox-blocked, not claimed passing.
+Local race evidence is unavailable without a C compiler; remote CI owns it.

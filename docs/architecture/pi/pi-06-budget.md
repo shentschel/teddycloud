@@ -89,3 +89,13 @@ The fixed T reserve and final safety margin remain required in both windows.
 If actual representation design broadens the remaining scope, refine/re-route
 it first and update this ceiling rather than treating an empty aggregate or
 caller-supplied byte count as proof of bounded decoding.
+
+## Count-only follow-up scope
+
+Actual-slice count preflight is a smaller settled implementation subset: agent
+ceiling 12/2 plus parent 8/2 and uncertainty 4/1, independently by window.
+It does not consume a new A1 allowance or accept encoding/storage behavior.
+The remaining encoded representation must be refined before implementation
+if it introduces an architectural decision, using the largest comparable
+integrated Astra refinement sample plus uncertainty and the existing T reserve.
+Do not use the small codec/count work class to discount architecture work.

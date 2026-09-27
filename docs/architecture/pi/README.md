@@ -28,6 +28,7 @@ Current execution artifacts:
 - [PI-06 Tag Registry contract](pi-06-tag-registry-contract.md)
 - [PI-06/A1 identity checkpoint](pi-06-a1-identity-checkpoint.md)
 - [PI-06/A1 internal decision-ID checkpoint](pi-06-a1-decision-checkpoint.md)
+- [PI-06/A1 history-count checkpoint](pi-06-a1-counts-checkpoint.md)
 
 - [PI-05 execution plan](pi-05-plan.md)
 - [PI-05 budget method](pi-05-budget.md)
