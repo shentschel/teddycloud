@@ -1,6 +1,6 @@
 # PI-05/T persistence failure checkpoint
 
-Status: **scoped T implementation locally complete; final PI-05 milestone decision remains with the parent audit**
+Status: **Complete within PI-05 scope; milestone accepted by the final audit**
 
 ## Closed in this checkpoint
 
@@ -61,3 +61,7 @@ The parent integration adds read-only integrity_check and a real damaged-content
 page fixture, handles SQLite WAL auxiliary-file semantics explicitly, rejects
 SQLite-like foreign table names without an ownership bypass, and proves the
 combined upgrade/restore milestone. See [final audit](pi-05-t-audit.md).
+
+Published implementation [Next CI](https://github.com/shentschel/teddycloud/actions/runs/36288455791) and [docs CI](https://github.com/shentschel/teddycloud/actions/runs/36288455756) passed, including the focused
+SQLite regression/race job. External blob and FK consistency follow-ups remain
+open under their named owners rather than counted as passing tests.

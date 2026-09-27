@@ -1,6 +1,6 @@
 # PI-05 budget and admission
 
-Status: **R/A complete; B transaction/repository checkpoint recorded; remaining B/T require fresh admission**
+Status: **R/A/B/T complete; future PI work requires fresh admission**
 
 Personal usage snapshots and agent identifiers remain only in the ignored
 automation state. Repository documentation records estimates and outcomes, not

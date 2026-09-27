@@ -71,8 +71,8 @@ links the four open findings; the [PI-02 plan](pi-02-plan.md) links its three
 completed sprint tasks, and the [PI-03 plan](pi-03-plan.md) links its three
 delivery tasks; R/A/B/T are complete according to its review. The
 [PI-04 plan](pi-04-plan.md) links its completed A/B/T tasks as issues #11-#13.
-The [PI-05 plan](pi-05-plan.md) links its newly refined persistence slices as
-issues #14-#16.
+The [PI-05 plan](pi-05-plan.md) links completed persistence slices as issues
+#14-#16; its review accepts the database-only upgrade/rollback milestone.
 Search by stable ID before creating any further issue.
 Run `python3 scripts/check_architecture_docs.py` before publishing architecture
 changes. The path-scoped documentation workflow runs the same check without

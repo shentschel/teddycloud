@@ -1,9 +1,9 @@
 # PI-05 review
 
-Status: **R/A complete; B complete; T locally verified, remote acceptance pending**
+Status: **R/A/B/T complete; database-only milestone accepted**
 
 The PI milestone—versioned database upgrade and rollback by verified restore—is
-not yet accepted. PI-05 contributes persistence evidence to Gate B; it does not
+accepted for the database-only prototype. PI-05 contributes persistence evidence to Gate B; it does not
 accept that later phase gate.
 
 ## R outcome
@@ -19,7 +19,7 @@ outside R.
 | R | Complete | Plan, budget and review; documentation checks |
 | A | Complete | [Driver decision](pi-05-a-sqlite-driver.md), commit 3421501, [Next CI](https://github.com/shentschel/teddycloud/actions/runs/35750113413), [docs CI](https://github.com/shentschel/teddycloud/actions/runs/35750113522) |
 | B | Complete | Repository, contention, restart, upgrade fencing and [restore owner](pi-05-b-restore-checkpoint.md); green delivery CI |
-| T | Local acceptance complete; remote check pending | [Failure checkpoint](pi-05-t-failure-checkpoint.md) and [milestone audit](pi-05-t-audit.md) |
+| T | Complete | [Failure checkpoint](pi-05-t-failure-checkpoint.md) and [milestone audit](pi-05-t-audit.md) |
 
 The delegated Sol refinement reached its budget checkpoint without producing
 files and was stopped. The parent recovered the bounded R deliverable; private
@@ -69,8 +69,8 @@ transactions, fences later callbacks, closes the old handle, and selects only a
 verified new-path restore at the exact snapshot schema. The original database
 remains recoverable; preflight failures retain the current handle and later
 failures leave the owner closed. Independent 25x lifecycle tests, the full backend
-suite/vet, formatting, docs, diff and advisory checks pass. Remote CI is required
-before this delivery is marked complete. T and the PI milestone remain open.
+suite/vet, formatting, docs, diff and advisory checks pass. Remote delivery CI passed. T and the milestone were subsequently verified by
+the final audit below.
 
 The database-only smoke covers a WAL-mode snapshot, digest, integrity and
 migration-ledger verification, plus restore to a new path with committed-value
@@ -98,6 +98,19 @@ advisory scan are green locally.
 
 The [audit](pi-05-t-audit.md) explicitly reconciles the premature missing-blob row
 with PI-07/T-01 (#17), not as passed evidence. Foreign-key snapshot validation is
-tracked in F-PERSIST-01 (#18). Final milestone acceptance requires successful
-remote CI for the published T delivery. Gate B, production migration, hardware,
+tracked in F-PERSIST-01 (#18). Final milestone acceptance is supported by successful remote CI for the
+published T delivery. Gate B, production migration, hardware,
 media and secret restore are not accepted by this database-only milestone.
+
+## Final published evidence and next step
+
+Implementation [b73d98f](https://github.com/shentschel/teddycloud/commit/b73d98f)
+passed [Next CI](https://github.com/shentschel/teddycloud/actions/runs/36288455791) and [docs CI](https://github.com/shentschel/teddycloud/actions/runs/36288455756). The focused SQLite regression and race job
+passed alongside deterministic build/browser smoke/artifact, two-work-directory
+reproducibility and advisory checks. All in-scope PI-05 failure rows have evidence.
+The missing external-blob row remains unproven under PI-07/T-01, not counted as
+passed. F-PERSIST-01 remains open before FK-bearing schema backup acceptance.
+
+R/A/B/T are complete; the next ordered job is PI-06/R (Tag Registry state-machine
+refinement) with its routed Astra model and a fresh independent quota admission.
+No production deployment, destructive cleanup or mainline merge occurred.

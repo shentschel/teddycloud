@@ -1,6 +1,6 @@
 # PI-05/T persistence and milestone audit
 
-Status: **Local acceptance complete; remote evidence required**
+Status: **Complete; database-only PI-05 milestone accepted**
 
 ## Outcome and ownership
 
@@ -66,8 +66,8 @@ Independent full backend tests/vet, 25 repetitions of the entire SQLite suite,
 formatting, architecture-document and diff checks, and govulncheck passed.
 Next CI now includes focused regression/repetition and Ubuntu race checks in
 addition to its deterministic build, browser smoke, artifact, reproducibility
-and advisory jobs. Remote success is required before final acceptance; local
-race testing is unavailable because the host has no C compiler.
+and advisory jobs. Remote [Next CI](https://github.com/shentschel/teddycloud/actions/runs/36288455791) and [docs CI](https://github.com/shentschel/teddycloud/actions/runs/36288455756) passed. The focused Ubuntu race job passed;
+local race testing remains unavailable because the host has no C compiler.
 
 [F-PERSIST-01](https://github.com/shentschel/teddycloud/issues/18) tracks explicit
 foreign_key_check validation before backup support is accepted for FK-bearing

@@ -1,6 +1,6 @@
 # PI-05 persistence execution plan
 
-Status: **R/A complete; B complete; T locally verified, remote acceptance pending**
+Status: **R/A/B/T complete; database-only milestone accepted**
 
 PI-05 proves that a versioned local database can be upgraded and restored
 without leaking storage details into domain code. The milestone and Gate B are
@@ -147,3 +147,12 @@ The [final persistence audit](pi-05-t-audit.md) preserves the missing-external-b
 row as unproven under PI-07/T-01, consistent with this plan's existing PI-07
 lifecycle deferral. It is not a passing PI-05 database test and does not expand
 the database-only milestone to coordinated media or credential restore.
+
+## Published acceptance
+
+The combined versioned Content upgrade and exact pre-upgrade restore smoke,
+including retained original values, is accepted by the [final audit](pi-05-t-audit.md).
+[Next CI](https://github.com/shentschel/teddycloud/actions/runs/36288455791) passed, including focused regression/race, deterministic artifact,
+browser smoke, advisory and reproducibility evidence; [docs CI](https://github.com/shentschel/teddycloud/actions/runs/36288455756) passed.
+This accepts only the PI-05 database milestone, not the later Gate B or production
+cutover. PI-06/R is the next ordered refinement.
