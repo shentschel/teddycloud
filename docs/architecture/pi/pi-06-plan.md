@@ -1,6 +1,6 @@
 # PI-06 execution plan
 
-Status: R design independently accepted; A/B/T not started.
+Status: R accepted; A1 identity/service checkpoint implemented; A1 remaining, A2/B/T pending.
 R milestone: accepted Tag Registry design only.
 Delivery milestone: Tags are managed transactionally; not established by R.
 
@@ -69,6 +69,10 @@ Runnable checkpoint after implementation:
 cd next
 go test ./backend/internal/domain/tag ./backend/internal/application/tagregistry ./backend/internal/architecture
 ```
+
+Current identity/service subset: [checkpoint](pi-06-a1-identity-checkpoint.md).
+The decision-ID codec, cumulative-support and encoded-size/worst-case checks
+remain A1 acceptance; this subset alone does not complete A1 or issue #19.
 
 ### A2: durable identity checkpoint
 

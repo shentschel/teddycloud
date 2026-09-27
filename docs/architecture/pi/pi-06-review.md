@@ -1,6 +1,6 @@
-# PI-06 refinement review
+# PI-06 review
 
-Status: R design independently accepted; A/B/T pending.
+Status: R accepted; A1 identity/service checkpoint implemented; remaining A/B/T pending.
 R milestone: design acceptance only. A/B/T and transactional Tags are not complete.
 Reviewed source baseline: `2aedabbd141adb5aaf02746ae041eb7e5596317c`.
 
@@ -87,3 +87,13 @@ No implemented Tag milestone is claimed.
 
 Next step: admit A1 separately only when its uncertainty, parent integration,
 remaining T reserve and final five-percent safety margin fit both live windows. R remains a documentation-only design result.
+
+## A1 identity/service checkpoint
+
+The [identity checkpoint](pi-06-a1-identity-checkpoint.md) adds immutable Tag
+identity, strict normalization, replay/conflict registration and callback-scoped
+point queries. Independent review rejected invalid/wrong-key storage records
+and added actual hexadecimal case tests. The new application port has no dummy
+metadata-mutation method and does not open SQLite itself.
+Full A1 limits/decision-ID/worst-case evidence and A2 persistence remain open;
+no transactional Tag milestone or production behavior is claimed.

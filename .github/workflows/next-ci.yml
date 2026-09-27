@@ -6,6 +6,7 @@ on:
       - "next/**"
       - "docs/architecture/pi/pi-03-*.md"
       - "docs/architecture/pi/pi-05-*.md"
+      - "docs/architecture/pi/pi-06-*.md"
       - ".github/workflows/next-ci.yml"
   push:
     branches:
@@ -16,6 +17,7 @@ on:
       - "next/**"
       - "docs/architecture/pi/pi-03-*.md"
       - "docs/architecture/pi/pi-05-*.md"
+      - "docs/architecture/pi/pi-06-*.md"
       - ".github/workflows/next-ci.yml"
 
 permissions:
@@ -105,7 +107,7 @@ jobs:
           retention-days: 7
 
   sqlite-persistence:
-    name: SQLite persistence regression and race evidence
+    name: SQLite and Tag Registry regression and race evidence
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -125,11 +127,12 @@ jobs:
         working-directory: next
         run: |
           go test ./backend/internal/adapters/sqlite ./backend/internal/architecture
+          go test ./backend/internal/domain/tag ./backend/internal/application/tagregistry
           go test -count=10 ./backend/internal/adapters/sqlite
 
       - name: Run focused SQLite race evidence
         working-directory: next
-        run: go test -race ./backend/internal/adapters/sqlite ./backend/internal/architecture
+        run: go test -race ./backend/internal/adapters/sqlite ./backend/internal/architecture ./backend/internal/domain/tag ./backend/internal/application/tagregistry
 
   reproducibility:
     name: Two-work-directory reproducibility
