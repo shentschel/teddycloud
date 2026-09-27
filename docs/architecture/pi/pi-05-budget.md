@@ -28,7 +28,9 @@ recovered the refinement. That attempt is not treated as delivered velocity.
 ## Admission policy
 
 - Keep at least five percent free in both live windows.
-- Never exceed 1.9 five-hour budgets for the whole PI.
+- Never exceed 1.9 five-hour budgets for any one sprint; a PI uses the weekly
+  admission boundary, not a new quota bucket. This corrects the earlier wording
+  that incorrectly applied the sprint ceiling to the whole PI.
 - Recheck both windows after each completed and published slice.
 - Admit A, then B, then T only when its cap, integration allowance, remaining
   PI work and uncertainty reserve fit.
@@ -49,6 +51,16 @@ conservative estimates.
 
 A bounded B checkpoint implemented the transaction port and representative
 Content repository without reducing B acceptance. Its account-window snapshot
-is kept only in the ignored automation state. Remaining B work retains the
-unused portion of the original conservative estimate and requires a fresh
-admission before backup/restore work starts.
+is kept only in the ignored automation state. Each remaining bounded B delivery
+requires a fresh admission; earlier delivery estimates are not reset or reused
+as a claim of unused capacity.
+
+## Remaining B calibration
+
+Published B checkpoints are separate verified deliveries, not repeated completion
+of the same work. Prior account observations include orchestration, integration
+and tooling recovery; they do not isolate implementation cost. Missing snapshots
+are not imputed as zero. The original B cap is therefore not described as an
+unused allowance across all checkpoints. Remaining upgrade fencing and lifecycle
+restore each receive a fresh bounded admission; T and integration remain reserved.
+The five-hour and weekly windows are checked independently after publication.

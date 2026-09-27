@@ -32,6 +32,11 @@ type appliedMigration struct {
 	dirty    bool
 }
 
+type migrationState struct {
+	applied      []appliedMigration
+	ledgerExists bool
+}
+
 const createMigrationLedger = `
 CREATE TABLE IF NOT EXISTS tc_schema_migrations (
 	version INTEGER PRIMARY KEY,
@@ -78,20 +83,40 @@ func validateMigrations(migrations []Migration) error {
 	return nil
 }
 
-func migrate(ctx context.Context, db *sql.DB, migrations []Migration) error {
-	if _, err := db.ExecContext(ctx, createMigrationLedger); err != nil {
-		return fmt.Errorf("create migration ledger: %w", err)
+func inspectMigrationState(ctx context.Context, db *sql.DB, migrations []Migration) (migrationState, error) {
+	var ledgerExists bool
+	if err := db.QueryRowContext(
+		ctx,
+		`SELECT EXISTS(
+			SELECT 1
+			FROM sqlite_schema
+			WHERE type = 'table' AND name = 'tc_schema_migrations'
+		)`,
+	).Scan(&ledgerExists); err != nil {
+		return migrationState{}, fmt.Errorf("inspect migration ledger: %w", err)
+	}
+	if !ledgerExists {
+		return migrationState{}, nil
 	}
 
 	applied, err := readAppliedMigrations(ctx, db)
 	if err != nil {
-		return err
+		return migrationState{}, err
 	}
 	if err := validateAppliedMigrations(applied, migrations); err != nil {
-		return err
+		return migrationState{}, err
+	}
+	return migrationState{applied: applied, ledgerExists: true}, nil
+}
+
+func migrate(ctx context.Context, db *sql.DB, migrations []Migration, state migrationState) error {
+	if !state.ledgerExists {
+		if _, err := db.ExecContext(ctx, createMigrationLedger); err != nil {
+			return fmt.Errorf("create migration ledger: %w", err)
+		}
 	}
 
-	for index := len(applied); index < len(migrations); index++ {
+	for index := len(state.applied); index < len(migrations); index++ {
 		if err := applyMigration(ctx, db, migrations[index]); err != nil {
 			return err
 		}

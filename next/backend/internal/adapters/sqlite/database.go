@@ -21,18 +21,39 @@ const (
 	maxBusyTimeout     = time.Duration(1<<31-1) * time.Millisecond
 )
 
-var ErrConnectionInvariant = errors.New("sqlite connection invariant not satisfied")
+var (
+	ErrConnectionInvariant   = errors.New("sqlite connection invariant not satisfied")
+	ErrUpgradeBackupRequired = errors.New("sqlite upgrade backup destination is required")
+)
 
 // Config contains the connection settings owned by this adapter.
 type Config struct {
-	Path        string
-	BusyTimeout time.Duration
+	Path              string
+	BusyTimeout       time.Duration
+	UpgradeBackupPath string
 }
 
 // Database is the adapter-owned database handle. It deliberately does not
 // expose database/sql or driver values.
 type Database struct {
-	db *sql.DB
+	db            *sql.DB
+	upgradeBackup *BackupFile
+}
+
+// UpgradeError retains the verified pre-upgrade snapshot when a later
+// migration step fails. The source may retain a dirty ledger entry according
+// to the existing forward-only migration policy.
+type UpgradeError struct {
+	Backup BackupFile
+	Err    error
+}
+
+func (failure *UpgradeError) Error() string {
+	return fmt.Sprintf("sqlite upgrade failed after verified backup %q: %v", failure.Backup.Path, failure.Err)
+}
+
+func (failure *UpgradeError) Unwrap() error {
+	return failure.Err
 }
 
 // Open establishes the single-writer pool, verifies its connection invariants
@@ -69,12 +90,35 @@ func Open(ctx context.Context, config Config, migrations []Migration) (*Database
 	if err := verifyConnection(ctx, db, busyTimeoutMillis); err != nil {
 		return nil, err
 	}
-	if err := migrate(ctx, db, migrations); err != nil {
+	state, err := inspectMigrationState(ctx, db, migrations)
+	if err != nil {
+		return nil, err
+	}
+
+	database := &Database{db: db}
+	pendingUpgrade := state.ledgerExists && len(state.applied) < len(migrations)
+	if pendingUpgrade {
+		if strings.TrimSpace(config.UpgradeBackupPath) == "" {
+			return nil, ErrUpgradeBackupRequired
+		}
+		snapshot, err := database.CreateBackup(ctx, config.UpgradeBackupPath, migrations)
+		if err != nil {
+			return nil, fmt.Errorf("create pre-upgrade backup: %w", err)
+		}
+		if err := VerifyBackup(ctx, snapshot, migrations); err != nil {
+			return nil, fmt.Errorf("verify pre-upgrade backup: %w", err)
+		}
+		database.upgradeBackup = &snapshot
+	}
+	if err := migrate(ctx, db, migrations, state); err != nil {
+		if database.upgradeBackup != nil {
+			return nil, &UpgradeError{Backup: *database.upgradeBackup, Err: err}
+		}
 		return nil, err
 	}
 
 	closeOnError = false
-	return &Database{db: db}, nil
+	return database, nil
 }
 
 // Close releases the adapter-owned connection.
@@ -83,6 +127,15 @@ func (database *Database) Close() error {
 		return nil
 	}
 	return database.db.Close()
+}
+
+// UpgradeBackup reports the verified snapshot created immediately before this
+// handle applied migrations. Fresh and same-version opens return false.
+func (database *Database) UpgradeBackup() (BackupFile, bool) {
+	if database == nil || database.upgradeBackup == nil {
+		return BackupFile{}, false
+	}
+	return *database.upgradeBackup, true
 }
 
 // CurrentVersion reports the latest clean schema version without exposing SQL.

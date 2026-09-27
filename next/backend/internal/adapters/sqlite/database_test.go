@@ -46,7 +46,10 @@ func TestOpenUpgradesSchema(t *testing.T) {
 		t.Fatalf("close version 1: %v", err)
 	}
 
-	upgraded, err := Open(t.Context(), Config{Path: path}, migrations)
+	upgraded, err := Open(t.Context(), Config{
+		Path:              path,
+		UpgradeBackupPath: filepath.Join(t.TempDir(), "pre-upgrade.sqlite"),
+	}, migrations)
 	if err != nil {
 		t.Fatalf("upgrade to version 2: %v", err)
 	}

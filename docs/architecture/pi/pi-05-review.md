@@ -1,6 +1,6 @@
 # PI-05 review
 
-Status: **R/A complete; B transaction/repository checkpoint complete; B/T not complete**
+Status: **R/A complete; B upgrade backup checkpoint complete; B/T not complete**
 
 The PI milestone—versioned database upgrade and rollback by verified restore—is
 not yet accepted. PI-05 contributes persistence evidence to Gate B; it does not
@@ -59,8 +59,13 @@ helper with an uncommitted write, plus deadline-bounded pool wait and recovery.
 The single connection deliberately serializes read and write transactions;
 this is not a parallel reader-pool implementation.
 
-B remains open: pre-upgrade backup failure fencing and coordinated
-backup/restore of a live database path have not yet been implemented or accepted.
+The [upgrade checkpoint](pi-05-b-upgrade-checkpoint.md) validates the migration
+ledger before creating a mandatory verified pre-upgrade snapshot. Backup failure
+leaves values, schema SQL and the full ledger unchanged; migration failure
+retains snapshot metadata for recovery.
+
+B remains open: coordinated closed/fenced restore and selection of the restored
+active database have not yet been implemented or accepted.
 
 The database-only smoke covers a WAL-mode snapshot, digest, integrity and
 migration-ledger verification, plus restore to a new path with committed-value
@@ -71,7 +76,7 @@ readback. Existing destinations and tampered backups are rejected. See the
 
 - Finalize repository shapes only with B tests.
 - Calibrate busy timeout and retry counts from measured contention tests.
-- Integrate a verified pre-upgrade backup before incompatible migration.
+- Integrate coordinated closed/fenced lifecycle restore before accepting B.
 
 Production migration, coordinated media/credential restore and hardware
 durability evidence remain outside this checkpoint.

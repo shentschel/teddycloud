@@ -29,6 +29,7 @@ Current execution artifacts:
 - [PI-05/B backup checkpoint](pi-05-b-backup-checkpoint.md)
 - [PI-05/B contention checkpoint](pi-05-b-contention-checkpoint.md)
 - [PI-05/B restart and bounded-access checkpoint](pi-05-b-restart-checkpoint.md)
+- [PI-05/B verified upgrade backup checkpoint](pi-05-b-upgrade-checkpoint.md)
 
 - [PI-04 execution plan](pi-04-plan.md)
 - [PI-04 budget method](pi-04-budget.md)

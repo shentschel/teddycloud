@@ -1,6 +1,6 @@
 # PI-05 persistence execution plan
 
-Status: **R/A complete; B transaction/repository checkpoint complete; B/T not complete**
+Status: **R/A complete; B upgrade backup checkpoint complete; B/T not complete**
 
 PI-05 proves that a versioned local database can be upgraded and restored
 without leaking storage details into domain code. The milestone and Gate B are
@@ -100,12 +100,16 @@ reopens at the expected schema version with the expected committed values.
 Current B checkpoint: the application owns a domain-typed Content repository and
 transaction port; the SQLite adapter implements commit, rollback, round-trip and
 serialized-write tests through an immutable baseline application migration.
-This does not complete B. Bounded busy/retry behavior, restart evidence,
-bounded reader behavior and coordinated backup/restore remain required.
+This does not complete B. Contention, restart and bounded serialized-access
+checkpoints now cover their B rows. Coordinated lifecycle restore remains required.
 The [contention checkpoint](pi-05-b-contention-checkpoint.md) now proves bounded
 lock exhaustion and cancellation; the [backup checkpoint](pi-05-b-backup-checkpoint.md)
 proves verified database-only snapshots and restore to a new path. Neither
-checkpoint establishes full B acceptance.
+checkpoint establishes full B acceptance. The
+[restart checkpoint](pi-05-b-restart-checkpoint.md) proves process-interruption
+recovery and bounded pool waits. The [upgrade checkpoint](pi-05-b-upgrade-checkpoint.md)
+adds mandatory verified pre-upgrade snapshots and failure fencing before ledger
+or schema mutation; fresh and same-version opens stay idempotent.
 
 ### [PI-05/T](https://github.com/shentschel/teddycloud/issues/16) — Persistence leakage and failure hardening
 
