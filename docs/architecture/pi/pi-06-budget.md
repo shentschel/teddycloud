@@ -73,3 +73,19 @@ reusing the optimistic early target. This does not authorize A, B, T or #18.
 If FK recovery or the bounded evidence representation needs broader design,
 return that decision to refinement under a fresh admission instead of growing
 the current job.
+
+## A1 checkpoint calibration
+
+The initial A1 band is a forecast, not an unused allowance after identity delivery.
+The identity/service checkpoint produced an integrated comparable sample;
+subsequent work is re-estimated by scope and quality, not admitted under a reset
+of that forecast. The fixed two-file codec is a smaller work class, capped at
+6/1 agent points plus 4/1 integration and 2/1 uncertainty.
+Remaining aggregate-bound work provisionally uses a 35/6 integrated ceiling,
+including parent review/verification, derived conservatively from the completed
+service interval with independent uncertainty factors. Do not add parent overhead
+again to that integrated estimate. It is not isolated agent billing or a promise.
+The fixed T reserve and final safety margin remain required in both windows.
+If actual representation design broadens the remaining scope, refine/re-route
+it first and update this ceiling rather than treating an empty aggregate or
+caller-supplied byte count as proof of bounded decoding.

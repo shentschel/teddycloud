@@ -97,3 +97,11 @@ and added actual hexadecimal case tests. The new application port has no dummy
 metadata-mutation method and does not open SQLite itself.
 Full A1 limits/decision-ID/worst-case evidence and A2 persistence remain open;
 no transactional Tag milestone or production behavior is claimed.
+
+## A1 internal decision-ID checkpoint
+
+The [decision-ID checkpoint](pi-06-a1-decision-checkpoint.md) implements only
+the fixed internal value codec and malformed/oversized/privacy tests. It does
+not implement evidence decisions, aggregate limits or a public wire schema.
+Full A1 remains open pending real retained-history/cumulative-support and
+encoded-size preflight with worst-case/overflow evidence; A2/B/T remain pending.

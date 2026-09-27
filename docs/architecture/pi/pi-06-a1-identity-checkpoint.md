@@ -26,7 +26,8 @@ proof of that implementation belongs to A2/B2, not the test double.
 
 ## Remaining acceptance
 
-Full A1 still requires the internal decision-ID codec, cumulative support and
+The [internal decision-ID codec](pi-06-a1-decision-checkpoint.md) is a later
+separate checkpoint. Full A1 still requires cumulative support and
 encoded-aggregate size limits, exact-boundary/one-over/overflow tests and
 worst-case representation proof. This checkpoint does not replace those with
 caller-supplied size numbers or infer passing bounds from an empty aggregate.
