@@ -1,6 +1,6 @@
 # PI-05 review
 
-Status: **R/A complete; B upgrade backup checkpoint complete; B/T not complete**
+Status: **R/A complete; B implemented and locally verified; T not complete**
 
 The PI milestone—versioned database upgrade and rollback by verified restore—is
 not yet accepted. PI-05 contributes persistence evidence to Gate B; it does not
@@ -18,7 +18,7 @@ outside R.
 |---|---|---|
 | R | Complete | Plan, budget and review; documentation checks |
 | A | Complete | [Driver decision](pi-05-a-sqlite-driver.md), commit 3421501, [Next CI](https://github.com/shentschel/teddycloud/actions/runs/35750113413), [docs CI](https://github.com/shentschel/teddycloud/actions/runs/35750113522) |
-| B | Partial checkpoint | Content repository and [database backup smoke](pi-05-b-backup-checkpoint.md); remaining failure evidence missing |
+| B | Local acceptance complete; remote delivery check pending | Repository, contention, restart, upgrade fencing and [restore owner](pi-05-b-restore-checkpoint.md) |
 | T | Not started | Hardening and final milestone audit missing |
 
 The delegated Sol refinement reached its budget checkpoint without producing
@@ -64,8 +64,13 @@ ledger before creating a mandatory verified pre-upgrade snapshot. Backup failure
 leaves values, schema SQL and the full ledger unchanged; migration failure
 retains snapshot metadata for recovery.
 
-B remains open: coordinated closed/fenced restore and selection of the restored
-active database have not yet been implemented or accepted.
+The [restore owner checkpoint](pi-05-b-restore-checkpoint.md) drains current
+transactions, fences later callbacks, closes the old handle, and selects only a
+verified new-path restore at the exact snapshot schema. The original database
+remains recoverable; preflight failures retain the current handle and later
+failures leave the owner closed. Independent 25x lifecycle tests, the full backend
+suite/vet, formatting, docs, diff and advisory checks pass. Remote CI is required
+before this delivery is marked complete. T and the PI milestone remain open.
 
 The database-only smoke covers a WAL-mode snapshot, digest, integrity and
 migration-ledger verification, plus restore to a new path with committed-value
@@ -76,7 +81,7 @@ readback. Existing destinations and tampered backups are rejected. See the
 
 - Finalize repository shapes only with B tests.
 - Calibrate busy timeout and retry counts from measured contention tests.
-- Integrate coordinated closed/fenced lifecycle restore before accepting B.
+- Audit generic repository errors and corrupted/missing-content boundaries in T.
 
 Production migration, coordinated media/credential restore and hardware
 durability evidence remain outside this checkpoint.
