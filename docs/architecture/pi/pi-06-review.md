@@ -131,3 +131,14 @@ Parent removed a new-reader requirement from current A1 scope: it has no actual
 consumer. Complete domain encoding and persisted preflight still need separate
 implementation admission. No runtime, migration, B1 transition or public format
 was implemented or accepted as delivered here.
+
+## A1 counter/writer partial checkpoint
+
+The [encoder checkpoint](pi-06-a1-encoder-checkpoint.md) is a runnable partial
+implementation, not full A1 acceptance. Parent reviewed actual complete views,
+shared traversal, preflight-before-copy/output and real exact-limit fixtures.
+It removed an incorrect allocation-free comment: the interface sink still
+escapes once. The <=1 allocation checkpoint is not zero-allocation evidence.
+Semantic/cross-reference reconstruction, immutable Tag/equality, service
+integration and explicit domain-enum mappings remain open in issue #19.
+No SQL, B1 mutation, decoder or transactional Tag milestone is delivered.

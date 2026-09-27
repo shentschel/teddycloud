@@ -30,6 +30,7 @@ Current execution artifacts:
 - [PI-06/A1 internal decision-ID checkpoint](pi-06-a1-decision-checkpoint.md)
 - [PI-06/A1 history-count checkpoint](pi-06-a1-counts-checkpoint.md)
 - [PI-06/A1 internal encoding refinement](pi-06-a1-encoding-refinement.md)
+- [PI-06/A1 counter/writer partial checkpoint](pi-06-a1-encoder-checkpoint.md)
 
 - [PI-05 execution plan](pi-05-plan.md)
 - [PI-05 budget method](pi-05-budget.md)
