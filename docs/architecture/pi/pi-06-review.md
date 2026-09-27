@@ -142,3 +142,12 @@ escapes once. The <=1 allocation checkpoint is not zero-allocation evidence.
 Semantic/cross-reference reconstruction, immutable Tag/equality, service
 integration and explicit domain-enum mappings remain open in issue #19.
 No SQL, B1 mutation, decoder or transactional Tag milestone is delivered.
+
+## A1 byte-counter allocation correction
+
+Independent diff review confirms only the counting/writing sink mechanism and
+allocation regression assertions changed. A concrete shared pointer avoids the
+interface sink escape; valid and rejected field preflight now assert exactly
+zero allocations. Golden output, the actual 8 MiB boundary and writer errors
+remain covered. No enum, state transition, Tag/service, SQL or decoder behavior
+was broadened. The previously documented full-A1 integration gaps remain open.

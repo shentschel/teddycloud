@@ -9,43 +9,23 @@ import (
 	"github.com/shentschel/teddycloud/next/backend/internal/domain/identity"
 )
 
-type tregSink interface {
-	raw(string) error
-	byte(byte) error
-}
-
-type countSink struct {
-	written int64
-	limit   int64
-}
-
-func (sink *countSink) raw(value string) error {
-	next, ok := checkedAddInt64(sink.written, int64(len(value)), sink.limit)
-	if !ok {
-		return ErrEncodedTagLimit
-	}
-	sink.written = next
-	return nil
-}
-
-func (sink *countSink) byte(byte) error {
-	next, ok := checkedAddInt64(sink.written, 1, sink.limit)
-	if !ok {
-		return ErrEncodedTagLimit
-	}
-	sink.written = next
-	return nil
-}
-
-type writerSink struct {
+type tregSink struct {
 	writer  io.Writer
 	written int64
 	limit   int64
 }
 
-func (sink *writerSink) raw(value string) error {
-	if int64(len(value)) > sink.limit-sink.written {
+type countSink = tregSink
+type writerSink = tregSink
+
+func (sink *tregSink) raw(value string) error {
+	next, ok := checkedAddInt64(sink.written, int64(len(value)), sink.limit)
+	if !ok {
 		return ErrEncodedTagLimit
+	}
+	if sink.writer == nil {
+		sink.written = next
+		return nil
 	}
 	written, err := sink.writer.Write([]byte(value))
 	sink.written += int64(written)
@@ -58,9 +38,14 @@ func (sink *writerSink) raw(value string) error {
 	return nil
 }
 
-func (sink *writerSink) byte(value byte) error {
-	if sink.written >= sink.limit {
+func (sink *tregSink) byte(value byte) error {
+	next, ok := checkedAddInt64(sink.written, 1, sink.limit)
+	if !ok {
 		return ErrEncodedTagLimit
+	}
+	if sink.writer == nil {
+		sink.written = next
+		return nil
 	}
 	buffer := [1]byte{value}
 	written, err := sink.writer.Write(buffer[:])
@@ -75,8 +60,7 @@ func (sink *writerSink) byte(value byte) error {
 }
 
 // encodedLen derives its result from borrowed fields before aggregate copies.
-// The current interface sink escapes once; zero-allocation byte preflight is
-// pending. Field encodability is not validation of B1 transitions.
+// Field encodability is not validation of B1 transitions.
 func encodedLen(view retainedTagView) (int64, error) {
 	if err := checkRetainedViewCounts(view); err != nil {
 		return 0, err
@@ -112,7 +96,7 @@ func writeTREG1(view retainedTagView, writer io.Writer) (int64, error) {
 	return sink.written, nil
 }
 
-func traverseTREG1(view retainedTagView, sink tregSink) error {
+func traverseTREG1(view retainedTagView, sink *tregSink) error {
 	if !validTagID(view.id) || view.revision <= 0 {
 		return ErrInvalidRetainedEncoding
 	}
@@ -167,7 +151,7 @@ func traverseTREG1(view retainedTagView, sink tregSink) error {
 	return sink.byte(']')
 }
 
-func writeFacts(sink tregSink, facts [retainedFactKeyCount]retainedFactView) error {
+func writeFacts(sink *tregSink, facts [retainedFactKeyCount]retainedFactView) error {
 	if err := sink.byte('['); err != nil {
 		return err
 	}
@@ -200,7 +184,7 @@ func writeFacts(sink tregSink, facts [retainedFactKeyCount]retainedFactView) err
 	return sink.byte(']')
 }
 
-func writeObservations(sink tregSink, view retainedTagView) error {
+func writeObservations(sink *tregSink, view retainedTagView) error {
 	if err := sink.byte('['); err != nil {
 		return err
 	}
@@ -280,7 +264,7 @@ func writeObservations(sink tregSink, view retainedTagView) error {
 	return sink.byte(']')
 }
 
-func writeSourceFields(sink tregSink, source evidence.Source) error {
+func writeSourceFields(sink *tregSink, source evidence.Source) error {
 	for _, field := range [3]string{source.Name(), source.Revision(), source.Record()} {
 		if err := separator(sink); err != nil {
 			return err
@@ -292,7 +276,7 @@ func writeSourceFields(sink tregSink, source evidence.Source) error {
 	return nil
 }
 
-func writeDecisions(sink tregSink, view retainedTagView) error {
+func writeDecisions(sink *tregSink, view retainedTagView) error {
 	if err := sink.byte('['); err != nil {
 		return err
 	}
@@ -344,7 +328,7 @@ func writeDecisions(sink tregSink, view retainedTagView) error {
 	return sink.byte(']')
 }
 
-func writeEvidenceIDs(sink tregSink, ids []evidence.ID) error {
+func writeEvidenceIDs(sink *tregSink, ids []evidence.ID) error {
 	if err := sink.byte('['); err != nil {
 		return err
 	}
@@ -364,7 +348,7 @@ func writeEvidenceIDs(sink tregSink, ids []evidence.ID) error {
 	return sink.byte(']')
 }
 
-func writeEscapedSource(sink tregSink, value string) error {
+func writeEscapedSource(sink *tregSink, value string) error {
 	if !evidence.ValidText(value, 128) {
 		return ErrInvalidRetainedEncoding
 	}
@@ -407,7 +391,7 @@ func writeEscapedSource(sink tregSink, value string) error {
 	return sink.byte('"')
 }
 
-func writeTimestamp(sink tregSink, value time.Time) error {
+func writeTimestamp(sink *tregSink, value time.Time) error {
 	if !validObservedAt(value) {
 		return ErrInvalidRetainedEncoding
 	}
@@ -439,7 +423,7 @@ func writeTimestamp(sink tregSink, value time.Time) error {
 	return sink.byte('"')
 }
 
-func writeFixedUnsigned(sink tregSink, value, width int) error {
+func writeFixedUnsigned(sink *tregSink, value, width int) error {
 	divisor := 1
 	for range width - 1 {
 		divisor *= 10
@@ -453,7 +437,7 @@ func writeFixedUnsigned(sink tregSink, value, width int) error {
 	return nil
 }
 
-func writeRevision(sink tregSink, revision Revision) error {
+func writeRevision(sink *tregSink, revision Revision) error {
 	if revision <= 0 {
 		return ErrInvalidRetainedEncoding
 	}
@@ -471,7 +455,7 @@ func writeRevision(sink tregSink, revision Revision) error {
 	return nil
 }
 
-func writeQuotedRaw(sink tregSink, value string) error {
+func writeQuotedRaw(sink *tregSink, value string) error {
 	if err := sink.byte('"'); err != nil {
 		return err
 	}
@@ -481,7 +465,7 @@ func writeQuotedRaw(sink tregSink, value string) error {
 	return sink.byte('"')
 }
 
-func writeUID(sink tregSink, uid UID) error {
+func writeUID(sink *tregSink, uid UID) error {
 	const hexadecimal = "0123456789ABCDEF"
 	value := uid.Bytes()
 	if err := sink.byte('"'); err != nil {
@@ -502,7 +486,7 @@ func writeUID(sink tregSink, uid UID) error {
 	}
 	return sink.byte('"')
 }
-func separator(sink tregSink) error { return sink.byte(',') }
+func separator(sink *tregSink) error { return sink.byte(',') }
 
 func validTagID(id identity.TagID) bool {
 	if id.IsZero() {

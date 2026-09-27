@@ -86,14 +86,31 @@ func TestTagEncodingBorrowedPayloadForcesFreshPreflight(t *testing.T) {
 }
 
 func TestTagEncodingPreflightAllocationCheckpoint(t *testing.T) {
-	view := completeRetainedView(t)
-	allocations := testing.AllocsPerRun(1000, func() {
-		if _, err := encodedLen(view); err != nil {
-			t.Fatal(err)
-		}
-	})
-	if allocations > 1 {
-		t.Fatalf("byte preflight allocations = %v, want at most current single sink escape", allocations)
+	accepted := completeRetainedView(t)
+	rejected := accepted
+	rejected.facts[retainedProtocolValid].state = MetadataState(4)
+
+	tests := []struct {
+		name    string
+		view    retainedTagView
+		wantErr error
+	}{
+		{name: "accepted", view: accepted},
+		{name: "rejected", view: rejected, wantErr: ErrInvalidRetainedEncoding},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var gotErr error
+			allocations := testing.AllocsPerRun(1000, func() {
+				_, gotErr = encodedLen(test.view)
+			})
+			if !errors.Is(gotErr, test.wantErr) {
+				t.Fatalf("byte preflight error = %v, want %v", gotErr, test.wantErr)
+			}
+			if allocations != 0 {
+				t.Fatalf("byte preflight allocations = %v, want zero", allocations)
+			}
+		})
 	}
 }
 

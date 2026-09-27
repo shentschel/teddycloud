@@ -15,8 +15,9 @@ This verifies byte encoding, not an implemented metadata transition/replay syste
 
 Remaining acceptance:
 
-- Byte preflight currently allocates one small sink through interface dispatch.
-  Its test records the partial ceiling of one, not zero-allocation acceptance.
+- The follow-up replaces interface dispatch with one concrete shared sink.
+  Byte preflight now has exact zero-allocation tests for valid and rejected
+  field input; no aggregate copy precedes byte admission.
 - An immutable retained Tag constructor, full cross-reference/projection
   reconstruction, evidence acceptance and bounded equality remain unimplemented.
   Byte-valid dangling support is explicitly tested as not semantic acceptance.
@@ -28,6 +29,8 @@ Remaining acceptance:
 
 Parent reviewed all four files and the actual boundary fixtures. Broader
 implementation was stopped at the checkpoint to retain verification capacity.
-Full backend tests/vet and 386 compile were reported by the agent; parent repeats
-native verification after integration. Remote CI is required before publication
-is recorded as verified. No production change or full-A1/A milestone is claimed.
+Parent full backend tests/vet passed after integration. Original-checkpoint
+[Next CI](https://github.com/shentschel/teddycloud/actions/runs/36348465174) and
+[docs CI](https://github.com/shentschel/teddycloud/actions/runs/36348465179) passed.
+The allocation-only follow-up retains golden/boundary/writer-error behavior;
+its own CI is required before recording that correction as verified. No production change or full-A1/A milestone is claimed.

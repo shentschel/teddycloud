@@ -79,8 +79,9 @@ complete A1 or issue #19. The [encoding refinement](pi-06-a1-encoding-refinement
 settles the internal shape, timestamps and exact byte accounting as design only;
 a serialized-input reader has no current consumer and is not A1 scope.
 The [counter/writer checkpoint](pi-06-a1-encoder-checkpoint.md) now supplies actual
-field/byte parity and exact-boundary fixtures, but one sink allocation, explicit
-enum mappings and immutable semantic/registry integration remain open.
+field/byte parity and exact-boundary fixtures. The allocation-only follow-up
+adds zero-allocation byte preflight; explicit enum mappings and immutable
+semantic/registry integration remain open.
 
 ### A2: durable identity checkpoint
 
