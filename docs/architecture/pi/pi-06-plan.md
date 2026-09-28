@@ -82,7 +82,8 @@ The [counter/writer checkpoint](pi-06-a1-encoder-checkpoint.md) now supplies act
 field/byte parity and exact-boundary fixtures. The allocation-only follow-up
 adds zero-allocation byte preflight; explicit enum mappings now pin the three
 domain value maps. A private semantic validator checks cross-references and
-projections; immutable Tag, bounded equality and registry integration remain open.
+projections; a validated retained value clones and compares bounded canonical
+fields. Identity-only Tag and registry integration remain open.
 
 ### A2: durable identity checkpoint
 

@@ -167,3 +167,11 @@ observation and decision identities, revision/key consistency, selected accepted
 support, and current fact projections reconstructed from the latest decision
 plus later accepted observations. It remains uncalled by Tag, writer or service.
 This runnable checkpoint alone does not establish full A1 or B1 transitions.
+
+## A1 private retained-value checkpoint
+
+The private constructor validates before copying, then owns canonical slices.
+Its bounded equality compares retained fields without a serialized aggregate;
+mutation of caller slices does not alter later output or equality. Byte-over
+input allocates no aggregate copy. This does not change the public identity-only
+Tag or application service, so full A1 and transactional Tag remain open.
