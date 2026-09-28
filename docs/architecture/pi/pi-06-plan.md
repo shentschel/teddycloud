@@ -105,6 +105,10 @@ rolls back; errors preserve application taxonomy and hide storage details.
 The initial identity-only migration need not introduce FKs. It must preserve
 existing Content records and immutable migration checksums.
 
+The [additive schema checkpoint](pi-06-a2-schema-checkpoint.md) verifies migration
+2, the v1 checksum and Content preservation. Repository, transaction and
+lifecycle wiring remain open, so A2 is not accepted.
+
 Verification: A1 command plus
 `go test ./backend/internal/adapters/sqlite` from `next`; require the specifically
 named A tests in the contract to exist and execute before accepting the slice.

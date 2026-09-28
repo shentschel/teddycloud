@@ -198,3 +198,10 @@ retained-value constructor, including exact 8 MiB acceptance, one-over rejection
 and MaxInt64 expected-revision rejection. Local full backend tests/vet passed;
 [Next CI](https://github.com/shentschel/teddycloud/actions/runs/36395318633)
 passed all four jobs and [docs CI](https://github.com/shentschel/teddycloud/actions/runs/36395318632) passed. A1 is accepted; A2/B1 remain separate work.
+
+## A2 additive identity schema checkpoint
+
+The [schema checkpoint](pi-06-a2-schema-checkpoint.md) adds only the checked
+`tc_tags` identity table in migration 2. Parent verified v1 checksum and Content
+preservation, fresh/reopen constraints, full backend tests/vet and CI. The Tag
+repository, lifecycle transaction seam and full A2 acceptance remain open.
