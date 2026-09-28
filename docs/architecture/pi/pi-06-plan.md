@@ -85,8 +85,9 @@ domain value maps. A private semantic validator checks cross-references and
 projections; a validated retained value clones and compares bounded canonical
 fields. The public Tag now owns that validated value, and registry replay
 compares complete retained history. The [A1 acceptance audit](pi-06-a1-acceptance-audit.md)
-identifies two remaining test-evidence gaps. B1 public metadata commands and A2
-durable storage are separate, later work; full A1 acceptance remains open.
+identified two test-evidence gaps; direct semantic-boundary and overflow tests
+now cover both, pending published CI before A1 acceptance. B1 public metadata
+commands and A2 durable storage are separate, later work.
 
 ### A2: durable identity checkpoint
 

@@ -192,3 +192,8 @@ The [focused audit](pi-06-a1-acceptance-audit.md) checks the current domain and
 application code against A1 criteria. It leaves two direct-test gaps: exact
 8 MiB acceptance through the semantic retained-value constructor and rejection
 of a MaxInt64 decision expectation before revision increment. A1 stays open.
+
+The subsequent test-only follow-up covers both gaps through the semantic
+retained-value constructor, including exact 8 MiB acceptance, one-over rejection
+and MaxInt64 expected-revision rejection. Local full backend tests/vet passed;
+published CI is the remaining A1 acceptance gate. A2/B1 remain separate work.

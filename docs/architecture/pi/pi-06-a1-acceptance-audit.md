@@ -1,7 +1,7 @@
 # PI-06/A1 acceptance audit
 
-Status: A1 remains open on two focused test-evidence gaps; no production-code
-change is recommended by this audit.
+Status at audited commit: two focused test-evidence gaps; no production-code
+change recommended. The later test follow-up is recorded below.
 Audited commit: `2c021a0324d81da99766353aa351691785047f0d`.
 
 This audit applies the A1 acceptance text in the
@@ -51,3 +51,10 @@ No implementation defect was demonstrated, so production changes are not
 justified. B1 still owns observation/decision mutation, replay and compare-and-
 swap commands. A2 still owns SQLite schema, durable uniqueness, persisted-load
 preflight, joined-row avoidance and lifecycle fencing.
+
+## Test-evidence follow-up
+
+`TestRetainedConstructorsAcceptExactEncodedBoundary` now passes the exact
+8 MiB view through both semantic constructors and verifies complete writes.
+`TestNewRetainedValueRejectsMaxExpectedRevisionBeforeIncrement` directly covers
+overflow rejection; the one-over constructor rejection is also asserted.

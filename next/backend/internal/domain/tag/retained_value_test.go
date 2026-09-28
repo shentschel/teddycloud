@@ -3,6 +3,8 @@ package tag
 import (
 	"bytes"
 	"errors"
+	"io"
+	"math"
 	"testing"
 	"time"
 
@@ -143,6 +145,48 @@ func TestNewRetainedValueRejectsByteOverBeforeAllocation(t *testing.T) {
 	}
 	if allocations >= 0.05 {
 		t.Fatalf("byte-over admission allocated %.2f times per call", allocations)
+	}
+	if _, err := newTagFromRetainedView(view); !errors.Is(err, ErrEncodedTagLimit) {
+		t.Fatalf("newTagFromRetainedView error = %v", err)
+	}
+}
+
+func TestRetainedConstructorsAcceptExactEncodedBoundary(t *testing.T) {
+	view := boundaryRetainedView(t, 485_585, 1)
+
+	value, err := newRetainedValue(view)
+	if err != nil {
+		t.Fatalf("newRetainedValue exact boundary: %v", err)
+	}
+	written, err := value.writeTo(io.Discard)
+	if err != nil || written != MaxEncodedTagBytes {
+		t.Fatalf("retained value exact write = (%d, %v), want (%d, nil)", written, err, MaxEncodedTagBytes)
+	}
+
+	registered, err := newTagFromRetainedView(view)
+	if err != nil {
+		t.Fatalf("newTagFromRetainedView exact boundary: %v", err)
+	}
+	written, err = registered.retained.writeTo(io.Discard)
+	if err != nil || written != MaxEncodedTagBytes {
+		t.Fatalf("retained tag exact write = (%d, %v), want (%d, nil)", written, err, MaxEncodedTagBytes)
+	}
+}
+
+func TestNewRetainedValueRejectsMaxExpectedRevisionBeforeIncrement(t *testing.T) {
+	view := completeRetainedView(t)
+	view.decisions[0].expectedRevision = Revision(math.MaxInt64)
+	view.decisions[0].resultRevision = Revision(math.MinInt64)
+
+	var got error
+	allocations := testing.AllocsPerRun(100, func() {
+		_, got = newRetainedValue(view)
+	})
+	if !errors.Is(got, ErrInvalidRetainedEncoding) {
+		t.Fatalf("newRetainedValue error = %v", got)
+	}
+	if allocations >= 0.05 {
+		t.Fatalf("max expected revision admission allocated %.2f times per call", allocations)
 	}
 }
 
