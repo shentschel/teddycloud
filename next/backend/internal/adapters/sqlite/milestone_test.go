@@ -12,7 +12,7 @@ func TestMilestoneVersionedContentUpgradeAndVerifiedRollback(t *testing.T) {
 	source := filepath.Join(directory, "source.sqlite")
 	backupPath := filepath.Join(directory, "pre-upgrade.sqlite")
 	restoredPath := filepath.Join(directory, "restored.sqlite")
-	baseline := SchemaMigrations()
+	baseline := SchemaMigrations()[:1]
 	original, err := Open(t.Context(), Config{Path: source}, baseline)
 	if err != nil {
 		t.Fatal(err)

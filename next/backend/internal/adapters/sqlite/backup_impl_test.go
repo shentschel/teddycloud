@@ -35,7 +35,7 @@ func TestBackupRestoresCommittedSnapshotWithoutOverwritingSource(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create backup: %v", err)
 	}
-	if snapshot.SchemaVersion != 1 || len(snapshot.SHA256) != 64 {
+	if snapshot.SchemaVersion != len(migrations) || len(snapshot.SHA256) != 64 {
 		t.Fatalf("backup metadata = %+v", snapshot)
 	}
 	if err := VerifyBackup(t.Context(), snapshot, migrations); err != nil {
@@ -110,7 +110,7 @@ func assertStoredTitle(t *testing.T, path string, migrations []Migration, title 
 		t.Fatalf("reopen %s: %v", path, err)
 	}
 	defer database.Close()
-	if version, err := database.CurrentVersion(t.Context()); err != nil || version != 1 {
+	if version, err := database.CurrentVersion(t.Context()); err != nil || version != len(migrations) {
 		t.Fatalf("restored version = %d, %v", version, err)
 	}
 	id := testContent(t, title, true).ID()

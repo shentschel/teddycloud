@@ -168,7 +168,7 @@ func TestLifecycleGateBoundsVersionRestoreAndClose(t *testing.T) {
 	if err := <-heldDone; err != nil {
 		t.Fatal(err)
 	}
-	if version, err := owner.CurrentVersion(t.Context()); err != nil || version != 1 {
+	if version, err := owner.CurrentVersion(t.Context()); err != nil || version != len(SchemaMigrations()) {
 		t.Fatalf("owner did not recover after canceled wait: version %d, %v", version, err)
 	}
 }
@@ -236,7 +236,7 @@ func TestLifecycleRestorePreflightFailuresKeepCurrentUsable(t *testing.T) {
 			if err := owner.Restore(t.Context(), snapshot, destination); !errors.Is(err, test.want) {
 				t.Fatalf("restore error = %v, want %v", err, test.want)
 			}
-			if version, err := owner.CurrentVersion(t.Context()); err != nil || version != 1 {
+			if version, err := owner.CurrentVersion(t.Context()); err != nil || version != len(SchemaMigrations()) {
 				t.Fatalf("current owner unusable: version %d, %v", version, err)
 			}
 			assertOwnerTitle(t, owner, "Current title")
