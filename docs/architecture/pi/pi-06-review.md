@@ -175,3 +175,13 @@ Its bounded equality compares retained fields without a serialized aggregate;
 mutation of caller slices does not alter later output or equality. Byte-over
 input allocates no aggregate copy. This does not change the public identity-only
 Tag or application service, so full A1 and transactional Tag remain open.
+
+## A1 public Tag and service bridge
+
+The public immutable Tag now has one retained-value authority for identity,
+revision, metadata and history. Its private reconstitution boundary validates
+before copying; equality compares canonical retained fields. Registry replay
+uses this equality instead of Go struct comparison. Focused tests cover
+canonical history equality, differing history, caller-slice isolation and
+identity replay. Public metadata commands, durable storage and the full A1
+acceptance remain open; no production endpoint or B1 transition is delivered.

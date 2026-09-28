@@ -131,7 +131,7 @@ func TestTagRegistrationReplayAndCollisions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if replayed != first || replayed.Revision() != domaintag.InitialRevision {
+	if !replayed.Equal(first) || replayed.Revision() != domaintag.InitialRevision {
 		t.Fatal("exact replay changed the record")
 	}
 	if store.insertCalls != 1 || store.findByIDCalls != 2 || store.findByUIDCalls != 2 {
@@ -148,7 +148,7 @@ func TestTagRegistrationReplayAndCollisions(t *testing.T) {
 		t.Fatal("collision overwrote identity")
 	}
 	unchanged, err := service.FindByID(context.Background(), syntheticTagID('0'))
-	if err != nil || unchanged != first {
+	if err != nil || !unchanged.Equal(first) {
 		t.Fatal("stored identity changed after collision")
 	}
 }
@@ -180,7 +180,7 @@ func TestTagQueriesUseCallbackScopedTransactions(t *testing.T) {
 	for _, query := range queries {
 		t.Run(query.name, func(t *testing.T) {
 			got, findErr := query.find()
-			if findErr != nil || got != want {
+			if findErr != nil || !got.Equal(want) {
 				t.Fatalf("got %#v, error %v", got, findErr)
 			}
 		})
@@ -192,7 +192,7 @@ func TestTagQueriesUseCallbackScopedTransactions(t *testing.T) {
 	bytes := want.UID().Bytes()
 	bytes[0] ^= 0xff
 	again, err := service.FindByUID(context.Background(), syntheticUID)
-	if err != nil || again != want {
+	if err != nil || !again.Equal(want) {
 		t.Fatal("returned value was not defensively immutable")
 	}
 }

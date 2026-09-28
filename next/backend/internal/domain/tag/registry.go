@@ -38,29 +38,49 @@ func (m Metadata) Claimed() MetadataState       { return m.claimed }
 func (m Metadata) CloudAuth() MetadataState     { return m.cloudAuth }
 func (m Metadata) Owned() MetadataState         { return m.owned }
 
-// Tag is one immutable registry identity. Metadata mutation and later
-// revisions are intentionally outside this identity checkpoint.
+// Tag is one immutable registry aggregate. Its retained value is the single
+// authority for identity, metadata, revision and history.
 type Tag struct {
-	id       identity.TagID
-	uid      UID
-	revision Revision
-	metadata Metadata
+	retained retainedValue
 }
 
 func NewTag(id identity.TagID, uid UID) (Tag, error) {
 	if id.IsZero() {
 		return Tag{}, ErrZeroTagID
 	}
-	return Tag{
+	return newTagFromRetainedView(retainedTagView{
 		id:       id,
 		uid:      uid,
 		revision: InitialRevision,
-		metadata: Metadata{},
-	}, nil
+	})
 }
 
-func (t Tag) ID() identity.TagID { return t.id }
-func (t Tag) UID() UID           { return t.uid }
-func (t Tag) RUID() RUID         { return t.uid.RUID() }
-func (t Tag) Revision() Revision { return t.revision }
-func (t Tag) Metadata() Metadata { return t.metadata }
+// newTagFromRetainedView is the private reconstitution boundary. The retained
+// constructor validates the borrowed view before taking canonical owned copies.
+func newTagFromRetainedView(view retainedTagView) (Tag, error) {
+	retained, err := newRetainedValue(view)
+	if err != nil {
+		return Tag{}, err
+	}
+	return Tag{retained: retained}, nil
+}
+
+func (t Tag) ID() identity.TagID { return t.retained.view.id }
+func (t Tag) UID() UID           { return t.retained.view.uid }
+func (t Tag) RUID() RUID         { return t.UID().RUID() }
+func (t Tag) Revision() Revision { return t.retained.view.revision }
+
+func (t Tag) Metadata() Metadata {
+	facts := t.retained.view.facts
+	return Metadata{
+		protocolValid: facts[retainedProtocolValid].state,
+		claimed:       facts[retainedClaimed].state,
+		cloudAuth:     facts[retainedCloudAuth].state,
+		owned:         facts[retainedOwned].state,
+	}
+}
+
+// Equal compares the complete canonical retained aggregate without encoding it.
+func (t Tag) Equal(other Tag) bool {
+	return t.retained.equal(other.retained)
+}

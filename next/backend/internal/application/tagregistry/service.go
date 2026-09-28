@@ -73,7 +73,7 @@ func (s Service) Register(ctx context.Context, command RegisterCommand) (domaint
 			if byID.ID() != id || byID.UID() != uid || byUID.ID() != id || byUID.UID() != uid {
 				return ErrIdentityConflict
 			}
-			if byID != byUID {
+			if !byID.Equal(byUID) {
 				return ErrRepositoryUnavailable
 			}
 			result = byID

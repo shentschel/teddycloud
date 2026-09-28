@@ -37,3 +37,7 @@ Parent full backend tests/vet passed after integration. Original-checkpoint
 [docs CI](https://github.com/shentschel/teddycloud/actions/runs/36348465179) passed.
 The allocation-only follow-up retains golden/boundary/writer-error behavior;
 its own CI is required before recording that correction as verified. No production change or full-A1/A milestone is claimed.
+
+A later public-Tag bridge now owns the validated retained value and uses its
+bounded equality for registry replay. The statements above describe this
+earlier checkpoint; full A1 and durable storage still remain open.

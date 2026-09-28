@@ -83,7 +83,9 @@ field/byte parity and exact-boundary fixtures. The allocation-only follow-up
 adds zero-allocation byte preflight; explicit enum mappings now pin the three
 domain value maps. A private semantic validator checks cross-references and
 projections; a validated retained value clones and compares bounded canonical
-fields. Identity-only Tag and registry integration remain open.
+fields. The public Tag now owns that validated value, and registry replay
+compares complete retained history. Public metadata commands, durable storage
+and full A1 acceptance remain open.
 
 ### A2: durable identity checkpoint
 

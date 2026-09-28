@@ -172,7 +172,8 @@ func sameReviewTagMap[K comparable](left, right map[K]domaintag.Tag) bool {
 		return false
 	}
 	for key, value := range left {
-		if right[key] != value {
+		other, ok := right[key]
+		if !ok || !value.Equal(other) {
 			return false
 		}
 	}
