@@ -23,8 +23,9 @@ Remaining acceptance:
   Byte-valid dangling support is explicitly tested as not semantic acceptance.
 - The application/service still uses identity-only Tag. No registry integration
   or caller endpoint exposes these private prototype functions.
-- Explicit version-1 mappings for domain state/review/confidence enums should
-  replace reliance on their current numeric values before full acceptance.
+- Explicit version-1 mappings for domain state/review/confidence enums now
+  replace reliance on their current Go numeric values; unsupported values fail.
+  Golden bytes, byte bounds and zero-allocation preflight remain unchanged.
 - No persisted preflight, SQL, schema, B1 mutation or decoder is implemented.
 
 Parent reviewed all four files and the actual boundary fixtures. Broader

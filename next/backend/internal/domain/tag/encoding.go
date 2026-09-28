@@ -162,13 +162,14 @@ func writeFacts(sink *tregSink, facts [retainedFactKeyCount]retainedFactView) er
 			}
 		}
 		fact := facts[key]
-		if fact.state > MetadataConflict {
+		state, stateOK := treg1MetadataState(fact.state)
+		if !stateOK {
 			return ErrInvalidRetainedEncoding
 		}
 		if err := sink.byte('['); err != nil {
 			return err
 		}
-		if err := sink.byte('0' + byte(fact.state)); err != nil {
+		if err := sink.byte('0' + state); err != nil {
 			return err
 		}
 		if err := separator(sink); err != nil {
@@ -198,11 +199,12 @@ func writeObservations(sink *tregSink, view retainedTagView) error {
 		claim := observation.Claim()
 		key, keyOK := retainedKeyForClaim(claim.Key)
 		value, valueOK := retainedBoolForClaim(claim.Value)
+		confidence, confidenceOK := treg1Confidence(observation.Confidence())
+		review, reviewOK := treg1Review(observation.Review())
 		if !validEvidenceID(observation.ID()) || retained.introducedRevision < 2 ||
 			retained.introducedRevision > view.revision || claim.Subject != view.id.String() ||
 			!keyOK || !valueOK || !validSource(observation.Source()) ||
-			!validObservedAt(observation.ObservedAt()) || observation.Confidence() > evidence.Corroborated ||
-			observation.Review() > evidence.Rejected {
+			!validObservedAt(observation.ObservedAt()) || !confidenceOK || !reviewOK {
 			return ErrInvalidRetainedEncoding
 		}
 		if err := sink.byte('['); err != nil {
@@ -248,13 +250,13 @@ func writeObservations(sink *tregSink, view retainedTagView) error {
 		if err := separator(sink); err != nil {
 			return err
 		}
-		if err := sink.byte('0' + byte(observation.Confidence())); err != nil {
+		if err := sink.byte('0' + confidence); err != nil {
 			return err
 		}
 		if err := separator(sink); err != nil {
 			return err
 		}
-		if err := sink.byte('0' + byte(observation.Review())); err != nil {
+		if err := sink.byte('0' + review); err != nil {
 			return err
 		}
 		if err := sink.byte(']'); err != nil {
@@ -262,6 +264,49 @@ func writeObservations(sink *tregSink, view retainedTagView) error {
 		}
 	}
 	return sink.byte(']')
+}
+
+func treg1MetadataState(state MetadataState) (byte, bool) {
+	switch state {
+	case MetadataUnknown:
+		return 0, true
+	case MetadataObservedTrue:
+		return 1, true
+	case MetadataObservedFalse:
+		return 2, true
+	case MetadataConflict:
+		return 3, true
+	default:
+		return 0, false
+	}
+}
+
+func treg1Confidence(confidence evidence.Confidence) (byte, bool) {
+	switch confidence {
+	case evidence.ConfidenceUnknown:
+		return 0, true
+	case evidence.Tentative:
+		return 1, true
+	case evidence.Corroborated:
+		return 2, true
+	default:
+		return 0, false
+	}
+}
+
+func treg1Review(review evidence.Review) (byte, bool) {
+	switch review {
+	case evidence.Pending:
+		return 0, true
+	case evidence.Accepted:
+		return 1, true
+	case evidence.Disputed:
+		return 2, true
+	case evidence.Rejected:
+		return 3, true
+	default:
+		return 0, false
+	}
 }
 
 func writeSourceFields(sink *tregSink, source evidence.Source) error {

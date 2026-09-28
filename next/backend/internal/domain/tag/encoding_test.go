@@ -142,6 +142,61 @@ func TestTagEncodingTimestampRevisionAndClosedMappings(t *testing.T) {
 	}
 }
 
+func TestTREG1EnumMappings(t *testing.T) {
+	metadataStates := []struct {
+		value MetadataState
+		want  byte
+		ok    bool
+	}{
+		{value: MetadataUnknown, want: 0, ok: true},
+		{value: MetadataObservedTrue, want: 1, ok: true},
+		{value: MetadataObservedFalse, want: 2, ok: true},
+		{value: MetadataConflict, want: 3, ok: true},
+		{value: MetadataState(255)},
+	}
+	for _, test := range metadataStates {
+		got, ok := treg1MetadataState(test.value)
+		if got != test.want || ok != test.ok {
+			t.Errorf("metadata state %d mapping = (%d, %t), want (%d, %t)", test.value, got, ok, test.want, test.ok)
+		}
+	}
+
+	confidences := []struct {
+		value evidence.Confidence
+		want  byte
+		ok    bool
+	}{
+		{value: evidence.ConfidenceUnknown, want: 0, ok: true},
+		{value: evidence.Tentative, want: 1, ok: true},
+		{value: evidence.Corroborated, want: 2, ok: true},
+		{value: evidence.Confidence(255)},
+	}
+	for _, test := range confidences {
+		got, ok := treg1Confidence(test.value)
+		if got != test.want || ok != test.ok {
+			t.Errorf("confidence %d mapping = (%d, %t), want (%d, %t)", test.value, got, ok, test.want, test.ok)
+		}
+	}
+
+	reviews := []struct {
+		value evidence.Review
+		want  byte
+		ok    bool
+	}{
+		{value: evidence.Pending, want: 0, ok: true},
+		{value: evidence.Accepted, want: 1, ok: true},
+		{value: evidence.Disputed, want: 2, ok: true},
+		{value: evidence.Rejected, want: 3, ok: true},
+		{value: evidence.Review(255)},
+	}
+	for _, test := range reviews {
+		got, ok := treg1Review(test.value)
+		if got != test.want || ok != test.ok {
+			t.Errorf("review %d mapping = (%d, %t), want (%d, %t)", test.value, got, ok, test.want, test.ok)
+		}
+	}
+}
+
 func TestTagEncodingWriterErrorsAndInvalidPreflight(t *testing.T) {
 	view := minimalRetainedView(t)
 	view.id = identity.TagID{}

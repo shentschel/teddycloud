@@ -151,3 +151,11 @@ interface sink escape; valid and rejected field preflight now assert exactly
 zero allocations. Golden output, the actual 8 MiB boundary and writer errors
 remain covered. No enum, state transition, Tag/service, SQL or decoder behavior
 was broadened. The previously documented full-A1 integration gaps remain open.
+
+## A1 explicit TREG/1 enum mappings
+
+The private writer now maps metadata state, observation confidence and review
+through explicit closed version-1 tables, instead of incidental Go ordinal casts.
+Unsupported values fail before output. Golden output and byte-count parity stay
+unchanged. This is a bounded codec checkpoint, not semantic reconstruction or
+full A1 acceptance; Tag/service and persistence integration remain open.
