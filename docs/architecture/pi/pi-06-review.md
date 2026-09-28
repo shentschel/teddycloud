@@ -183,5 +183,12 @@ revision, metadata and history. Its private reconstitution boundary validates
 before copying; equality compares canonical retained fields. Registry replay
 uses this equality instead of Go struct comparison. Focused tests cover
 canonical history equality, differing history, caller-slice isolation and
-identity replay. Public metadata commands, durable storage and the full A1
-acceptance remain open; no production endpoint or B1 transition is delivered.
+identity replay. Full A1 evidence remains open; B1 metadata commands and A2
+durable storage are later work. No production endpoint is delivered.
+
+## A1 acceptance audit
+
+The [focused audit](pi-06-a1-acceptance-audit.md) checks the current domain and
+application code against A1 criteria. It leaves two direct-test gaps: exact
+8 MiB acceptance through the semantic retained-value constructor and rejection
+of a MaxInt64 decision expectation before revision increment. A1 stays open.

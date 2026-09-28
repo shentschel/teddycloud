@@ -84,8 +84,9 @@ adds zero-allocation byte preflight; explicit enum mappings now pin the three
 domain value maps. A private semantic validator checks cross-references and
 projections; a validated retained value clones and compares bounded canonical
 fields. The public Tag now owns that validated value, and registry replay
-compares complete retained history. Public metadata commands, durable storage
-and full A1 acceptance remain open.
+compares complete retained history. The [A1 acceptance audit](pi-06-a1-acceptance-audit.md)
+identifies two remaining test-evidence gaps. B1 public metadata commands and A2
+durable storage are separate, later work; full A1 acceptance remains open.
 
 ### A2: durable identity checkpoint
 
