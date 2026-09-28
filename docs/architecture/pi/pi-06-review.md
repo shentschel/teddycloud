@@ -1,6 +1,6 @@
 # PI-06 review
 
-Status: R accepted; A1 identity/service, decision-ID and count-gate checkpoints implemented; remaining encoded aggregate and A2/B/T pending.
+Status: R and A1 accepted; A2/B/T pending. PI-06 delivery milestone remains open.
 R milestone: design acceptance only. A/B/T and transactional Tags are not complete.
 Reviewed source baseline: `2aedabbd141adb5aaf02746ae041eb7e5596317c`.
 
@@ -196,4 +196,5 @@ of a MaxInt64 decision expectation before revision increment. A1 stays open.
 The subsequent test-only follow-up covers both gaps through the semantic
 retained-value constructor, including exact 8 MiB acceptance, one-over rejection
 and MaxInt64 expected-revision rejection. Local full backend tests/vet passed;
-published CI is the remaining A1 acceptance gate. A2/B1 remain separate work.
+[Next CI](https://github.com/shentschel/teddycloud/actions/runs/36395318633)
+passed all four jobs and [docs CI](https://github.com/shentschel/teddycloud/actions/runs/36395318632) passed. A1 is accepted; A2/B1 remain separate work.

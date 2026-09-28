@@ -58,3 +58,7 @@ preflight, joined-row avoidance and lifecycle fencing.
 8 MiB view through both semantic constructors and verifies complete writes.
 `TestNewRetainedValueRejectsMaxExpectedRevisionBeforeIncrement` directly covers
 overflow rejection; the one-over constructor rejection is also asserted.
+Local full backend tests/vet and 10 focused repetitions passed. [Next CI](https://github.com/shentschel/teddycloud/actions/runs/36395318633)
+passed all four jobs; [docs CI](https://github.com/shentschel/teddycloud/actions/runs/36395318632)
+passed. The two evidence gaps at the audited commit are closed; A1 is accepted.
+B1 metadata transitions and A2 durable identity remain future work.

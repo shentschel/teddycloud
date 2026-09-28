@@ -1,6 +1,6 @@
 # PI-06 execution plan
 
-Status: R accepted; A1 identity/service, decision-codec and count-gate checkpoints implemented; encoded aggregate, A2/B/T pending.
+Status: R and A1 accepted; A2/B/T pending. Transactional Tags are not yet delivered.
 R milestone: accepted Tag Registry design only.
 Delivery milestone: Tags are managed transactionally; not established by R.
 
@@ -86,8 +86,9 @@ projections; a validated retained value clones and compares bounded canonical
 fields. The public Tag now owns that validated value, and registry replay
 compares complete retained history. The [A1 acceptance audit](pi-06-a1-acceptance-audit.md)
 identified two test-evidence gaps; direct semantic-boundary and overflow tests
-now cover both, pending published CI before A1 acceptance. B1 public metadata
-commands and A2 durable storage are separate, later work.
+now cover both. [Next CI](https://github.com/shentschel/teddycloud/actions/runs/36395318633)
+passed all four jobs, so A1 is accepted. B1 public metadata commands and A2
+durable storage are separate, later work.
 
 ### A2: durable identity checkpoint
 
