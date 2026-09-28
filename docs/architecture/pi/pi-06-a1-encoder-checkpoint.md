@@ -18,9 +18,10 @@ Remaining acceptance:
 - The follow-up replaces interface dispatch with one concrete shared sink.
   Byte preflight now has exact zero-allocation tests for valid and rejected
   field input; no aggregate copy precedes byte admission.
-- An immutable retained Tag constructor, full cross-reference/projection
-  reconstruction, evidence acceptance and bounded equality remain unimplemented.
-  Byte-valid dangling support is explicitly tested as not semantic acceptance.
+- A standalone semantic validator now checks references, revision history and
+  reconstructed projections after byte admission. It is not yet called by the
+  writer, Tag constructor or registry. Immutable Tag and bounded equality remain
+  unimplemented; byte-valid alone still does not imply semantic acceptance.
 - The application/service still uses identity-only Tag. No registry integration
   or caller endpoint exposes these private prototype functions.
 - Explicit version-1 mappings for domain state/review/confidence enums now

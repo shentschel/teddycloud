@@ -159,3 +159,11 @@ through explicit closed version-1 tables, instead of incidental Go ordinal casts
 Unsupported values fail before output. Golden output and byte-count parity stay
 unchanged. This is a bounded codec checkpoint, not semantic reconstruction or
 full A1 acceptance; Tag/service and persistence integration remain open.
+
+## A1 private semantic-validation checkpoint
+
+After field/count/8 MiB byte admission, a bounded private validator checks
+observation and decision identities, revision/key consistency, selected accepted
+support, and current fact projections reconstructed from the latest decision
+plus later accepted observations. It remains uncalled by Tag, writer or service.
+This runnable checkpoint alone does not establish full A1 or B1 transitions.

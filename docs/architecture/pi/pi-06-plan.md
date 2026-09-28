@@ -81,7 +81,8 @@ a serialized-input reader has no current consumer and is not A1 scope.
 The [counter/writer checkpoint](pi-06-a1-encoder-checkpoint.md) now supplies actual
 field/byte parity and exact-boundary fixtures. The allocation-only follow-up
 adds zero-allocation byte preflight; explicit enum mappings now pin the three
-domain value maps. Immutable semantic/registry integration remains open.
+domain value maps. A private semantic validator checks cross-references and
+projections; immutable Tag, bounded equality and registry integration remain open.
 
 ### A2: durable identity checkpoint
 
