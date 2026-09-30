@@ -2,13 +2,15 @@
 
 Status: active planning policy
 
-This policy assigns every candidate roadmap task to either `gpt-5.6-sol` or
-`gpt-6-astra`. It is a recommendation for execution and cost control, not a
-guarantee that either model is available through every execution environment.
+For unfinished work from PI-06 onward, route bounded delivery to `gpt-6.1-sol`
+and reserve `gpt-6-astra` for the highest-risk decisions and independent audits.
+PI-00 through PI-05 retain their historical routing; completed jobs keep their
+actual recorded model. Routing is a recommendation, not proof of availability
+or of lower Codex Plus quota use.
 
 ## Routing rules
 
-Use `gpt-5.6-sol` by default for:
+Use `gpt-6.1-sol` by default for future work when available for:
 
 - bounded implementation with settled acceptance criteria;
 - tests, fixtures, adapters, UI work and documentation;
@@ -24,6 +26,15 @@ Use `gpt-6-astra` for:
 - production migration, dual-write conflict policy and rollback gates;
 - cross-system reviews where a wrong decision can cause data loss or lock-in.
 
+Use `high` for bounded implementation with non-trivial invariants; start with
+`medium` for routine changes and raise to `xhigh` only for demonstrated
+cross-boundary complexity. Keep Astra for irreversible schema/protocol,
+security, migration and independent data-loss review. If Sol 6.1 is unavailable
+in the execution environment, record an explicit fallback and re-estimate the
+job before dispatch. A model change never grants fresh five-hour or weekly
+quota: recalibrate from complete integrated observations by model, effort and
+work class, retaining uncertainty and mandatory reserves.
+
 An issue may override its assigned model only when the reason is recorded before
 execution. Escalate from Sol to Astra when hidden ambiguity, security impact or
 cross-boundary design appears. Downgrade from Astra to Sol only after an accepted
@@ -33,7 +44,9 @@ ADR or refinement has reduced the task to bounded implementation.
 
 `R` is refinement/exploration, `A` and `B` are the ordered delivery slices, and
 `T` is technical debt/refactoring. This covers every task in the candidate PI
-backlog.
+backlog. Entries for PI-00 through PI-05 are historical; rows PI-06 onward are
+prospective recommendations. Accepted PI-06/R and A1 work retains its actual
+model in the execution records.
 
 PI-00 is a calibration PI with required R and T plus optional A. It has no B
 slice; optional A is admitted only after both required measurements.
@@ -46,55 +59,58 @@ slice; optional A is admitted only after both required measurements.
 | PI-03 | `gpt-5.6-sol` | `gpt-5.6-sol` | `gpt-5.6-sol` | `gpt-5.6-sol` |
 | PI-04 | `gpt-6-astra` | `gpt-5.6-sol` | `gpt-6-astra` | `gpt-6-astra` |
 | PI-05 | `gpt-5.6-sol` | `gpt-5.6-sol` | `gpt-5.6-sol` | `gpt-5.6-sol` |
-| PI-06 | `gpt-6-astra` | `gpt-5.6-sol` | `gpt-5.6-sol` | `gpt-6-astra` |
-| PI-07 | `gpt-6-astra` | `gpt-5.6-sol` | `gpt-5.6-sol` | `gpt-6-astra` |
-| PI-08 | `gpt-6-astra` | `gpt-5.6-sol` | `gpt-5.6-sol` | `gpt-6-astra` |
-| PI-09 | `gpt-6-astra` | `gpt-5.6-sol` | `gpt-5.6-sol` | `gpt-6-astra` |
-| PI-10 | `gpt-5.6-sol` | `gpt-5.6-sol` | `gpt-5.6-sol` | `gpt-5.6-sol` |
-| PI-11 | `gpt-6-astra` | `gpt-5.6-sol` | `gpt-5.6-sol` | `gpt-6-astra` |
-| PI-12 | `gpt-6-astra` | `gpt-5.6-sol` | `gpt-5.6-sol` | `gpt-6-astra` |
-| PI-13 | `gpt-6-astra` | `gpt-5.6-sol` | `gpt-5.6-sol` | `gpt-6-astra` |
-| PI-14 | `gpt-6-astra` | `gpt-5.6-sol` | `gpt-5.6-sol` | `gpt-6-astra` |
-| PI-15 | `gpt-6-astra` | `gpt-5.6-sol` | `gpt-6-astra` | `gpt-6-astra` |
-| PI-16 | `gpt-6-astra` | `gpt-5.6-sol` | `gpt-5.6-sol` | `gpt-6-astra` |
-| PI-17 | `gpt-6-astra` | `gpt-5.6-sol` | `gpt-5.6-sol` | `gpt-6-astra` |
-| PI-18 | `gpt-6-astra` | `gpt-5.6-sol` | `gpt-5.6-sol` | `gpt-5.6-sol` |
-| PI-19 | `gpt-6-astra` | `gpt-5.6-sol` | `gpt-5.6-sol` | `gpt-6-astra` |
-| PI-20 | `gpt-5.6-sol` | `gpt-5.6-sol` | `gpt-5.6-sol` | `gpt-5.6-sol` |
-| PI-21 | `gpt-6-astra` | `gpt-5.6-sol` | `gpt-6-astra` | `gpt-6-astra` |
-| PI-22 | `gpt-6-astra` | `gpt-5.6-sol` | `gpt-5.6-sol` | `gpt-5.6-sol` |
-| PI-23 | `gpt-6-astra` | `gpt-5.6-sol` | `gpt-5.6-sol` | `gpt-6-astra` |
-| PI-24 | `gpt-6-astra` | `gpt-6-astra` | `gpt-5.6-sol` | `gpt-6-astra` |
-| PI-25 | `gpt-5.6-sol` | `gpt-5.6-sol` | `gpt-5.6-sol` | `gpt-5.6-sol` |
-| PI-26 | `gpt-5.6-sol` | `gpt-5.6-sol` | `gpt-5.6-sol` | `gpt-5.6-sol` |
-| PI-27 | `gpt-5.6-sol` | `gpt-5.6-sol` | `gpt-5.6-sol` | `gpt-5.6-sol` |
-| PI-28 | `gpt-6-astra` | `gpt-5.6-sol` | `gpt-5.6-sol` | `gpt-5.6-sol` |
-| PI-29 | `gpt-5.6-sol` | `gpt-5.6-sol` | `gpt-5.6-sol` | `gpt-5.6-sol` |
-| PI-30 | `gpt-6-astra` | `gpt-5.6-sol` | `gpt-6-astra` | `gpt-6-astra` |
-| PI-31 | `gpt-6-astra` | `gpt-5.6-sol` | `gpt-5.6-sol` | `gpt-6-astra` |
-| PI-32 | `gpt-6-astra` | `gpt-5.6-sol` | `gpt-5.6-sol` | `gpt-6-astra` |
-| PI-33 | `gpt-6-astra` | `gpt-5.6-sol` | `gpt-5.6-sol` | `gpt-6-astra` |
-| PI-34 | `gpt-6-astra` | `gpt-5.6-sol` | `gpt-5.6-sol` | `gpt-6-astra` |
-| PI-35 | `gpt-6-astra` | `gpt-5.6-sol` | `gpt-5.6-sol` | `gpt-5.6-sol` |
-| PI-36 | `gpt-6-astra` | `gpt-5.6-sol` | `gpt-6-astra` | `gpt-6-astra` |
-| PI-37 | `gpt-6-astra` | `gpt-5.6-sol` | `gpt-5.6-sol` | `gpt-6-astra` |
-| PI-38 | `gpt-6-astra` | `gpt-5.6-sol` | `gpt-6-astra` | `gpt-6-astra` |
-| PI-39 | `gpt-6-astra` | `gpt-5.6-sol` | `gpt-5.6-sol` | `gpt-6-astra` |
-| PI-40 | `gpt-6-astra` | `gpt-5.6-sol` | `gpt-5.6-sol` | `gpt-6-astra` |
-| PI-41 | `gpt-6-astra` | `gpt-5.6-sol` | `gpt-5.6-sol` | `gpt-5.6-sol` |
-| PI-42 | `gpt-6-astra` | `gpt-5.6-sol` | `gpt-5.6-sol` | `gpt-6-astra` |
-| PI-43 | `gpt-6-astra` | `gpt-5.6-sol` | `gpt-6-astra` | `gpt-6-astra` |
-| PI-44 | `gpt-6-astra` | `gpt-6-astra` | `gpt-5.6-sol` | `gpt-6-astra` |
-| PI-45 | `gpt-6-astra` | `gpt-6-astra` | `gpt-5.6-sol` | `gpt-6-astra` |
-| PI-46 | `gpt-6-astra` | `gpt-5.6-sol` | `gpt-6-astra` | `gpt-6-astra` |
-| PI-47 | `gpt-6-astra` | `gpt-5.6-sol` | `gpt-6-astra` | `gpt-6-astra` |
-| PI-48 | `gpt-5.6-sol` | `gpt-5.6-sol` | `gpt-6-astra` | `gpt-5.6-sol` |
-| PI-49 | `gpt-6-astra` | `gpt-5.6-sol` | `gpt-6-astra` | `gpt-6-astra` |
-| PI-50 | `gpt-6-astra` | `gpt-5.6-sol` | `gpt-5.6-sol` | `gpt-6-astra` |
+| PI-06 | `gpt-6-astra` | `gpt-6.1-sol` | `gpt-6.1-sol` | `gpt-6-astra` |
+| PI-07 | `gpt-6-astra` | `gpt-6.1-sol` | `gpt-6.1-sol` | `gpt-6-astra` |
+| PI-08 | `gpt-6-astra` | `gpt-6.1-sol` | `gpt-6.1-sol` | `gpt-6-astra` |
+| PI-09 | `gpt-6-astra` | `gpt-6.1-sol` | `gpt-6.1-sol` | `gpt-6-astra` |
+| PI-10 | `gpt-6.1-sol` | `gpt-6.1-sol` | `gpt-6.1-sol` | `gpt-6.1-sol` |
+| PI-11 | `gpt-6-astra` | `gpt-6.1-sol` | `gpt-6.1-sol` | `gpt-6-astra` |
+| PI-12 | `gpt-6-astra` | `gpt-6.1-sol` | `gpt-6.1-sol` | `gpt-6-astra` |
+| PI-13 | `gpt-6-astra` | `gpt-6.1-sol` | `gpt-6.1-sol` | `gpt-6-astra` |
+| PI-14 | `gpt-6-astra` | `gpt-6.1-sol` | `gpt-6.1-sol` | `gpt-6-astra` |
+| PI-15 | `gpt-6-astra` | `gpt-6.1-sol` | `gpt-6-astra` | `gpt-6-astra` |
+| PI-16 | `gpt-6-astra` | `gpt-6.1-sol` | `gpt-6.1-sol` | `gpt-6-astra` |
+| PI-17 | `gpt-6-astra` | `gpt-6.1-sol` | `gpt-6.1-sol` | `gpt-6-astra` |
+| PI-18 | `gpt-6-astra` | `gpt-6.1-sol` | `gpt-6.1-sol` | `gpt-6.1-sol` |
+| PI-19 | `gpt-6-astra` | `gpt-6.1-sol` | `gpt-6.1-sol` | `gpt-6-astra` |
+| PI-20 | `gpt-6.1-sol` | `gpt-6.1-sol` | `gpt-6.1-sol` | `gpt-6.1-sol` |
+| PI-21 | `gpt-6-astra` | `gpt-6.1-sol` | `gpt-6-astra` | `gpt-6-astra` |
+| PI-22 | `gpt-6-astra` | `gpt-6.1-sol` | `gpt-6.1-sol` | `gpt-6.1-sol` |
+| PI-23 | `gpt-6-astra` | `gpt-6.1-sol` | `gpt-6.1-sol` | `gpt-6-astra` |
+| PI-24 | `gpt-6-astra` | `gpt-6-astra` | `gpt-6.1-sol` | `gpt-6-astra` |
+| PI-25 | `gpt-6.1-sol` | `gpt-6.1-sol` | `gpt-6.1-sol` | `gpt-6.1-sol` |
+| PI-26 | `gpt-6.1-sol` | `gpt-6.1-sol` | `gpt-6.1-sol` | `gpt-6.1-sol` |
+| PI-27 | `gpt-6.1-sol` | `gpt-6.1-sol` | `gpt-6.1-sol` | `gpt-6.1-sol` |
+| PI-28 | `gpt-6-astra` | `gpt-6.1-sol` | `gpt-6.1-sol` | `gpt-6.1-sol` |
+| PI-29 | `gpt-6.1-sol` | `gpt-6.1-sol` | `gpt-6.1-sol` | `gpt-6.1-sol` |
+| PI-30 | `gpt-6-astra` | `gpt-6.1-sol` | `gpt-6-astra` | `gpt-6-astra` |
+| PI-31 | `gpt-6-astra` | `gpt-6.1-sol` | `gpt-6.1-sol` | `gpt-6-astra` |
+| PI-32 | `gpt-6-astra` | `gpt-6.1-sol` | `gpt-6.1-sol` | `gpt-6-astra` |
+| PI-33 | `gpt-6-astra` | `gpt-6.1-sol` | `gpt-6.1-sol` | `gpt-6-astra` |
+| PI-34 | `gpt-6-astra` | `gpt-6.1-sol` | `gpt-6.1-sol` | `gpt-6-astra` |
+| PI-35 | `gpt-6-astra` | `gpt-6.1-sol` | `gpt-6.1-sol` | `gpt-6.1-sol` |
+| PI-36 | `gpt-6-astra` | `gpt-6.1-sol` | `gpt-6-astra` | `gpt-6-astra` |
+| PI-37 | `gpt-6-astra` | `gpt-6.1-sol` | `gpt-6.1-sol` | `gpt-6-astra` |
+| PI-38 | `gpt-6-astra` | `gpt-6.1-sol` | `gpt-6-astra` | `gpt-6-astra` |
+| PI-39 | `gpt-6-astra` | `gpt-6.1-sol` | `gpt-6.1-sol` | `gpt-6-astra` |
+| PI-40 | `gpt-6-astra` | `gpt-6.1-sol` | `gpt-6.1-sol` | `gpt-6-astra` |
+| PI-41 | `gpt-6-astra` | `gpt-6.1-sol` | `gpt-6.1-sol` | `gpt-6.1-sol` |
+| PI-42 | `gpt-6-astra` | `gpt-6.1-sol` | `gpt-6.1-sol` | `gpt-6-astra` |
+| PI-43 | `gpt-6-astra` | `gpt-6.1-sol` | `gpt-6-astra` | `gpt-6-astra` |
+| PI-44 | `gpt-6-astra` | `gpt-6-astra` | `gpt-6.1-sol` | `gpt-6-astra` |
+| PI-45 | `gpt-6-astra` | `gpt-6-astra` | `gpt-6.1-sol` | `gpt-6-astra` |
+| PI-46 | `gpt-6-astra` | `gpt-6.1-sol` | `gpt-6-astra` | `gpt-6-astra` |
+| PI-47 | `gpt-6-astra` | `gpt-6.1-sol` | `gpt-6-astra` | `gpt-6-astra` |
+| PI-48 | `gpt-6.1-sol` | `gpt-6.1-sol` | `gpt-6-astra` | `gpt-6.1-sol` |
+| PI-49 | `gpt-6-astra` | `gpt-6.1-sol` | `gpt-6-astra` | `gpt-6-astra` |
+| PI-50 | `gpt-6-astra` | `gpt-6.1-sol` | `gpt-6.1-sol` | `gpt-6-astra` |
 
 ## Issue creation rule
 
-Copy the matrix value into every sprint issue as `Recommended model`. The agent
-must preserve the exact model ID. Record the actual model and reasoning effort in
-the budget record so PI-00 can maintain separate consumption estimates for Sol
-and Astra.
+Copy the prospective matrix value into each newly admitted sprint issue as
+`Recommended model`; update existing open issues with stale recommendations.
+Preserve completed work and its actual model in the historical record. Record
+the actual model and reasoning effort in the private budget ledger, and keep
+separate Sol 5.6, Sol 6.1 and Astra samples. Do not reuse old Sol quota estimates
+as measured Sol 6.1 costs. See the [official Codex model guidance](https://learn.chatgpt.com/docs/models)
+and [GPT-6.1 Sol model page](https://developers.openai.com/api/docs/models/gpt-6.1-sol).
