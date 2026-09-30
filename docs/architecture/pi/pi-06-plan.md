@@ -38,7 +38,7 @@ subagent. No runtime or production change belongs to R.
 
 ## [PI-06/A](https://github.com/shentschel/teddycloud/issues/19) — Transactional Tag identity registry
 
-Recommended model: `gpt-5.6-sol`; reasoning: high.
+Recommended model for remaining work: `gpt-6.1-sol`; reasoning: high. Re-admit each checkpoint with fresh model-specific quota measurement; A1 was completed with its historical model.
 Objective: register and read one stable Tag per normalized physical UID.
 Depends on accepted PI06/R, completed PI04/05 and fresh checkpoint admission.
 
@@ -121,7 +121,7 @@ and existing fenced new-path restore. No down migration or production change.
 
 ## [PI-06/B](https://github.com/shentschel/teddycloud/issues/20) — Independent metadata and lifecycle safety
 
-Recommended model: `gpt-5.6-sol`; reasoning: high.
+Recommended model for remaining work: `gpt-6.1-sol`; reasoning: high. Re-admit each checkpoint with fresh model-specific quota measurement; A1 was completed with its historical model.
 Objective: persist bounded evidence and explicit reviewed state transitions
 atomically, then prove Tag operations respect database recovery boundaries.
 Depends on A2; B2 additionally requires acceptance evidence from
