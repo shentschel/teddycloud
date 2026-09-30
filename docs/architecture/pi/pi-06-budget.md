@@ -10,10 +10,10 @@ personal measured usage. Five-hour and weekly points are independent units.
 | --- | --- | ---: | ---: | --- |
 | R design checkpoint | `gpt-6-astra` / high | 8–12 target; 36 hard maximum | 1–3 estimate; 6 hard maximum | Useful reviewable files should exist by the first checkpoint; exploration must stop if scope grows |
 | Parent R integration | Parent-selected | 8 maximum | 2 maximum | Separate from the R agent ceiling |
-| A1 domain/ports | `gpt-5.6-sol` / high | 8–14 | 1–3 | Provisional, not admitted |
-| A2 persistence seam | `gpt-5.6-sol` / high | 12–20 | 2–4 | Provisional, not admitted |
-| B1 metadata/evidence | `gpt-5.6-sol` / high | 12–22 | 2–4 | Provisional, not admitted |
-| B2 lifecycle/recovery | `gpt-5.6-sol` / high | 12–24 | 2–5 | Provisional; #18 dependency may block acceptance |
+| A1 domain/ports | `gpt-5.6-sol` / high | 8–14 | 1–3 | Historical pre-execution band; A1 accepted |
+| A2 persistence seam | `gpt-6.1-sol` / high | 12–20 | 2–4 | Legacy Sol 5.6 band only; re-estimate before admission |
+| B1 metadata/evidence | `gpt-6.1-sol` / high | 12–22 | 2–4 | Legacy Sol 5.6 band only; re-estimate before admission |
+| B2 lifecycle/recovery | `gpt-6.1-sol` / high | 12–24 | 2–5 | Legacy Sol 5.6 band only; re-estimate; #18 may block acceptance |
 | Future T planning | `gpt-6-astra` / high | 40 | 8 | Five-hour estimate used when T executes; weekly reserve protected from R/A/B |
 
 R, parent integration and T sum to up to 84 five-hour points and
@@ -21,6 +21,18 @@ R, parent integration and T sum to up to 84 five-hour points and
 a shared agent budget, or an estimate that all work fits the current window.
 A/B parent integration and any external #18 work require separate estimates
 and admission; they are not silently included in R or the T reserve.
+
+## Model transition
+
+PI-06/A1 and R are historical and keep their actual model/effort. A2, B1 and B2
+now route to Sol 6.1; their numeric bands above are pre-switch planning
+comparators, not an admission ceiling for the new model. At the next eligible
+window, establish a bounded Sol 6.1 checkpoint and record both live-window
+deltas including parent integration, verification and uncertainty. Until a
+comparable complete interval exists, use the larger relevant integrated sample
+plus an explicit uncertainty margin. Do not infer any Codex Plus quota saving
+from API token prices or model marketing. Keep the future Astra T reserve and
+five-percent safety unchanged.
 
 ## Measurement and stop rule
 
