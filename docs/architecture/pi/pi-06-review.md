@@ -220,3 +220,17 @@ taxonomy are covered. Existing Content transactions remain green.
 passed all four jobs, including the focused SQLite/Tag regression and race job.
 A2 is accepted. B1 metadata, B2 recovery evidence, T and the overall PI-06
 milestone remain open.
+
+## B1 reviewed metadata acceptance
+
+Commit `b186337d7a33fdf37a5b6b1ac2e2397b14e6c97f` completes the
+[B1 metadata checkpoint](pi-06-b1-metadata-checkpoint.md). Four independent
+facts, immutable observations, explicit reviewed decisions, replay/conflict
+rules, revision-fenced atomic persistence and bounded two-pass restoration are
+implemented. Tests cover rollback, persisted exact/one-over limits, phase
+ordering and same-revision writers through separate SQLite connections.
+
+[Next CI run 37121744095](https://github.com/shentschel/teddycloud/actions/runs/37121744095)
+passed all four jobs, including focused SQLite/Tag regression and race evidence.
+B1 is accepted. B2 recovery, #18 dependency evidence, T and the overall PI-06
+milestone remain open.

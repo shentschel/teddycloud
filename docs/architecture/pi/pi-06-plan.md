@@ -148,6 +148,11 @@ Concurrent updates using the same expected revision cannot lose evidence.
 The immutable resolution record retains superseded evidence. Auth metadata
 never mutates identity, claim, ownership, assignment or content availability.
 
+The [reviewed metadata checkpoint](pi-06-b1-metadata-checkpoint.md) implements
+and verifies this slice. Local full tests/vet and focused repetitions passed;
+remote regression and race CI passed. B1 is accepted. B2 recovery and
+FK-bearing snapshot acceptance remain separate and gated by #18.
+
 Verification: focused domain/application tests and
 `go test ./backend/internal/adapters/sqlite -run 'TestTag(Metadata|Concurrent)'`
 from `next`, after confirming those targets execute. Record FK snapshot
