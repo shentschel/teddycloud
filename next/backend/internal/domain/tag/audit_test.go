@@ -1,9 +1,44 @@
 package tag
 
 import (
+	"encoding/binary"
 	"strings"
 	"testing"
 )
+
+func FuzzAuditCodecIdempotence(f *testing.F) {
+	for _, seed := range []uint64{0, ^uint64(0), 0xabcdef0123456789} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, seed uint64) {
+		var raw [8]byte
+		binary.BigEndian.PutUint64(raw[:], seed)
+		uid := UIDFromBytes(raw)
+		u, err := ParseUID(strings.ToLower(uid.String()))
+		if err != nil || u != uid {
+			t.Fatal("UID normalization", err)
+		}
+		r, err := ParseRUID(strings.ToLower(uid.RUID().String()))
+		if err != nil || r.UID() != uid {
+			t.Fatal("rUID normalization", err)
+		}
+		for i, b := range r.Bytes() {
+			if b != raw[7-i] {
+				t.Fatal("not byte reversal")
+			}
+		}
+		for range 3 {
+			u, err = ParseUID(u.String())
+			if err != nil || u != uid {
+				t.Fatal("non-idempotent UID")
+			}
+			r, err = ParseRUID(r.String())
+			if err != nil || r != uid.RUID() {
+				t.Fatal("non-idempotent rUID")
+			}
+		}
+	})
+}
 
 // Fixed artificial bytes exercise every position, not a physical household tag.
 func TestAuditPhysicalCodecMutations(t *testing.T) {
