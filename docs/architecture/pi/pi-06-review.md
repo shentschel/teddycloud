@@ -205,3 +205,18 @@ The [schema checkpoint](pi-06-a2-schema-checkpoint.md) adds only the checked
 `tc_tags` identity table in migration 2. Parent verified v1 checksum and Content
 preservation, fresh/reopen constraints, full backend tests/vet and CI. The Tag
 repository, lifecycle transaction seam and full A2 acceptance remain open.
+
+## A2 transactional repository acceptance
+
+Commit `2bf15857e0fcdbadf569ef52c3d445001b2f29ba` completes the
+[A2 repository checkpoint](pi-06-a2-repository-checkpoint.md). The SQLite
+adapter now implements the callback-scoped Tag repository and a distinct Tag
+transaction entry point on the shared lifecycle owner. Fresh/reopen lookup,
+TagID and UID uniqueness, rUID normalization, concurrent writes, rollback,
+repository revocation, selected-handle restore behavior and sanitized error
+taxonomy are covered. Existing Content transactions remain green.
+
+[Next CI run 37119353589](https://github.com/shentschel/teddycloud/actions/runs/37119353589)
+passed all four jobs, including the focused SQLite/Tag regression and race job.
+A2 is accepted. B1 metadata, B2 recovery evidence, T and the overall PI-06
+milestone remain open.

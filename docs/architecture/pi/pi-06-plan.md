@@ -106,8 +106,11 @@ The initial identity-only migration need not introduce FKs. It must preserve
 existing Content records and immutable migration checksums.
 
 The [additive schema checkpoint](pi-06-a2-schema-checkpoint.md) verifies migration
-2, the v1 checksum and Content preservation. Repository, transaction and
-lifecycle wiring remain open, so A2 is not accepted.
+2, the v1 checksum and Content preservation. The subsequent
+[repository checkpoint](pi-06-a2-repository-checkpoint.md) adds the callback-
+scoped repository, distinct Tag transaction seam, lifecycle fencing, rollback,
+durable uniqueness and fresh/reopen evidence. Pinned CI, including focused race
+evidence, passed; A2 is accepted. B1 metadata remains separate work.
 
 Verification: A1 command plus
 `go test ./backend/internal/adapters/sqlite` from `next`; require the specifically
