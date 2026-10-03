@@ -51,6 +51,7 @@ func tagBoundaryError(ctx context.Context, err error) error {
 	var mapped []error
 	for _, allowed := range []error{
 		applicationtag.ErrInvalidInput, applicationtag.ErrIdentityConflict,
+		applicationtag.ErrRevisionConflict, applicationtag.ErrEvidenceConflict, applicationtag.ErrLimitExceeded,
 	} {
 		if errors.Is(err, allowed) {
 			mapped = append(mapped, allowed)

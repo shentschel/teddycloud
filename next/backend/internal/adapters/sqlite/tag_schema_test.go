@@ -39,8 +39,8 @@ func TestTagSchemaUpgradePreservesContentAndChecksum(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer upgraded.Close()
-	if got := currentVersion(t, upgraded); got != 2 {
-		t.Fatalf("upgraded version = %d, want 2", got)
+	if got := currentVersion(t, upgraded); got != len(migrations) {
+		t.Fatalf("upgraded version = %d, want %d", got, len(migrations))
 	}
 	snapshot, ok := upgraded.UpgradeBackup()
 	if !ok || snapshot.Path != backupPath || snapshot.SchemaVersion != 1 {
@@ -97,8 +97,8 @@ func TestTagSchemaFreshReopenAndConstraints(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := currentVersion(t, database); got != 2 {
-		t.Fatalf("fresh version = %d, want 2", got)
+	if got := currentVersion(t, database); got != len(migrations) {
+		t.Fatalf("fresh version = %d, want %d", got, len(migrations))
 	}
 	id := "tag_" + strings.Repeat("0", 26)
 	uid := []byte{0, 1, 2, 3, 4, 5, 6, 7}
@@ -167,14 +167,14 @@ func TestTagSchemaFreshReopenAndConstraints(t *testing.T) {
 
 func TestTagSchemaMigrationsDefensiveCopy(t *testing.T) {
 	first := SchemaMigrations()
-	if len(first) != 2 {
-		t.Fatalf("migration count = %d, want 2", len(first))
+	if len(first) != 3 {
+		t.Fatalf("migration count = %d, want 3", len(first))
 	}
 	first[1].ID = "modified"
 	first[1].Statements[0] = "modified"
 	first = append(first, Migration{Version: 3, ID: "caller-only"})
 	second := SchemaMigrations()
-	if len(second) != 2 || second[1].ID != "0002-tag-identity" || !strings.Contains(second[1].Statements[0], "CREATE TABLE tc_tags") {
+	if len(second) != 3 || second[1].ID != "0002-tag-identity" || !strings.Contains(second[1].Statements[0], "CREATE TABLE tc_tags") {
 		t.Fatal("caller changed canonical tag migration")
 	}
 }
@@ -238,7 +238,7 @@ func assertTagSchemaShape(t *testing.T, database *Database) {
 	).Scan(&extraTables); err != nil {
 		t.Fatal(err)
 	}
-	if extraTables != 0 {
+	if extraTables != 3 {
 		t.Fatalf("unexpected tag metadata/evidence tables = %d", extraTables)
 	}
 }

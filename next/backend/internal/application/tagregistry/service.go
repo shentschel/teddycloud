@@ -224,6 +224,9 @@ func sanitizeError(ctx context.Context, err error) error {
 		ErrInvalidInput,
 		ErrTagNotFound,
 		ErrIdentityConflict,
+		ErrRevisionConflict,
+		ErrEvidenceConflict,
+		ErrLimitExceeded,
 		ErrRepositoryContention,
 		ErrRepositoryUnavailable,
 	} {
