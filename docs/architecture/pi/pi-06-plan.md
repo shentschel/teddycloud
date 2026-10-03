@@ -1,6 +1,6 @@
 # PI-06 execution plan
 
-Status: R and A1 accepted; A2/B/T pending. Transactional Tags are not yet delivered.
+Status: R, A1, A2 and B1 accepted; B2/T pending. Transactional Tags are not yet delivered.
 R milestone: accepted Tag Registry design only.
 Delivery milestone: Tags are managed transactionally; not established by R.
 
@@ -127,9 +127,11 @@ and existing fenced new-path restore. No down migration or production change.
 Recommended model for remaining work: `gpt-6.1-sol`; reasoning: high. Re-admit each checkpoint with fresh model-specific quota measurement; A1 was completed with its historical model.
 Objective: persist bounded evidence and explicit reviewed state transitions
 atomically, then prove Tag operations respect database recovery boundaries.
-Depends on A2; B2 additionally requires acceptance evidence from
+Depends on A2. B2 additionally required acceptance evidence from
 [F-PERSIST-01 (#18)](https://github.com/shentschel/teddycloud/issues/18) before
-FK-bearing snapshot acceptance. Reuse that issue, do not absorb its work here.
+FK-bearing snapshot acceptance. Commit `c3c665667866b410c2ed7cd1b15fbaa22ef8ddbe`
+and [Next CI run 37123989228](https://github.com/shentschel/teddycloud/actions/runs/37123989228)
+satisfy that prerequisite; B2 must consume, not reimplement, it.
 
 ### B1: metadata command checkpoint
 

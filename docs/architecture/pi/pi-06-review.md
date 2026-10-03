@@ -1,6 +1,6 @@
 # PI-06 review
 
-Status: R and A1 accepted; A2/B/T pending. PI-06 delivery milestone remains open.
+Status: R, A1, A2 and B1 accepted; B2/T pending. PI-06 delivery milestone remains open.
 R milestone: design acceptance only. A/B/T and transactional Tags are not complete.
 Reviewed source baseline: `2aedabbd141adb5aaf02746ae041eb7e5596317c`.
 
@@ -232,5 +232,20 @@ ordering and same-revision writers through separate SQLite connections.
 
 [Next CI run 37121744095](https://github.com/shentschel/teddycloud/actions/runs/37121744095)
 passed all four jobs, including focused SQLite/Tag regression and race evidence.
-B1 is accepted. B2 recovery, #18 dependency evidence, T and the overall PI-06
-milestone remain open.
+B1 is accepted. B2 recovery, T and the overall PI-06 milestone remain open.
+
+## F-PERSIST-01 prerequisite acceptance
+
+Commit `c3c665667866b410c2ed7cd1b15fbaa22ef8ddbe` adds bounded SQLite
+foreign-key validation to snapshot verification. It reads at most one violation,
+uses a five-second internal deadline, preserves caller cancellation and maps
+violations or query failures to `ErrBackupInvalid` without leaking driver errors.
+Tests prove invalid FK graphs fail verification, backup publication and restore
+publication while the source remains unchanged; valid FK backup/restore remains
+green. Parent full backend tests and vet passed.
+
+[Next CI run 37123989228](https://github.com/shentschel/teddycloud/actions/runs/37123989228)
+passed all four jobs, including SQLite/Tag race evidence. Issue #18 is accepted
+as the B2 FK-snapshot prerequisite. The fixed five-second limit can reject a very
+large otherwise-valid graph; that is a deliberate bounded fail-closed policy,
+not proof of production-scale timing.
