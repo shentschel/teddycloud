@@ -22,6 +22,12 @@ assumed.
 
 Current execution artifacts:
 
+- [PI-07 plan checkpoint](pi-07-plan.md)
+- [PI-07 budget checkpoint](pi-07-budget.md)
+- [PI-07 review checkpoint](pi-07-review.md)
+- [PI-07 TAF storage contract checkpoint](pi-07-taf-storage-contract.md)
+- PI-07/R remains incomplete; resolve its recorded design gates before A.
+
 - [PI-06 execution plan](pi-06-plan.md)
 - [PI-06 budget method](pi-06-budget.md)
 - [PI-06 review](pi-06-review.md)
@@ -86,8 +92,8 @@ delivery tasks; R/A/B/T are complete according to its review. The
 The [PI-05 plan](pi-05-plan.md) links completed persistence slices as issues
 #14-#16; its review accepts the database-only upgrade/rollback milestone.
 The [PI-06 plan](pi-06-plan.md) links its A/B/T tasks as issues #19–#21.
-R and A1 are accepted; A2 has a schema-only checkpoint. Transactional Tags and
-the PI delivery milestone remain open.
+The PI-06 review records R/A/B/T and the transactional Tag milestone accepted.
+PI-07/R has a documentation checkpoint; its design acceptance remains open.
 Search by stable ID before creating any further issue.
 Run `python3 scripts/check_architecture_docs.py` before publishing architecture
 changes. The path-scoped documentation workflow runs the same check without
