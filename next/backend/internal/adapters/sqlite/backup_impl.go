@@ -12,9 +12,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	sqliteDriver "modernc.org/sqlite"
 )
+
+const backupForeignKeyCheckTimeout = 5 * time.Second
 
 var (
 	ErrBackupExists  = errors.New("sqlite backup destination already exists")
@@ -89,7 +92,7 @@ func (database *Database) CreateBackup(ctx context.Context, destination string, 
 	return BackupFile{Path: target, SHA256: digest, SchemaVersion: version}, nil
 }
 
-// VerifyBackup checks digest, SQLite integrity and the migration ledger.
+// VerifyBackup checks digest, SQLite integrity, foreign keys and the migration ledger.
 func VerifyBackup(ctx context.Context, snapshot BackupFile, migrations []Migration) error {
 	if err := validateMigrations(migrations); err != nil {
 		return err
@@ -227,19 +230,49 @@ func verifyDatabaseFile(ctx context.Context, path string, migrations []Migration
 	defer db.Close()
 	var integrity string
 	if err := db.QueryRowContext(ctx, "PRAGMA integrity_check").Scan(&integrity); err != nil {
+		if contextErr := ctx.Err(); contextErr != nil {
+			return 0, contextErr
+		}
 		return 0, fmt.Errorf("%w: integrity query: %v", ErrBackupInvalid, err)
 	}
 	if integrity != "ok" {
 		return 0, fmt.Errorf("%w: integrity check: %s", ErrBackupInvalid, integrity)
 	}
+	if err := verifyForeignKeys(ctx, db); err != nil {
+		return 0, err
+	}
 	applied, err := readAppliedMigrations(ctx, db)
 	if err != nil {
+		if contextErr := ctx.Err(); contextErr != nil {
+			return 0, contextErr
+		}
 		return 0, fmt.Errorf("%w: %v", ErrBackupInvalid, err)
 	}
 	if err := validateAppliedMigrations(applied, migrations); err != nil {
 		return 0, fmt.Errorf("%w: %v", ErrBackupInvalid, err)
 	}
 	return len(applied), nil
+}
+
+func verifyForeignKeys(ctx context.Context, db *sql.DB) error {
+	checkCtx, cancel := context.WithTimeout(ctx, backupForeignKeyCheckTimeout)
+	defer cancel()
+
+	// The table-valued PRAGMA foreign_key_check stops at the first violation.
+	// LIMIT bounds results; the deadline also bounds a scan with no violations.
+	var violation int
+	err := db.QueryRowContext(checkCtx, `SELECT 1 FROM pragma_foreign_key_check LIMIT 1`).Scan(&violation)
+	if contextErr := checkCtx.Err(); contextErr != nil {
+		return fmt.Errorf("%w: foreign key check: %w", ErrBackupInvalid, contextErr)
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		// Keep SQL/driver types and diagnostics inside the adapter.
+		return fmt.Errorf("%w: foreign key check could not complete", ErrBackupInvalid)
+	}
+	return fmt.Errorf("%w: foreign key violation", ErrBackupInvalid)
 }
 
 func fileDigest(path string) (string, error) {
