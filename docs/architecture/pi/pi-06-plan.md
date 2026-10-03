@@ -1,6 +1,6 @@
 # PI-06 execution plan
 
-Status: R, A1, A2 and B1 accepted; B2/T pending. Transactional Tags are not yet delivered.
+Status: R, A and B accepted; T pending. Transactional Tags are not yet delivered.
 R milestone: accepted Tag Registry design only.
 Delivery milestone: Tags are managed transactionally; not established by R.
 
@@ -174,6 +174,12 @@ then snapshot/restore committed Tag evidence at the exact schema version.
 Restoring a pre-Tag snapshot must leave Tag calls unavailable without silently
 upgrading it. With #18 evidence available, reject FK-invalid snapshots before
 handle selection. Retain recoverable originals on failure.
+
+Commit `3539f555987b66c51fdc97115159142f2c411649` adds the named B2
+failure, lifecycle and recovery evidence without a second owner or production
+hook. Local full tests/vet and ten focused repetitions passed; [Next CI run
+37125285289](https://github.com/shentschel/teddycloud/actions/runs/37125285289)
+passed all four jobs including race evidence. B2 is accepted.
 
 Verification: run the complete SQLite and architecture packages, then repeat
 `TestTag` tests 10 times. Remote Linux race evidence is required at delivery;

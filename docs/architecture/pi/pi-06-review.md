@@ -1,6 +1,6 @@
 # PI-06 review
 
-Status: R, A1, A2 and B1 accepted; B2/T pending. PI-06 delivery milestone remains open.
+Status: R, A and B accepted; T pending. PI-06 delivery milestone remains open.
 R milestone: design acceptance only. A/B/T and transactional Tags are not complete.
 Reviewed source baseline: `2aedabbd141adb5aaf02746ae041eb7e5596317c`.
 
@@ -249,3 +249,23 @@ passed all four jobs, including SQLite/Tag race evidence. Issue #18 is accepted
 as the B2 FK-snapshot prerequisite. The fixed five-second limit can reject a very
 large otherwise-valid graph; that is a deliberate bounded fail-closed policy,
 not proof of production-scale timing.
+
+## B2 shared lifecycle and recovery acceptance
+
+Commit `3539f555987b66c51fdc97115159142f2c411649` completes the B2
+failure matrix with named tests. Evidence covers bounded contention and
+cancellation, callback non-replay, a lost response followed by readback and
+exact no-op replay, corrupt-row refusal, process-killed uncommitted Tag rollback,
+and the shared Tag/Content restore fence selecting only the restored handle.
+
+A Content-only version-1 database upgrades while retaining Content. Current
+snapshots restore the exact committed Tag observation/decision/support graph;
+post-snapshot changes disappear. The accepted #18 verifier rejects a real
+orphaned support relation before publication or handle selection. Restoring the
+pre-Tag snapshot retains Content at version 1 and makes Tag storage explicitly
+unavailable without silently migrating it.
+
+Full SQLite, architecture and backend tests, vet and ten `TestTag` repetitions
+passed locally. [Next CI run 37125285289](https://github.com/shentschel/teddycloud/actions/runs/37125285289)
+passed all four jobs including race evidence. B2 and issue #20 are accepted;
+independent T audit and the overall PI-06 milestone remain open.
