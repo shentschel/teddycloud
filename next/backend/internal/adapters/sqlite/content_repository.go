@@ -31,10 +31,18 @@ type contentRepository struct {
 func (database *Database) WithinTransaction(
 	ctx context.Context,
 	operation func(applicationcatalog.ContentRepository) error,
-) (resultErr error) {
+) error {
 	if operation == nil {
 		return ErrNilTransactionOperation
 	}
+	return database.withinSQLTransaction(ctx, func(transaction *sql.Tx) error {
+		return operation(contentRepository{transaction: transaction})
+	})
+}
+
+// withinSQLTransaction is adapter-private plumbing shared by the distinct
+// application ports. It never retries the callback.
+func (database *Database) withinSQLTransaction(ctx context.Context, operation func(*sql.Tx) error) (resultErr error) {
 
 	connection, err := database.db.Conn(ctx)
 	if err != nil {
@@ -69,7 +77,7 @@ func (database *Database) WithinTransaction(
 		}
 	}()
 
-	if err := operation(contentRepository{transaction: transaction}); err != nil {
+	if err := operation(transaction); err != nil {
 		if rollbackErr := transaction.Rollback(); rollbackErr != nil {
 			return errors.Join(err, fmt.Errorf("rollback sqlite transaction: %w", repositoryError(ctx, rollbackErr)))
 		}
@@ -107,10 +115,20 @@ func (repository contentRepository) execWithContention(
 	ctx context.Context,
 	query string,
 	arguments ...any,
+) error {
+	return execWithContention(ctx, repository.transaction, repositoryError, query, arguments...)
+}
+
+func execWithContention(
+	ctx context.Context,
+	transaction *sql.Tx,
+	mapError func(context.Context, error) error,
+	query string,
+	arguments ...any,
 ) (resultErr error) {
 	var busyTimeoutMillis int
-	if err := repository.transaction.QueryRowContext(ctx, `PRAGMA busy_timeout`).Scan(&busyTimeoutMillis); err != nil {
-		return repositoryError(ctx, err)
+	if err := transaction.QueryRowContext(ctx, `PRAGMA busy_timeout`).Scan(&busyTimeoutMillis); err != nil {
+		return mapError(ctx, err)
 	}
 
 	pollMillis := int(contentionPollInterval / time.Millisecond)
@@ -120,30 +138,30 @@ func (repository contentRepository) execWithContention(
 	if pollMillis < 1 {
 		pollMillis = 1
 	}
-	if _, err := repository.transaction.ExecContext(ctx, busyTimeoutPragma(pollMillis)); err != nil {
-		return repositoryError(ctx, err)
+	if _, err := transaction.ExecContext(ctx, busyTimeoutPragma(pollMillis)); err != nil {
+		return mapError(ctx, err)
 	}
 	defer func() {
 		restoreCtx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
-		if _, err := repository.transaction.ExecContext(
+		if _, err := transaction.ExecContext(
 			restoreCtx,
 			busyTimeoutPragma(busyTimeoutMillis),
 		); err != nil {
 			resultErr = errors.Join(
 				resultErr,
-				fmt.Errorf("restore repository wait budget: %w", repositoryError(restoreCtx, err)),
+				fmt.Errorf("restore repository wait budget: %w", mapError(restoreCtx, err)),
 			)
 		}
 	}()
 
 	deadline := time.Now().Add(time.Duration(busyTimeoutMillis) * time.Millisecond)
 	for {
-		_, err := repository.transaction.ExecContext(ctx, query, arguments...)
+		_, err := transaction.ExecContext(ctx, query, arguments...)
 		if err == nil {
 			return nil
 		}
-		mappedErr := repositoryError(ctx, err)
+		mappedErr := mapError(ctx, err)
 		if ctx.Err() != nil {
 			return mappedErr
 		}

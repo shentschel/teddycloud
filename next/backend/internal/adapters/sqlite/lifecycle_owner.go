@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	applicationcatalog "github.com/shentschel/teddycloud/next/backend/internal/application/catalog"
+	applicationtag "github.com/shentschel/teddycloud/next/backend/internal/application/tagregistry"
 )
 
 var (
@@ -31,6 +32,7 @@ type LifecycleOwner struct {
 }
 
 var _ applicationcatalog.Transactor = (*LifecycleOwner)(nil)
+var _ applicationtag.Transactor = (*LifecycleOwner)(nil)
 
 // OpenLifecycleOwner opens and exclusively owns the configured database.
 func OpenLifecycleOwner(
@@ -104,6 +106,25 @@ func (owner *LifecycleOwner) WithinTransaction(
 		return errors.Join(callbackFailure.err, repositoryBoundaryError(ctx, err))
 	}
 	return repositoryBoundaryError(ctx, err)
+}
+
+// WithinTagTransaction shares the Content lifecycle fence and uses only the
+// selected handle. A repository cannot outlive this single callback.
+func (owner *LifecycleOwner) WithinTagTransaction(ctx context.Context, operation func(applicationtag.TagRepository) error) error {
+	if operation == nil {
+		return applicationtag.ErrInvalidInput
+	}
+	if owner == nil || owner.gate == nil {
+		return applicationtag.ErrRepositoryUnavailable
+	}
+	if err := owner.gate.enterOperation(ctx); err != nil {
+		return tagBoundaryError(ctx, err)
+	}
+	defer owner.gate.leave()
+	if owner.database == nil {
+		return applicationtag.ErrRepositoryUnavailable
+	}
+	return owner.database.withinTagTransaction(ctx, operation)
 }
 
 // CurrentVersion reports the selected handle's clean schema version.
