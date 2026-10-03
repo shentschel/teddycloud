@@ -1,7 +1,7 @@
 # PI-06 review
 
-Status: R, A and B accepted; T pending. PI-06 delivery milestone remains open.
-R milestone: design acceptance only. A/B/T and transactional Tags are not complete.
+Status: R, A, B and T accepted. PI-06 delivery milestone is complete.
+R milestone: design acceptance only; the complete milestone evidence is recorded below.
 Reviewed source baseline: `2aedabbd141adb5aaf02746ae041eb7e5596317c`.
 
 ## Result and evidence basis
@@ -268,4 +268,21 @@ unavailable without silently migrating it.
 Full SQLite, architecture and backend tests, vet and ten `TestTag` repetitions
 passed locally. [Next CI run 37125285289](https://github.com/shentschel/teddycloud/actions/runs/37125285289)
 passed all four jobs including race evidence. B2 and issue #20 are accepted;
-independent T audit and the overall PI-06 milestone remain open.
+the independent T audit follows below.
+
+## T identity, transition and ownership audit acceptance
+
+Commit `8b338acfa2ee2facb27003181ccae6eb16b70d1c` adds independent
+generated, permutation and lifecycle audit coverage without changing production
+behavior. It verifies UID/rUID codec idempotence and byte order, registration
+equality, immutable identity, revision fencing, replay, independent metadata
+keys, all evidence permutations, command bounds, mixed Tag/Content restore
+cycles and sanitized nested error chains.
+
+The audit found no reproducible high-severity, data-loss or security defect and
+no Original/Custom, AudioID or confidence/time winner heuristic in the Tag
+boundary. Existing issue #17 remains the explicit external-blob limitation and
+was not simulated away. Full backend tests, vet, ten `TestTag` repetitions and
+bounded fuzz runs passed locally. Remote Next CI provides the required Linux
+race evidence. With that run green, issue #21 and the PI-06 transactional Tag
+milestone are accepted; PI-07/R is the next ordered roadmap task.
