@@ -29,6 +29,7 @@ Current execution artifacts:
 - [PI-07/A1 TAF domain checkpoint](pi-07-a1-domain-checkpoint.md)
 - [PI-07/A2 qualified content filesystem checkpoint](pi-07-a2-contentfs-checkpoint.md)
 - [PI-07/B1 transactional content metadata checkpoint](pi-07-b1-content-metadata-checkpoint.md)
+- [PI-07/B2a verified ranges checkpoint](pi-07-b2a-verified-ranges-checkpoint.md)
 - PI-07/R is independently accepted after resolving all five design gates.
   A and B1 are accepted; B2, T and the PI milestone remain open.
 

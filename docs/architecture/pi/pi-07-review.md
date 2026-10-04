@@ -1,7 +1,7 @@
 # PI-07 refinement checkpoint review
 
-Status: R design, A and B1 are accepted after independent parent review. No
-complete B/T or PI milestone acceptance. B2 and later delivery remain open.
+Status: R design, A, B1 and bounded B2a verified ranges are accepted after
+independent parent review. No complete B/T or PI milestone acceptance.
 Refinement baseline: `aef53a69ab10f1480c1dade9797ce4dd9ce645bd`.
 
 Inspected roadmap/routing, PI-05/06 plans/reviews/contracts, ADRs 0001–0003,
@@ -103,5 +103,16 @@ replay/conflict, corrupt-row refusal and uncertain-commit readback. Parent
 full/focused tests, vet, repetition and whitespace checks passed; the worker
 also passed focused race tests. Remote Next CI run 37201527034 passed all jobs.
 
-B1 is accepted without a present-media claim. Issue #23 stays open for B2's
-bounded filesystem inventory, verified ranges, quarantine and recovery matrix.
+B1 is accepted without a present-media claim. Issue #23 stays open for B2;
+verified ranges are accepted below while inventory, quarantine and recovery
+remain outstanding.
+
+## B2a verified ranges acceptance
+
+Commit `1a3ee4c49567adcbf9cf2c18d7a3c900a06b0c3e` adds bounded,
+descriptor-verified range delivery with typed missing/corrupt outcomes and no
+output before full BlobID/envelope verification. Parent focused/full tests,
+vet and whitespace checks passed; Next CI run 37202334719 passed all jobs.
+
+Issue #23 remains open. Inventory, quarantine, helper-process crash recovery and
+cross-boundary reconciliation are still B2 work.
