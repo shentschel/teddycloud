@@ -28,8 +28,9 @@ Current execution artifacts:
 - [PI-07 TAF storage contract checkpoint](pi-07-taf-storage-contract.md)
 - [PI-07/A1 TAF domain checkpoint](pi-07-a1-domain-checkpoint.md)
 - [PI-07/A2 qualified content filesystem checkpoint](pi-07-a2-contentfs-checkpoint.md)
+- [PI-07/B1 transactional content metadata checkpoint](pi-07-b1-content-metadata-checkpoint.md)
 - PI-07/R is independently accepted after resolving all five design gates.
-  A is accepted; B, T and the PI milestone remain open.
+  A and B1 are accepted; B2, T and the PI milestone remain open.
 
 - [PI-06 execution plan](pi-06-plan.md)
 - [PI-06 budget method](pi-06-budget.md)

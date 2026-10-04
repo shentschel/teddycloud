@@ -1,7 +1,7 @@
 # PI-07 refinement checkpoint review
 
-Status: R design and A are accepted after independent parent review. No B/T
-or PI milestone acceptance. A1 and A2 are accepted; later delivery remains open.
+Status: R design, A and B1 are accepted after independent parent review. No
+complete B/T or PI milestone acceptance. B2 and later delivery remain open.
 Refinement baseline: `aef53a69ab10f1480c1dade9797ce4dd9ce645bd`.
 
 Inspected roadmap/routing, PI-05/06 plans/reviews/contracts, ADRs 0001–0003,
@@ -94,3 +94,14 @@ passed the qualified filesystem, repetition, race and cross-build gates.
 A2 and issue #22 are accepted. Retained-entry reconciliation remains ordered in
 B2. Physical power-loss durability, playback, database binding, migration,
 production deployment and deletion remain outside this acceptance.
+
+## B1 transactional metadata acceptance
+
+Commit `c8eb4d68bd9d883c04c12371c974d36766f355e0` adds migration 4,
+owner-scoped revocable content sessions and atomic import metadata with exact
+replay/conflict, corrupt-row refusal and uncertain-commit readback. Parent
+full/focused tests, vet, repetition and whitespace checks passed; the worker
+also passed focused race tests. Remote Next CI run 37201527034 passed all jobs.
+
+B1 is accepted without a present-media claim. Issue #23 stays open for B2's
+bounded filesystem inventory, verified ranges, quarantine and recovery matrix.
