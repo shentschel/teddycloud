@@ -30,8 +30,11 @@ Current execution artifacts:
 - [PI-07/A2 qualified content filesystem checkpoint](pi-07-a2-contentfs-checkpoint.md)
 - [PI-07/B1 transactional content metadata checkpoint](pi-07-b1-content-metadata-checkpoint.md)
 - [PI-07/B2a verified ranges checkpoint](pi-07-b2a-verified-ranges-checkpoint.md)
+- [PI-07/B2b bounded inventory and quarantine acceptance](pi-07-review.md#b2b-bounded-inventory-and-quarantine-acceptance)
 - PI-07/R is independently accepted after resolving all five design gates.
-  A and B1 are accepted; B2, T and the PI milestone remain open.
+  A, B1, B2a and bounded B2b are accepted; B2c application/lifecycle integration,
+  database reference reconciliation and helper-process crash/reopen evidence
+  remain open, as do T, the PI milestone and hardware power-loss evidence.
 
 - [PI-06 execution plan](pi-06-plan.md)
 - [PI-06 budget method](pi-06-budget.md)

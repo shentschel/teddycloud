@@ -1,6 +1,7 @@
 # PI-07 TAF lifecycle execution plan
 
-Status: R design accepted; A/B/T delivery remains pending fresh admission.
+Status: R, A, B1, B2a and bounded B2b accepted; B2c and T remain open and require
+fresh admission. The PI milestone is not yet accepted.
 Refinement baseline: `aef53a69ab10f1480c1dade9797ce4dd9ce645bd`.
 
 Follow the [roadmap](../teddycloud-next-pi-roadmap.md),
@@ -50,10 +51,15 @@ parent sprint and are not additional quota buckets; re-admit each independently.
    the named SQLite files. Require atomic DB-only version/binding/receipt writes,
    replay/conflict, corrupt-row refusal, upgrade and exact pre-v4/current restore.
    No transaction spans file I/O and no session re-enters the lifecycle gate.
-4. B2 adds `internal/adapters/contentfs/{inventory,quarantine}.go` and tests plus
-   `internal/application/contentstore/recovery_test.go`. Require verified ranges,
-   bounded scans/caps, explicit quarantine, real helper-process kill/reopen and
-   all B recovery rows. Content/Tag regression behavior stays covered.
+4. B2a verified ranges and B2b bounded inventory/quarantine adapter primitives
+   are accepted in the [review](pi-07-review.md). B2b code is
+   `91f839f3817746500327f24dc943aaad7d07e80a`; Next CI run 37220679818 passed all
+   four jobs. B2c remains open: application/lifecycle integration, gated database
+   reference reconciliation and real helper-process crash/kill/reopen recovery
+   tests, including `internal/application/contentstore/recovery_test.go` and all
+   remaining B recovery rows. Content/Tag regression behavior stays covered.
+   These accepted primitives alone do not complete B or prove hardware
+   power-loss durability; issue #23 stays open.
 5. T independently audits every named contract recovery row and resource bound,
    including actual file removal/re-import for existing #17. High-severity defects
    block acceptance; record stable findings rather than relaxing assertions.
