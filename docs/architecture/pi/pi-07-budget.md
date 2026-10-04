@@ -1,12 +1,14 @@
 # PI-07 budget and admission checkpoint
 
-Status: provisional, uncalibrated design checkpoint; no delivery admitted.
+Status: design-gate completion estimate; independent R acceptance pending.
+Implementation estimates remain uncalibrated; no delivery admitted by this file.
 Use [current routing](../task-model-routing.md): R/T Astra/high, A/B 6.1 Sol/high.
 Five-hour and weekly percentage points are independent quota units, not hours.
 
 | Work | Provisional integrated ceiling: five-hour / weekly points |
 | --- | --- |
-| R bounded checkpoint | 35 / 7, including agent ceiling 27 / 5 and parent/uncertainty 8 / 2 |
+| R initial checkpoint (historical plan, not remaining work) | 35 / 7, including agent ceiling 27 / 5 and parent/uncertainty 8 / 2 |
+| R gate completion | 40 / 7, delegated cap 30 / 5 plus parent review/uncertainty 10 / 2; parent admits its remaining envelope independently |
 | A initial bounded checkpoint | 35 / 7 |
 | B initial bounded checkpoint | 40 / 8 |
 | T including #17 | 55 / 10 |
@@ -32,3 +34,11 @@ account movement is not isolated agent usage. Missing readings are unknown, not
 zero. No fixed weekly/five-hour conversion, API price proxy, reset credit or
 future reset is assumed. Stop with coherent files before any tighter live or
 authorized ceiling; incomplete acceptance remains explicitly open.
+
+Count both R checkpoints toward the same sprint ceiling. Completed R drafting
+is not a future reserve; only remaining independent acceptance costs are still
+owed. A1/A2 and B1/B2 are sequential bounded checkpoints within A/B, not each
+promised at the parent estimate. Mandatory T reserve remains 10 weekly points
+until it becomes current work. Linux capability qualification, independent
+review and closeout are included in each integrated estimate; reprice any
+checkpoint needing new environment evidence before dispatch.

@@ -26,7 +26,8 @@ Current execution artifacts:
 - [PI-07 budget checkpoint](pi-07-budget.md)
 - [PI-07 review checkpoint](pi-07-review.md)
 - [PI-07 TAF storage contract checkpoint](pi-07-taf-storage-contract.md)
-- PI-07/R remains incomplete; resolve its recorded design gates before A.
+- PI-07/R is independently accepted after resolving all five design gates.
+  No runtime or PI milestone acceptance is implied.
 
 - [PI-06 execution plan](pi-06-plan.md)
 - [PI-06 budget method](pi-06-budget.md)
@@ -93,7 +94,8 @@ The [PI-05 plan](pi-05-plan.md) links completed persistence slices as issues
 #14-#16; its review accepts the database-only upgrade/rollback milestone.
 The [PI-06 plan](pi-06-plan.md) links its A/B/T tasks as issues #19–#21.
 The PI-06 review records R/A/B/T and the transactional Tag milestone accepted.
-PI-07/R has a documentation checkpoint; its design acceptance remains open.
+PI-07/R design is accepted; delivery tasks are issues #22–#24 and #17 remains
+the nested missing-media audit.
 Search by stable ID before creating any further issue.
 Run `python3 scripts/check_architecture_docs.py` before publishing architecture
 changes. The path-scoped documentation workflow runs the same check without
@@ -112,12 +114,16 @@ held future R/T capacity in each five-hour window is superseded by this policy. 
 reset resumes that same work instead of skipping to a new PI. Reset timestamps
 may drift by seconds, so a timestamp difference alone is not treated as proof of
 a new weekly window. The fixed six-hour cadence checks each five-hour reset no
-later than one cycle afterwards and is not changed by the automation itself. A
+later than one cycle afterwards while weekly capacity permits. When weekly
+capacity cannot cover a safely completable task plus reserves, the same automation
+moves to shortly after the actual weekly reset; after verifying the reset it
+returns to six-hour cadence. Schedule changes require successful tool verification. A
 queued dispatch has a stable request ID and is not sent again while a matching
 run is active or unresolved. A queued handoff is only a request: on a later run
 with the correct model, check the actual task and repository state, then execute
 the same request ID when no work has started. A completed sprint may be followed
 by the next admitted sprint within the same run and quota week.
 
-Open persistence follow-ups: [PI-07/T-01 missing external blob evidence](https://github.com/shentschel/teddycloud/issues/17)
-and [F-PERSIST-01 foreign-key snapshot validation](https://github.com/shentschel/teddycloud/issues/18).
+Open persistence follow-up: [PI-07/T-01 missing external blob evidence](https://github.com/shentschel/teddycloud/issues/17).
+[F-PERSIST-01 foreign-key snapshot validation](https://github.com/shentschel/teddycloud/issues/18)
+is accepted in the PI-06 review and is a completed prerequisite, not repeat work.
