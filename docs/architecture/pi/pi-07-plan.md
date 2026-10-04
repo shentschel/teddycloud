@@ -1,7 +1,9 @@
 # PI-07 TAF lifecycle execution plan
 
-Status: R, A, B1, B2a and bounded B2b accepted; B2c and T remain open and require
-fresh admission. The PI milestone is not yet accepted.
+Status: R, A, B1, B2a, bounded B2b and the bounded B2c application/lifecycle/
+reference-reconciliation checkpoint are accepted. B remains open for the real
+helper-process kill/reopen recovery matrix; T and the PI milestone remain open.
+Further delivery requires fresh admission; hardware power-loss evidence is open.
 Refinement baseline: `aef53a69ab10f1480c1dade9797ce4dd9ce645bd`.
 
 Follow the [roadmap](../teddycloud-next-pi-roadmap.md),
@@ -54,12 +56,18 @@ parent sprint and are not additional quota buckets; re-admit each independently.
 4. B2a verified ranges and B2b bounded inventory/quarantine adapter primitives
    are accepted in the [review](pi-07-review.md). B2b code is
    `91f839f3817746500327f24dc943aaad7d07e80a`; Next CI run 37220679818 passed all
-   four jobs. B2c remains open: application/lifecycle integration, gated database
-   reference reconciliation and real helper-process crash/kill/reopen recovery
-   tests, including `internal/application/contentstore/recovery_test.go` and all
-   remaining B recovery rows. Content/Tag regression behavior stays covered.
-   These accepted primitives alone do not complete B or prove hardware
-   power-loss durability; issue #23 stays open.
+   four jobs. The bounded B2c application/lifecycle integration and gated database
+   reference reconciliation are accepted at
+   `c55637a2672c9c85ea490a5d1b69e05788023dca`; parent review and Next CI run
+   37222899075 passed all four jobs. This includes gate fencing, restore/mutation
+   cursor invalidation, retained DB references after quarantine, typed missing
+   availability and deterministic publish-before-commit retry/reuse evidence.
+   Content/Tag regressions remain green. B remains open only for actual helper
+   termination after durable publication before DB commit, and before/after
+   quarantine rename and each directory sync, followed by real files/DB reopen,
+   bounded inventory of actual placement and exact retry with one binding/receipt.
+   Deterministic failpoints do not supply that process-kill evidence. Issue #23
+   stays open; T, the PI milestone and hardware power-loss evidence stay open.
 5. T independently audits every named contract recovery row and resource bound,
    including actual file removal/re-import for existing #17. High-severity defects
    block acceptance; record stable findings rather than relaxing assertions.

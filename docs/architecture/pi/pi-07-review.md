@@ -1,8 +1,10 @@
 # PI-07 refinement checkpoint review
 
-Status: R design, A, B1, B2a verified ranges and B2b bounded inventory/quarantine
-are accepted after independent parent review. B2c, T and the PI milestone remain
-open; B is not yet complete.
+Status: R design, A, B1, B2a verified ranges, B2b bounded inventory/quarantine and
+the bounded B2c application/lifecycle/reference-reconciliation checkpoint are
+accepted after independent parent review. B remains open for the real
+helper-process kill/reopen recovery matrix; T and the PI milestone remain open.
+Hardware power-loss evidence remains open.
 Refinement baseline: `aef53a69ab10f1480c1dade9797ce4dd9ce645bd`.
 
 Inspected roadmap/routing, PI-05/06 plans/reviews/contracts, ADRs 0001–0003,
@@ -30,7 +32,8 @@ identity before later publication. Reuse existing open
 was fetched and read. Its evidence belongs inside T. No duplicate missing-media
 issue is proposed.
 
-Next action: separately admit B2c after fresh capacity checks. Existing
+Next action: separately admit the helper-process crash/kill/reopen matrix after
+fresh capacity checks. Existing
 PI-06 review accepts T and the transactional Tag milestone; older status text
 in its plan is stale, not grounds to repeat completed work.
 
@@ -106,8 +109,8 @@ full/focused tests, vet, repetition and whitespace checks passed; the worker
 also passed focused race tests. Remote Next CI run 37201527034 passed all jobs.
 
 B1 is accepted without a present-media claim. Issue #23 stays open; accepted
-B2a/B2b filesystem primitives are recorded below, while B2c integration and
-recovery remain outstanding.
+B2a/B2b filesystem primitives and bounded B2c integration are recorded below.
+Real helper-process recovery remains outstanding.
 
 ## B2a verified ranges acceptance
 
@@ -117,7 +120,8 @@ output before full BlobID/envelope verification. Parent focused/full tests,
 vet and whitespace checks passed; Next CI run 37202334719 passed all jobs.
 
 Issue #23 remains open. B2b inventory/quarantine acceptance follows below;
-helper-process crash recovery and cross-boundary reconciliation remain B2c work.
+Bounded B2c cross-boundary reconciliation is accepted below; real helper-process
+crash recovery remains open.
 
 ## B2b bounded inventory and quarantine acceptance
 
@@ -136,9 +140,42 @@ green with all four jobs successful. Worker full backend tests, vet, ContentFS
 race tests, ten focused repetitions, Darwin cross-build and whitespace checks
 passed. B2b is accepted as this bounded adapter checkpoint only.
 
-B2c remains open for application/lifecycle integration, gated database reference
-reconciliation and the helper-process crash/kill/reopen recovery matrix. The
-caller-facing gate/restore hooks are primitives, not completed integration
-evidence. Issue #23 remains open; no complete B/T or PI milestone acceptance,
-GC, production deployment or hardware power-loss certification is claimed.
-Hardware power-loss evidence remains open.
+At B2b acceptance, application/lifecycle integration, gated database reference
+reconciliation and helper-process recovery were still open. The bounded B2c
+integration acceptance follows below. Issue #23 remains open; B/T and the PI
+milestone are not complete. Hardware power-loss evidence remains open.
+
+## B2c bounded application and lifecycle reconciliation acceptance
+
+Code commit `c55637a2672c9c85ea490a5d1b69e05788023dca` connects the accepted
+inventory/quarantine primitives to the existing content-operation lifecycle
+gate and the currently selected, revocable database session. Reference writes
+and restore invalidate inventory cursors. Quarantine follows the gate/store
+lease order, retains database facts and reports typed missing availability
+after a move. Active imports and verification reads fence maintenance and
+restore; no SQL transaction spans filesystem I/O or recursively enters the gate.
+
+The parent reviewed service, ports, lifecycle/reference code and tests against
+the PI-07 contract and verified
+[Next CI run 37222899075](https://github.com/shentschel/teddycloud/actions/runs/37222899075)
+fully green with all four jobs successful. Local full backend tests, vet,
+relevant race tests, ten focused repetitions and whitespace checks passed.
+Deterministic application failpoint/retry tests cover publication before DB
+commit, orphan reuse and lost-response readback. Selected current/pre-v4 restore,
+cursor invalidation, quarantine retention and connection-release tests passed.
+
+Accepted bounded limitation: schema 4 has no digest index on version bindings.
+ReferenceLookup inspects at most 1,024 bindings within its context/time bound;
+when absence cannot be established it returns unavailable, never a false orphan
+classification. Existing migration checksums are unchanged. Content transactions
+conservatively invalidate cursors even when the callback only reads metadata.
+This limitation does not establish unrestricted large-catalog reconciliation.
+
+B stays open only for actual helper-process termination after durable publication
+before DB commit, and before/after quarantine rename and each directory sync.
+The next checkpoint must reopen real files/database, inventory actual retained
+placement, preserve DB facts and demonstrate verified retry with one binding
+and receipt. The deterministic failpoint is not process-kill/reopen evidence.
+Issue #23 remains open; the independent T audit (including #17), PI milestone
+and hardware power-loss evidence remain open. No GC, deployment or merge is
+part of this acceptance.
