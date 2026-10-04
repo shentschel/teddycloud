@@ -74,6 +74,41 @@ var schemaMigrations = []Migration{
 			`CREATE INDEX tc_tag_support_tag ON tc_tag_decision_support(tag_id,decision_id)`,
 		},
 	},
+	{
+		Version: 4,
+		ID:      "0004-content-blobs",
+		Statements: []string{
+			`CREATE TABLE tc_blobs (
+ digest BLOB PRIMARY KEY NOT NULL CHECK(typeof(digest)='blob' AND length(digest)=32),
+ algorithm INTEGER NOT NULL CHECK(algorithm=1),
+ size INTEGER NOT NULL CHECK(size BETWEEN 4097 AND 1073741824),
+ profile INTEGER NOT NULL CHECK(profile=1)
+) STRICT`,
+			`CREATE TABLE tc_content_versions (
+ version_id TEXT PRIMARY KEY NOT NULL CHECK(length(CAST(version_id AS BLOB))=30 AND instr(version_id,char(0))=0 AND substr(version_id,1,4)='ver_' AND substr(version_id,5) NOT GLOB '*[^0123456789abcdefghjkmnpqrstvwxyz]*'),
+ content_id TEXT NOT NULL REFERENCES tc_catalog_content(content_id) ON DELETE RESTRICT CHECK(length(CAST(content_id AS BLOB))=30 AND instr(content_id,char(0))=0 AND substr(content_id,1,4)='cnt_' AND substr(content_id,5) NOT GLOB '*[^0123456789abcdefghjkmnpqrstvwxyz]*'),
+ audio_id INTEGER NOT NULL CHECK(audio_id BETWEEN 1 AND 4294967295),
+ audio_sha1 BLOB NOT NULL CHECK(typeof(audio_sha1)='blob' AND length(audio_sha1)=20),
+ order_known INTEGER NOT NULL CHECK(order_known IN (0,1)),
+ order_namespace TEXT,
+ order_position BLOB,
+ CHECK((order_known=0 AND order_namespace IS NULL AND order_position IS NULL) OR
+ (order_known=1 AND order_namespace IS NOT NULL AND length(CAST(order_namespace AS BLOB)) BETWEEN 1 AND 128 AND order_namespace NOT GLOB '*[^!-~]*' AND instr(order_namespace,char(0))=0 AND typeof(order_position)='blob' AND length(order_position)=8)),
+ UNIQUE(content_id,version_id)
+) STRICT`,
+			`CREATE TABLE tc_version_blobs (
+ version_id TEXT PRIMARY KEY NOT NULL REFERENCES tc_content_versions(version_id) ON DELETE RESTRICT CHECK(length(CAST(version_id AS BLOB))=30 AND instr(version_id,char(0))=0 AND substr(version_id,1,4)='ver_' AND substr(version_id,5) NOT GLOB '*[^0123456789abcdefghjkmnpqrstvwxyz]*'),
+ digest BLOB NOT NULL REFERENCES tc_blobs(digest) ON DELETE RESTRICT CHECK(typeof(digest)='blob' AND length(digest)=32)
+) STRICT`,
+			`CREATE TABLE tc_blob_imports (
+ import_key TEXT PRIMARY KEY NOT NULL CHECK(length(CAST(import_key AS BLOB))=30 AND instr(import_key,char(0))=0 AND substr(import_key,1,4)='imp_' AND substr(import_key,5) NOT GLOB '*[^0123456789abcdefghjkmnpqrstvwxyz]*'),
+ encoding INTEGER NOT NULL CHECK(encoding=1),
+ command BLOB NOT NULL CHECK(typeof(command)='blob' AND length(command) BETWEEN 137 AND 275),
+ fingerprint BLOB NOT NULL CHECK(typeof(fingerprint)='blob' AND length(fingerprint)=32),
+ version_id TEXT NOT NULL REFERENCES tc_version_blobs(version_id) ON DELETE RESTRICT CHECK(length(CAST(version_id AS BLOB))=30 AND instr(version_id,char(0))=0 AND substr(version_id,1,4)='ver_' AND substr(version_id,5) NOT GLOB '*[^0123456789abcdefghjkmnpqrstvwxyz]*')
+) STRICT`,
+		},
+	},
 }
 
 // SchemaMigrations returns a copy of the ordered, forward-only application

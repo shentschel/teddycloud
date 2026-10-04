@@ -7,8 +7,10 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 
 	applicationcatalog "github.com/shentschel/teddycloud/next/backend/internal/application/catalog"
+	"github.com/shentschel/teddycloud/next/backend/internal/application/contentstore"
 	applicationtag "github.com/shentschel/teddycloud/next/backend/internal/application/tagregistry"
 )
 
@@ -25,10 +27,12 @@ var (
 // LifecycleOwner is the single-process owner of one active application
 // database handle. It exposes application ports, not Database or SQL values.
 type LifecycleOwner struct {
-	gate       *lifecycleGate
-	database   *Database
-	config     Config
-	migrations []Migration
+	gate            *lifecycleGate
+	database        *Database
+	config          Config
+	migrations      []Migration
+	contentAdmitted atomic.Bool
+	generation      atomic.Uint64
 }
 
 var _ applicationcatalog.Transactor = (*LifecycleOwner)(nil)
@@ -76,6 +80,9 @@ func (owner *LifecycleOwner) WithinTransaction(
 	if operation == nil {
 		return ErrNilTransactionOperation
 	}
+	if ctx.Value(contentOperationContextKey{}) != nil {
+		return applicationcatalog.ErrRepositoryContention
+	}
 	if owner == nil || owner.gate == nil {
 		return applicationcatalog.ErrRepositoryUnavailable
 	}
@@ -113,6 +120,9 @@ func (owner *LifecycleOwner) WithinTransaction(
 func (owner *LifecycleOwner) WithinTagTransaction(ctx context.Context, operation func(applicationtag.TagRepository) error) error {
 	if operation == nil {
 		return applicationtag.ErrInvalidInput
+	}
+	if ctx.Value(contentOperationContextKey{}) != nil {
+		return applicationtag.ErrRepositoryContention
 	}
 	if owner == nil || owner.gate == nil {
 		return applicationtag.ErrRepositoryUnavailable
@@ -187,6 +197,7 @@ func (owner *LifecycleOwner) Restore(
 	}
 
 	old := owner.database
+	owner.generation.Add(1)
 	owner.database = nil
 	if err := old.Close(); err != nil {
 		return ErrLifecycleClose
@@ -236,6 +247,7 @@ func (owner *LifecycleOwner) Close(ctx context.Context) error {
 		return nil
 	}
 	database := owner.database
+	owner.generation.Add(1)
 	owner.database = nil
 	if err := database.Close(); err != nil {
 		return lifecycleError(ctx, ErrLifecycleClose)
@@ -426,7 +438,68 @@ func (gate *lifecycleGate) leave() {
 	gate.mutex.Unlock()
 }
 
+// Content operations have no retained queue. In particular, an existing
+// Content/Tag transaction callback cannot recursively admit a content session.
+// Lifecycle waiters keep priority; callers can retry a busy admission later.
+func (gate *lifecycleGate) enterContentOperation(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	gate.mutex.Lock()
+	defer gate.mutex.Unlock()
+	if gate.active || gate.lifecycleWaiters > 0 {
+		return contentstore.ErrBusy
+	}
+	gate.active = true
+	return nil
+}
+
 func (gate *lifecycleGate) signalLocked() {
 	close(gate.changed)
 	gate.changed = make(chan struct{})
+}
+
+type contentOperationContextKey struct{}
+
+var _ contentstore.OperationOwner = (*LifecycleOwner)(nil)
+
+// WithinContentOperation admits at most one content caller, then enters the
+// common lifecycle gate once. No SQL transaction spans this callback.
+func (owner *LifecycleOwner) WithinContentOperation(ctx context.Context, operation func(context.Context, contentstore.Session) error) error {
+	if operation == nil {
+		return contentstore.ErrInvalidInput
+	}
+	if owner == nil || owner.gate == nil {
+		return contentstore.ErrUnavailable
+	}
+	if ctx.Value(contentOperationContextKey{}) != nil || !owner.contentAdmitted.CompareAndSwap(false, true) {
+		return contentstore.ErrBusy
+	}
+	defer owner.contentAdmitted.Store(false)
+	operationContext, cancel := context.WithTimeout(context.WithValue(ctx, contentOperationContextKey{}, owner), contentstore.OperationTimeout)
+	defer cancel()
+	admission, cancelAdmission := context.WithTimeout(operationContext, contentstore.AdmissionTimeout)
+	err := owner.gate.enterContentOperation(admission)
+	cancelAdmission()
+	if err != nil {
+		return contentBoundaryError(ctx, err)
+	}
+	defer owner.gate.leave()
+	if owner.database == nil {
+		return contentstore.ErrUnavailable
+	}
+	version, err := owner.database.CurrentVersion(operationContext)
+	if err != nil {
+		return contentBoundaryError(ctx, err)
+	}
+	if version != 4 {
+		return contentstore.ErrSchemaUnavailable
+	}
+	session := &contentSession{owner: owner, database: owner.database, generation: owner.generation.Load(), ctx: operationContext, active: true}
+	defer session.revoke()
+	err = operation(operationContext, session)
+	if err == nil {
+		err = operationContext.Err()
+	}
+	return contentBoundaryError(operationContext, err)
 }
