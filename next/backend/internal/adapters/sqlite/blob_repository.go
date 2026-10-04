@@ -76,6 +76,11 @@ func (s *contentSession) WithinTransaction(ctx context.Context, operation func(c
 }
 
 func (s *contentSession) transact(ctx context.Context, operation func(contentstore.BlobRepository) error) (result error) {
+	// Invalidate before opening a SQL transaction. Any callback may mutate
+	// references; harmless read-only invalidation avoids filesystem I/O in SQL.
+	if err := s.owner.invalidateContentInventory(); err != nil {
+		return err
+	}
 	connection, err := s.database.db.Conn(ctx)
 	if err != nil {
 		return contentBoundaryError(ctx, err)
@@ -145,7 +150,7 @@ func contentBoundaryError(ctx context.Context, err error) error {
 	if ctx.Err() != nil {
 		return errors.Join(marker, ctx.Err())
 	}
-	for _, category := range []error{context.Canceled, context.DeadlineExceeded, contentstore.ErrInvalidInput, contentstore.ErrBusy, contentstore.ErrSchemaUnavailable, contentstore.ErrCorrupt, contentstore.ErrRevoked, contentstore.ErrConflict, contentstore.ErrContentNotFound, contentstore.ErrUnavailable} {
+	for _, category := range []error{context.Canceled, context.DeadlineExceeded, contentstore.ErrInvalidInput, contentstore.ErrBusy, contentstore.ErrSchemaUnavailable, contentstore.ErrCorrupt, contentstore.ErrRevoked, contentstore.ErrConflict, contentstore.ErrContentNotFound, contentstore.ErrUnavailable, contentstore.ErrMissing, contentstore.ErrUnsupported, contentstore.ErrMismatch, contentstore.ErrCanceled, contentstore.ErrCapacity, contentstore.ErrRetained, contentstore.ErrUncertain, contentstore.ErrCursor} {
 		if errors.Is(err, category) {
 			return errors.Join(marker, category)
 		}

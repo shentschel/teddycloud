@@ -27,12 +27,13 @@ var (
 // LifecycleOwner is the single-process owner of one active application
 // database handle. It exposes application ports, not Database or SQL values.
 type LifecycleOwner struct {
-	gate            *lifecycleGate
-	database        *Database
-	config          Config
-	migrations      []Migration
-	contentAdmitted atomic.Bool
-	generation      atomic.Uint64
+	gate             *lifecycleGate
+	database         *Database
+	config           Config
+	migrations       []Migration
+	contentAdmitted  atomic.Bool
+	generation       atomic.Uint64
+	contentInventory contentstore.InventoryInvalidator
 }
 
 var _ applicationcatalog.Transactor = (*LifecycleOwner)(nil)
@@ -180,6 +181,9 @@ func (owner *LifecycleOwner) Restore(
 	snapshot BackupFile,
 	destination string,
 ) error {
+	if ctx.Value(contentOperationContextKey{}) != nil {
+		return contentstore.ErrBusy
+	}
 	if owner == nil || owner.gate == nil {
 		return ErrLifecycleClosed
 	}
@@ -197,6 +201,9 @@ func (owner *LifecycleOwner) Restore(
 	}
 
 	old := owner.database
+	if err := owner.invalidateContentInventory(); err != nil {
+		return err
+	}
 	owner.generation.Add(1)
 	owner.database = nil
 	if err := old.Close(); err != nil {
@@ -236,6 +243,9 @@ func (owner *LifecycleOwner) Restore(
 
 // Close drains the active operation and permanently closes the selected handle.
 func (owner *LifecycleOwner) Close(ctx context.Context) error {
+	if ctx.Value(contentOperationContextKey{}) != nil {
+		return contentstore.ErrBusy
+	}
 	if owner == nil || owner.gate == nil {
 		return nil
 	}
@@ -247,12 +257,13 @@ func (owner *LifecycleOwner) Close(ctx context.Context) error {
 		return nil
 	}
 	database := owner.database
+	inventoryErr := owner.invalidateContentInventory()
 	owner.generation.Add(1)
 	owner.database = nil
 	if err := database.Close(); err != nil {
-		return lifecycleError(ctx, ErrLifecycleClose)
+		return errors.Join(inventoryErr, lifecycleError(ctx, ErrLifecycleClose))
 	}
-	return nil
+	return inventoryErr
 }
 
 func (owner *LifecycleOwner) restorePreflight(
@@ -461,7 +472,44 @@ func (gate *lifecycleGate) signalLocked() {
 
 type contentOperationContextKey struct{}
 
+// AttachContentInventory binds exactly one store to this owner. Installation
+// and every invalidation run under the same fence as restore and media calls.
+func (owner *LifecycleOwner) AttachContentInventory(ctx context.Context, inventory contentstore.InventoryInvalidator) error {
+	if ctx == nil || inventory == nil {
+		return contentstore.ErrInvalidInput
+	}
+	if owner == nil || owner.gate == nil {
+		return contentstore.ErrUnavailable
+	}
+	if ctx.Value(contentOperationContextKey{}) != nil {
+		return contentstore.ErrBusy
+	}
+	if err := owner.gate.enterContentOperation(ctx); err != nil {
+		return contentBoundaryError(ctx, err)
+	}
+	defer owner.gate.leave()
+	if owner.database == nil {
+		return contentstore.ErrUnavailable
+	}
+	if owner.contentInventory != nil {
+		return contentstore.ErrConflict
+	}
+	if err := inventory.InvalidateInventory(); err != nil {
+		return contentBoundaryError(ctx, err)
+	}
+	owner.contentInventory = inventory
+	return nil
+}
+
+func (owner *LifecycleOwner) invalidateContentInventory() error {
+	if owner.contentInventory == nil {
+		return nil
+	}
+	return contentBoundaryError(context.Background(), owner.contentInventory.InvalidateInventory())
+}
+
 var _ contentstore.OperationOwner = (*LifecycleOwner)(nil)
+var _ contentstore.MediaOwner = (*LifecycleOwner)(nil)
 
 // WithinContentOperation admits at most one content caller, then enters the
 // common lifecycle gate once. No SQL transaction spans this callback.

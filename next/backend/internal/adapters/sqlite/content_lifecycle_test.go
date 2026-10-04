@@ -129,6 +129,12 @@ func TestContentStoreLifecycleFence(t *testing.T) {
 func TestContentStoreNoGateReentry(t *testing.T) {
 	owner := blobOwner(t)
 	err := owner.WithinContentOperation(t.Context(), func(ctx context.Context, s contentstore.Session) error {
+		if err := owner.Close(ctx); !errors.Is(err, contentstore.ErrBusy) {
+			t.Fatalf("recursive close: %v", err)
+		}
+		if err := owner.Restore(ctx, BackupFile{}, "unused"); !errors.Is(err, contentstore.ErrBusy) {
+			t.Fatalf("recursive restore: %v", err)
+		}
 		if err := owner.WithinTransaction(ctx, func(applicationcatalog.ContentRepository) error { t.Fatal("catalog gate reentry"); return nil }); !errors.Is(err, applicationcatalog.ErrRepositoryContention) {
 			t.Fatal(err)
 		}

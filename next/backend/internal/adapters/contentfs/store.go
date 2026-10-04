@@ -4,27 +4,27 @@ package contentfs
 
 import (
 	"context"
-	"errors"
 	"math"
 	"time"
 
+	"github.com/shentschel/teddycloud/next/backend/internal/application/contentstore"
 	"github.com/shentschel/teddycloud/next/backend/internal/domain/content"
 )
 
 // Errors contain no paths, digests, source diagnostics or syscall causes.
 var (
-	ErrUnsupported = errors.New("blob filesystem capability unavailable")
-	ErrInvalid     = errors.New("invalid blob store request")
-	ErrUnavailable = errors.New("blob store unavailable")
-	ErrMissing     = errors.New("blob content missing")
-	ErrCorrupt     = errors.New("blob destination corrupt")
-	ErrMismatch    = errors.New("blob input does not match declaration")
-	ErrCanceled    = errors.New("blob operation canceled")
-	ErrBusy        = errors.New("blob operation busy")
-	ErrCapacity    = errors.New("blob retained capacity exceeded")
-	ErrRetained    = errors.New("blob retained entries require reconciliation")
-	ErrUncertain   = errors.New("blob publication durability uncertain")
-	ErrCursor      = errors.New("blob inventory cursor invalid")
+	ErrUnsupported = contentstore.ErrUnsupported
+	ErrInvalid     = contentstore.ErrInvalidInput
+	ErrUnavailable = contentstore.ErrUnavailable
+	ErrMissing     = contentstore.ErrMissing
+	ErrCorrupt     = contentstore.ErrCorrupt
+	ErrMismatch    = contentstore.ErrMismatch
+	ErrCanceled    = contentstore.ErrCanceled
+	ErrBusy        = contentstore.ErrBusy
+	ErrCapacity    = contentstore.ErrCapacity
+	ErrRetained    = contentstore.ErrRetained
+	ErrUncertain   = contentstore.ErrUncertain
+	ErrCursor      = contentstore.ErrCursor
 )
 
 const (
@@ -35,35 +35,26 @@ const (
 	InventoryIdleExpiry   = 60 * time.Second
 )
 
-type InventoryKind string
+type InventoryKind = contentstore.InventoryKind
 
 const (
-	ReferencedCanonical   InventoryKind = "referenced"
-	UnreferencedCanonical InventoryKind = "unreferenced"
-	StagingEntry          InventoryKind = "staging"
-	QuarantineEntry       InventoryKind = "quarantine"
-	UnexpectedEntry       InventoryKind = "unexpected"
+	ReferencedCanonical   = contentstore.ReferencedCanonical
+	UnreferencedCanonical = contentstore.UnreferencedCanonical
+	StagingEntry          = contentstore.StagingEntry
+	QuarantineEntry       = contentstore.QuarantineEntry
+	UnexpectedEntry       = contentstore.UnexpectedEntry
 )
 
 // Inventory is observational. Entries remain unchecked until explicit envelope
 // verification; BlobID is populated only for canonical candidates. No entry
 // grants deletion authority, and an orphan label is scoped to the gated instant.
-type InventoryEntry struct {
-	Kind   InventoryKind
-	BlobID content.BlobID
-	Bytes  uint64
-}
-type InventoryPage struct {
-	Entries   []InventoryEntry
-	Inspected int
-	Cursor    string
-	Complete  bool
-}
+type InventoryEntry = contentstore.InventoryEntry
+type InventoryPage = contentstore.InventoryPage
 
 // ReferenceLookup runs inside the caller's common content-operation gate against
 // its selected DB/session, honors ctx, and does not re-enter Store. Reference
 // mutations and restore must call InvalidateInventory under the same gate.
-type ReferenceLookup func(context.Context, content.BlobID) (bool, error)
+type ReferenceLookup = contentstore.ReferenceLookup
 
 // OpenForInventory permits retained-file observation after restart. Mutations
 // remain disabled until a complete clean scan has reconciled retained capacity.
@@ -139,6 +130,19 @@ func (s *Store) ReadRange(ctx context.Context, id content.BlobID, completeBytes 
 // Close drains publication. No operation returns a descriptor or accepts a
 // media path. Open requires an existing absolute deployment-controlled root.
 type Store struct{ platformStore }
+
+var _ contentstore.MediaStore = (*Store)(nil)
+
+// Verify uses the verified range protocol without delivering content bytes.
+// The digest lease and descriptor remain scoped until verification returns.
+func (s *Store) Verify(ctx context.Context, id content.BlobID, size uint64) error {
+	return s.ReadRange(ctx, id, size, ByteRange{}, verificationSink{})
+}
+
+type verificationSink struct{}
+
+func (verificationSink) Write(_ context.Context, bytes []byte) (int, error) { return len(bytes), nil }
+func (verificationSink) Close() error                                       { return nil }
 
 func Open(ctx context.Context, root string, options content.TAFOptions) (*Store, error) {
 	return OpenWithRangeOptions(ctx, root, options, DefaultRangeOptions())
