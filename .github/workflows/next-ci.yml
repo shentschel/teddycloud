@@ -107,7 +107,7 @@ jobs:
           retention-days: 7
 
   sqlite-persistence:
-    name: SQLite and Tag Registry regression and race evidence
+    name: Persistence and domain regression and race evidence
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -130,9 +130,9 @@ jobs:
           go test ./backend/internal/domain/tag ./backend/internal/application/tagregistry
           go test -count=10 ./backend/internal/adapters/sqlite
 
-      - name: Run focused SQLite race evidence
+      - name: Run focused persistence and domain race evidence
         working-directory: next
-        run: go test -race ./backend/internal/adapters/sqlite ./backend/internal/architecture ./backend/internal/domain/tag ./backend/internal/application/tagregistry
+        run: go test -race ./backend/internal/adapters/sqlite ./backend/internal/architecture ./backend/internal/domain/tag ./backend/internal/domain/content ./backend/internal/application/tagregistry ./backend/internal/testutil/taffixture
 
   reproducibility:
     name: Two-work-directory reproducibility
