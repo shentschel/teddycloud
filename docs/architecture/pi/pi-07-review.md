@@ -1,7 +1,7 @@
 # PI-07 refinement checkpoint review
 
 Status: R design accepted after independent parent review. No A/B/T
-implementation or PI milestone acceptance.
+milestone acceptance. A1 is accepted; A2 and later delivery remain open.
 Refinement baseline: `aef53a69ab10f1480c1dade9797ce4dd9ce645bd`.
 
 Inspected roadmap/routing, PI-05/06 plans/reviews/contracts, ADRs 0001–0003,
@@ -67,3 +67,16 @@ no runtime test evidence. Delivery tasks are published as
 [PI-07/B #23](https://github.com/shentschel/teddycloud/issues/23) and
 [PI-07/T #24](https://github.com/shentschel/teddycloud/issues/24); T reuses
 `PI-07/T-01` in existing #17.
+
+## A1 domain acceptance
+
+Commit `90c4960902228e4b13153d559182e110aa55d32e` implements the
+accepted envelope, BlobID and canonical import-command domain contracts with
+generated synthetic fixtures and boundary/fuzz tests. Parent focused/full tests,
+vet and bounded fuzzing passed. Local race evidence was unavailable without a C
+compiler, so commit `fe969a2d16182490bdfe866844be4a6058511de1`
+added the packages to remote Linux race CI; run 37180869682 passed all jobs.
+
+A1 is accepted without a playback-validity, filesystem, database, production
+migration or deployment claim. A2 remains the next ordered checkpoint in issue
+#22.

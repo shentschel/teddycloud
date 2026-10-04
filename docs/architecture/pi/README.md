@@ -26,8 +26,9 @@ Current execution artifacts:
 - [PI-07 budget checkpoint](pi-07-budget.md)
 - [PI-07 review checkpoint](pi-07-review.md)
 - [PI-07 TAF storage contract checkpoint](pi-07-taf-storage-contract.md)
+- [PI-07/A1 TAF domain checkpoint](pi-07-a1-domain-checkpoint.md)
 - PI-07/R is independently accepted after resolving all five design gates.
-  No runtime or PI milestone acceptance is implied.
+  A1 is accepted; A2 and the PI milestone remain open.
 
 - [PI-06 execution plan](pi-06-plan.md)
 - [PI-06 budget method](pi-06-budget.md)
