@@ -21,3 +21,12 @@ func (*platformStore) publish(context.Context, content.BlobID, uint64, content.T
 	return content.TAFEnvelope{}, ErrUnsupported
 }
 func (*platformStore) close() error { return nil }
+
+func openForInventory(context.Context, string, content.TAFOptions) (*Store, error) {
+	return nil, ErrUnsupported
+}
+func (*Store) Inventory(context.Context, string, int, ReferenceLookup) (InventoryPage, error) {
+	return InventoryPage{}, ErrUnsupported
+}
+func (*Store) InvalidateInventory() error                               { return ErrUnsupported }
+func (*Store) Quarantine(context.Context, content.BlobID, uint64) error { return ErrUnsupported }

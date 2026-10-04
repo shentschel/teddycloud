@@ -62,6 +62,10 @@ type platformStore struct {
 	initialized, closed, poisoned          bool
 	stageEntries                           int
 	stageBytes                             uint64
+	quarantineEntries                      int
+	quarantineBytes                        uint64
+	capacityKnown                          bool
+	scan                                   *inventoryScan
 }
 
 func (s *platformStore) setRangeOptions(options RangeOptions) { s.ranges = options }
@@ -190,11 +194,15 @@ func openStore(ctx context.Context, root string, options content.TAFOptions) (*S
 }
 
 func openWithSyscalls(ctx context.Context, root string, options content.TAFOptions, ops syscalls) (_ *Store, result error) {
+	return openInventoryStore(ctx, root, options, ops, false)
+}
+
+func openInventoryStore(ctx context.Context, root string, options content.TAFOptions, ops syscalls, allowRetained bool) (_ *Store, result error) {
 	fd, err := walkRoot(root)
 	if err != nil {
 		return nil, ErrUnsupported
 	}
-	s := &Store{platformStore: platformStore{initialized: true, root: fd, staging: -1, blobs: -1, quarantine: -1, lock: -1, options: options, ops: ops}}
+	s := &Store{platformStore: platformStore{initialized: true, root: fd, staging: -1, blobs: -1, quarantine: -1, lock: -1, options: options, ranges: DefaultRangeOptions(), ops: ops, capacityKnown: !allowRetained}}
 	defer func() {
 		if result != nil {
 			_ = s.close()
@@ -236,12 +244,14 @@ func openWithSyscalls(ctx context.Context, root string, options content.TAFOptio
 			return nil, ErrUnsupported
 		}
 	}
-	// B2 owns incremental inventory/reconciliation. Until it exists, startup
-	// with any retained stage/quarantine entry denies mutations, rather than
-	// silently resetting capacity counters or scanning an unbounded tree.
+	// Ordinary startup remains strict; maintenance startup exposes bounded
+	// inventory with mutations fenced until retained capacity is reconciled.
 	for _, dir := range []int{s.staging, s.quarantine} {
 		if err = emptyDirectory(dir); err != nil {
-			return nil, ErrRetained
+			if !allowRetained {
+				return nil, ErrRetained
+			}
+			s.capacityKnown = false
 		}
 	}
 	if err = s.probe(ctx); err != nil {
@@ -384,8 +394,15 @@ func (s *platformStore) publish(ctx context.Context, id content.BlobID, size uin
 	if !s.initialized || s.closed || s.poisoned {
 		return result, ErrUnavailable
 	}
+	if !s.capacityKnown {
+		return result, ErrRetained
+	}
 	if s.stageEntries >= maxStageEntries || size > maxStageBytes-s.stageBytes {
 		return result, ErrCapacity
+	}
+	s.invalidateInventory()
+	if s.poisoned {
+		return result, ErrUnavailable
 	}
 	closedSource := false
 	defer func() {
@@ -641,6 +658,7 @@ func (s *platformStore) close() error {
 		return nil
 	}
 	s.closed = true
+	s.invalidateInventory()
 	var failed bool
 	// Reverse ownership order; releasing the lock is the final operation.
 	for _, ptr := range []*int{&s.blobs, &s.quarantine, &s.staging, &s.root, &s.lock} {

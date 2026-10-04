@@ -21,10 +21,65 @@ var (
 	ErrMismatch    = errors.New("blob input does not match declaration")
 	ErrCanceled    = errors.New("blob operation canceled")
 	ErrBusy        = errors.New("blob operation busy")
-	ErrCapacity    = errors.New("blob staging capacity exceeded")
+	ErrCapacity    = errors.New("blob retained capacity exceeded")
 	ErrRetained    = errors.New("blob retained entries require reconciliation")
 	ErrUncertain   = errors.New("blob publication durability uncertain")
+	ErrCursor      = errors.New("blob inventory cursor invalid")
 )
+
+const (
+	DefaultInventoryPage  = 128
+	MaxInventoryInspected = 1024
+	MaxInventoryCursor    = 256
+	InventoryDuration     = 2 * time.Second
+	InventoryIdleExpiry   = 60 * time.Second
+)
+
+type InventoryKind string
+
+const (
+	ReferencedCanonical   InventoryKind = "referenced"
+	UnreferencedCanonical InventoryKind = "unreferenced"
+	StagingEntry          InventoryKind = "staging"
+	QuarantineEntry       InventoryKind = "quarantine"
+	UnexpectedEntry       InventoryKind = "unexpected"
+)
+
+// Inventory is observational. Entries remain unchecked until explicit envelope
+// verification; BlobID is populated only for canonical candidates. No entry
+// grants deletion authority, and an orphan label is scoped to the gated instant.
+type InventoryEntry struct {
+	Kind   InventoryKind
+	BlobID content.BlobID
+	Bytes  uint64
+}
+type InventoryPage struct {
+	Entries   []InventoryEntry
+	Inspected int
+	Cursor    string
+	Complete  bool
+}
+
+// ReferenceLookup runs inside the caller's common content-operation gate against
+// its selected DB/session, honors ctx, and does not re-enter Store. Reference
+// mutations and restore must call InvalidateInventory under the same gate.
+type ReferenceLookup func(context.Context, content.BlobID) (bool, error)
+
+// OpenForInventory permits retained-file observation after restart. Mutations
+// remain disabled until a complete clean scan has reconciled retained capacity.
+// Ordinary Open preserves its fail-closed ErrRetained behavior.
+func OpenForInventory(ctx context.Context, root string, options content.TAFOptions) (*Store, error) {
+	if ctx == nil {
+		return nil, ErrInvalid
+	}
+	if ctx.Err() != nil {
+		return nil, ErrCanceled
+	}
+	if _, err := content.NewTAFOptions(options.MaxBytes(), options.Duration()); err != nil {
+		return nil, ErrInvalid
+	}
+	return openForInventory(ctx, root, options)
+}
 
 const (
 	maxStageBytes   uint64 = 2 * 1024 * 1024 * 1024
