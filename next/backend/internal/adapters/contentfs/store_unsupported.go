@@ -9,6 +9,11 @@ import (
 
 type platformStore struct{}
 
+func (*platformStore) setRangeOptions(RangeOptions) {}
+func (*platformStore) readRange(context.Context, content.BlobID, uint64, ByteRange, RangeSink) error {
+	return ErrUnsupported
+}
+
 func openStore(context.Context, string, content.TAFOptions) (*Store, error) {
 	return nil, ErrUnsupported
 }

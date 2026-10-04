@@ -24,6 +24,7 @@ const confined = unix.RESOLVE_BENEATH | unix.RESOLVE_NO_SYMLINKS | unix.RESOLVE_
 type syscalls struct {
 	fault func(string) error
 	write func(int, []byte) (int, error)
+	pread func(int, []byte, int64) (int, error)
 }
 
 func (o syscalls) check(point string) error {
@@ -56,11 +57,133 @@ type platformStore struct {
 	root, staging, blobs, quarantine, lock int
 	device                                 uint64
 	options                                content.TAFOptions
+	ranges                                 RangeOptions
 	ops                                    syscalls
 	initialized, closed, poisoned          bool
 	stageEntries                           int
 	stageBytes                             uint64
 }
+
+func (s *platformStore) setRangeOptions(options RangeOptions) { s.ranges = options }
+
+func (s *platformStore) readRange(ctx context.Context, id content.BlobID, size uint64, r ByteRange, sink RangeSink) (failure error) {
+	if r.length > s.ranges.maxBytes || s.ranges.duration <= 0 {
+		return ErrInvalid
+	}
+	ctx, cancel := context.WithTimeout(ctx, s.ranges.duration)
+	defer cancel()
+	if ctx.Err() != nil {
+		return ErrCanceled
+	}
+	if !s.mu.TryLock() {
+		return ErrBusy
+	}
+	defer s.mu.Unlock()
+	if !s.initialized || s.closed || s.poisoned {
+		return ErrUnavailable
+	}
+	// Cancellation closes the scoped sink. Drain close before releasing ownership,
+	// including when its implementation violates the prompt-unblocking contract.
+	var closeOnce sync.Once
+	closeDone := make(chan struct{})
+	var closeErr error
+	closeSink := func() { closeOnce.Do(func() { closeErr = sink.Close(); close(closeDone) }) }
+	stopClose := context.AfterFunc(ctx, closeSink)
+	defer func() {
+		stopClose()
+		closeSink()
+		<-closeDone
+		if closeErr != nil {
+			s.poisoned = true
+			failure = ErrUnavailable
+		}
+		if failure == nil && ctx.Err() != nil {
+			failure = ErrCanceled
+		}
+	}()
+	digest := id.String()[7:]
+	name := "sha256/" + digest[:2] + "/" + digest[2:4] + "/" + digest + ".taf"
+	fd, err := s.ops.open(s.blobs, name, unix.O_RDONLY|unix.O_NONBLOCK, 0)
+	if err == unix.ENOENT {
+		return ErrMissing
+	}
+	if err != nil {
+		return ErrUnavailable
+	}
+	f := os.NewFile(uintptr(fd), "blob")
+	defer func() {
+		if f.Close() != nil {
+			s.poisoned = true
+			failure = ErrUnavailable
+		}
+	}()
+	before, err := s.checkFile(fd, int64(size))
+	if err != nil {
+		return ErrCorrupt
+	}
+	e, err := content.ValidateTAF(ctx, &fileSource{f}, content.FiniteTAFSource, s.options)
+	if err != nil {
+		if errors.Is(err, content.ErrTAFCanceled) {
+			return ErrCanceled
+		}
+		if errors.Is(err, content.ErrTAFIO) {
+			return ErrUnavailable
+		}
+		return ErrCorrupt
+	}
+	after, err := s.checkFile(fd, int64(size))
+	if err != nil || !unchangedStat(before, after) || e.BlobID() != id || e.Profile() != content.TAFProfileV1 || e.CompleteBytes() != size || !sameEntry(s.blobs, name, fd) {
+		return ErrCorrupt
+	}
+	if s.ops.check("range-verified") != nil {
+		return ErrUnavailable
+	}
+	var buffer [content.TAFStreamBufferBytes]byte
+	read := s.ops.pread
+	if read == nil {
+		read = unix.Pread
+	}
+	for delivered := uint64(0); delivered < r.length; {
+		if ctx.Err() != nil {
+			return ErrCanceled
+		}
+		chunk := buffer[:int(min(r.length-delivered, uint64(len(buffer))))]
+		n, err := read(fd, chunk, int64(r.offset+delivered))
+		if err != nil || n != len(chunk) {
+			return ErrUnavailable
+		}
+		if ctx.Err() != nil {
+			return ErrCanceled
+		}
+		n, err = sink.Write(ctx, chunk)
+		if ctx.Err() != nil {
+			return ErrCanceled
+		}
+		if err != nil || n != len(chunk) {
+			return ErrUnavailable
+		}
+		delivered += uint64(n)
+	}
+	if s.ops.check("range-delivered") != nil {
+		return ErrUnavailable
+	}
+	closeSink()
+	<-closeDone
+	if closeErr != nil {
+		s.poisoned = true
+		return ErrUnavailable
+	}
+	final, err := s.checkFile(fd, int64(size))
+	if err != nil || !unchangedStat(after, final) || !sameEntry(s.blobs, name, fd) {
+		return ErrUnavailable
+	}
+	if ctx.Err() != nil {
+		return ErrCanceled
+	}
+	return nil
+}
+
+func unchangedStat(a, b unix.Stat_t) bool { a.Atim = b.Atim; return a == b }
 
 func openStore(ctx context.Context, root string, options content.TAFOptions) (*Store, error) {
 	return openWithSyscalls(ctx, root, options, syscalls{})
