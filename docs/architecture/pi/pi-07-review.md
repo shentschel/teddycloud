@@ -1,7 +1,7 @@
 # PI-07 refinement checkpoint review
 
-Status: R design accepted after independent parent review. No A/B/T
-milestone acceptance. A1 is accepted; A2 and later delivery remain open.
+Status: R design and A are accepted after independent parent review. No B/T
+or PI milestone acceptance. A1 and A2 are accepted; later delivery remains open.
 Refinement baseline: `aef53a69ab10f1480c1dade9797ce4dd9ce645bd`.
 
 Inspected roadmap/routing, PI-05/06 plans/reviews/contracts, ADRs 0001–0003,
@@ -78,5 +78,19 @@ compiler, so commit `fe969a2d16182490bdfe866844be4a6058511de1`
 added the packages to remote Linux race CI; run 37180869682 passed all jobs.
 
 A1 is accepted without a playback-validity, filesystem, database, production
-migration or deployment claim. A2 remains the next ordered checkpoint in issue
-#22.
+migration or deployment claim. A2 supplies the separately reviewed filesystem
+boundary and completes issue #22.
+
+## A2 qualified filesystem acceptance
+
+Commit `7e86d2bfaa3b6806f327471ed915b59655fea3ff` implements the
+descriptor-owned Linux content store with ext4/XFS qualification, exclusive
+ownership, bounded staging, exact validation, no-replace publication, explicit
+flush boundaries, verified reuse and fail-closed non-Linux behavior. Parent
+full/focused tests, vet, repetition, cross-build and whitespace checks passed;
+the worker also passed focused race testing. Remote Next CI run 37199532054
+passed the qualified filesystem, repetition, race and cross-build gates.
+
+A2 and issue #22 are accepted. Retained-entry reconciliation remains ordered in
+B2. Physical power-loss durability, playback, database binding, migration,
+production deployment and deletion remain outside this acceptance.
