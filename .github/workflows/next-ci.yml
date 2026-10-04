@@ -132,7 +132,21 @@ jobs:
 
       - name: Run focused persistence and domain race evidence
         working-directory: next
-        run: go test -race ./backend/internal/adapters/sqlite ./backend/internal/architecture ./backend/internal/domain/tag ./backend/internal/domain/content ./backend/internal/application/tagregistry ./backend/internal/testutil/taffixture
+        run: go test -race ./backend/internal/adapters/sqlite ./backend/internal/architecture ./backend/internal/domain/tag ./backend/internal/domain/content ./backend/internal/application/tagregistry ./backend/internal/testutil/taffixture ./backend/internal/adapters/contentfs
+
+      - name: Require qualified Linux blob filesystem and repetition
+        working-directory: next
+        # Each test qualifies /var/tmp by descriptor mount ID, exact ext4/XFS
+        # type and real syscall probes. An unqualified runner fails this job.
+        run: go test -count=10 ./backend/internal/adapters/contentfs
+
+      - name: Compile fail-closed non-Linux blob boundary
+        working-directory: next
+        env:
+          GOOS: darwin
+          GOARCH: amd64
+          CGO_ENABLED: "0"
+        run: go test -c -o "${RUNNER_TEMP}/contentfs-darwin.test" ./backend/internal/adapters/contentfs
 
   reproducibility:
     name: Two-work-directory reproducibility
