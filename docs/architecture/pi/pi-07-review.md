@@ -5,6 +5,9 @@ review, including the real helper-process SIGKILL/reopen matrix at
 `a62ea20cd420bd5219b8be71fe6c83eddcc91f6d` and green Next CI 37327204076.
 The independent T audit, PI milestone and hardware power-loss evidence remain
 open. Issue #23 remains open for parent issue maintenance.
+Finding PI07-T-F01 was subsequently confirmed High, fixed and parent-accepted
+at `76cab7a33eaf715cd0209653c9be2236ced63b94`, with all four jobs of Next CI
+37375380712 green. Only this finding is closed; the rest of T and #17 remain open.
 Refinement baseline: `aef53a69ab10f1480c1dade9797ce4dd9ce645bd`.
 
 Inspected roadmap/routing, PI-05/06 plans/reviews/contracts, ADRs 0001–0003,
@@ -241,11 +244,11 @@ No runtime or test files were changed. Private automation state is unchanged.
 
 | ID | Severity / evidence level | Observation and required follow-up |
 | --- | --- | --- |
-| PI07-T-F01 | High candidate; code-path evidence, runtime reproduction pending | In `contentfs/store_linux.go`, both `readRange` and `verify` pass `s.options` (the configurable import size/duration limits) to `content.ValidateTAF`. `ErrTAFLimit` falls through to `ErrCorrupt`. `quarantine.go` authorizes a move when `verify` returns `ErrCorrupt`. Thus inspection identifies a path where reopening with a lower import size limit can misclassify existing healthy media and authorize quarantine. No reproducer was written or run before the stop; do not describe this as a demonstrated runtime failure. Reproduce with a valid file larger than a newly configured import limit, check range/availability and healthy-quarantine refusal, then correct verification policy with regression coverage if confirmed. |
+| PI07-T-F01 | Confirmed High; fixed and parent-accepted | Runtime reproduction confirmed that lowering import admission misclassified healthy retained bytes as corrupt and allowed quarantine. Fixed at `76cab7a33eaf715cd0209653c9be2236ced63b94`; Next CI 37375380712 passed all four jobs. See the finding closeout below. |
 | PI07-T-G01 | Blocking audit incompleteness | The complete recovery/resource/lock/restore/idempotency matrix has not been independently reconciled against implementation and tests. A green backend suite alone does not close this gate. |
 
-No confirmed critical runtime finding is claimed. The high-risk candidate and
-incomplete audit block a T/PI acceptance recommendation until resolved.
+No confirmed critical runtime finding is claimed. PI07-T-F01 is resolved;
+the incomplete audit still blocks a T/PI acceptance recommendation.
 
 ### Resume checklist
 
@@ -264,3 +267,37 @@ No schema change, deletion/GC, deployment or mainline merge was performed.
 Hardware power-loss, real playback and coordinated production media/secret
 restore remain unproven. Recommendation: retain this checkpoint and keep T/PI
 acceptance blocked; do not repeat already accepted delivery as a new task.
+
+## PI07-T-F01 finding closeout (2026-10-05)
+
+The narrowly scoped follow-up confirmed the High finding with executable
+evidence. `TestBlobRetainedVerificationAfterLowerImportLimit` publishes a valid
+12,289-byte generated TAF under the original admission profile, closes the
+owner and reopens it with a 4,097-byte import limit. Before the fix, Verify and
+ReadRange returned `ErrCorrupt`, and Quarantine incorrectly succeeded.
+
+Fix commit [`76cab7a33eaf715cd0209653c9be2236ced63b94`](https://github.com/shentschel/teddycloud/commit/76cab7a33eaf715cd0209653c9be2236ced63b94)
+changes only `contentfs/store_linux.go` and
+`contentfs/verification_linux_test.go`. Retained verification now validates
+the stored envelope profile using its fixed 1-GiB ceiling and the verification
+deadline, independently of current import admission settings. Earlier caller
+deadlines still win; invalid verification configuration is unavailable rather
+than evidence of corruption. Imports continue to enforce their configured
+limit. Full descriptor/hash/EOF validation, finite reads and confinement remain
+in force. Genuine byte corruption still returns `ErrCorrupt`, emits no range
+bytes and permits explicit quarantine with retained bytes and typed missing
+availability afterward.
+
+The regression was observed failing before the fix and passing afterward.
+Local full backend tests, `go vet ./...`, relevant ContentFS/ContentStore/SQLite
+race tests, ten focused verification/quarantine repetitions, formatting,
+architecture tests/document checks and whitespace checks passed. Parent review
+is complete; [Next CI run 37375380712](https://github.com/shentschel/teddycloud/actions/runs/37375380712)
+was independently checked and all four jobs succeeded.
+
+PI07-T-F01 alone is closed. PI-07/T and the PI milestone remain open for the
+remaining independent contract-to-code/test audit, including actual removal
+and exact re-import evidence for [issue #17](https://github.com/shentschel/teddycloud/issues/17).
+The focused evidence does not establish completion of the remaining recovery,
+resource, lifecycle, error-sanitization or fuzz audit. Hardware power-loss,
+real playback and production migration/deployment evidence remain unproven.

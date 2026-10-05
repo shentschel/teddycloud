@@ -39,7 +39,11 @@ Current execution artifacts:
   37327204076 is green. `after-rename`/`before-source-sync` share one real
   intermediate position, as do `after-source-sync`/`before-destination-sync`;
   seven scenario labels do not denote seven physically distinct syscall
-  positions. The next ready checkpoint is PI-07/T after fresh admission.
+  positions. PI07-T-F01 was confirmed High, fixed and parent-accepted at
+  `76cab7a33eaf715cd0209653c9be2236ced63b94`; Next CI 37375380712 passed all
+  four jobs. See the [finding closeout](pi-07-review.md#pi07-t-f01-finding-closeout-2026-10-05).
+  The next ready checkpoint is the remaining PI-07/T audit, including #17
+  removal/re-import evidence, after fresh admission.
   Issue #23 remains open for parent issue maintenance; T, the PI milestone
   and hardware power-loss evidence remain open.
 

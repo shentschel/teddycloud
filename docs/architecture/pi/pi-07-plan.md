@@ -3,8 +3,12 @@
 Status: R, A and PI-07/B are fully accepted after parent review, including the
 real helper-process kill/reopen recovery matrix at code commit
 `a62ea20cd420bd5219b8be71fe6c83eddcc91f6d`, with Next CI 37327204076 green.
-T and the PI milestone remain open. Further delivery requires fresh admission;
-hardware power-loss evidence remains open.
+PI07-T-F01, the retained-verification/import-admission coupling, was confirmed
+High and fixed at `76cab7a33eaf715cd0209653c9be2236ced63b94`; parent review is
+complete and [Next CI 37375380712](https://github.com/shentschel/teddycloud/actions/runs/37375380712)
+passed all four jobs. This finding alone is closed. T and the PI milestone
+remain open for the rest of the independent audit and issue #17 evidence.
+Further delivery requires fresh admission; hardware power-loss evidence remains open.
 Refinement baseline: `aef53a69ab10f1480c1dade9797ce4dd9ce645bd`.
 
 Follow the [roadmap](../teddycloud-next-pi-roadmap.md),
@@ -78,6 +82,9 @@ parent sprint and are not additional quota buckets; re-admit each independently.
 5. T independently audits every named contract recovery row and resource bound,
    including actual file removal/re-import for existing #17. High-severity defects
    block acceptance; record stable findings rather than relaxing assertions.
+   PI07-T-F01 is already reproduced, fixed and parent-accepted with green CI;
+   do not repeat that completed finding as a new task. Resume the remaining
+   contract-to-code/test audit and #17 evidence before accepting T.
 
 The contract's executable acceptance map supplies exact test names and outcomes.
 An implementation may split focused tests within these packages; no HTTP API,
