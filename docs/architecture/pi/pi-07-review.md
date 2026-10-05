@@ -215,3 +215,52 @@ process termination and reopen, not hardware power-loss durability.
 The independent T audit (including #17), PI milestone and hardware power-loss
 evidence remain open. Issue #23 is deliberately left open for the parent to
 maintain. This closeout makes no code change, deployment or merge.
+
+## PI-07/T independent audit checkpoint (2026-10-05)
+
+Status: incomplete, stopped on explicit user instruction. T and the PI
+milestone are not accepted. Baseline branch `docs/pi-00-r-charter`, HEAD
+`7ca1a2f60d61c08a4cde1f85b3899d5fbd8d60e3`, was clean at entry and stop.
+No runtime or test files were changed. Private automation state is unchanged.
+
+### Observed evidence
+
+- `go test ./...` from `next/backend` completed with exit 0 using the existing
+  `golang:1.27.1-bookworm` container and isolated Linux filesystem fixtures.
+  All backend packages passed, including contentfs, SQLite, contentstore and
+  architecture tests. The command finished before the stop-status check;
+  no further test execution was started after the stop instruction.
+- GitHub run [37327204076](https://github.com/shentschel/teddycloud/actions/runs/37327204076)
+  was independently fetched: all four jobs succeeded. This is historical
+  B evidence, not CI evidence for this audit checkpoint.
+- Existing issue [#17](https://github.com/shentschel/teddycloud/issues/17)
+  was read and remains open. This audit has not added or executed a new
+  application-level removal/reimport test satisfying all its assertions.
+
+### Findings and acceptance blockers
+
+| ID | Severity / evidence level | Observation and required follow-up |
+| --- | --- | --- |
+| PI07-T-F01 | High candidate; code-path evidence, runtime reproduction pending | In `contentfs/store_linux.go`, both `readRange` and `verify` pass `s.options` (the configurable import size/duration limits) to `content.ValidateTAF`. `ErrTAFLimit` falls through to `ErrCorrupt`. `quarantine.go` authorizes a move when `verify` returns `ErrCorrupt`. Thus inspection identifies a path where reopening with a lower import size limit can misclassify existing healthy media and authorize quarantine. No reproducer was written or run before the stop; do not describe this as a demonstrated runtime failure. Reproduce with a valid file larger than a newly configured import limit, check range/availability and healthy-quarantine refusal, then correct verification policy with regression coverage if confirmed. |
+| PI07-T-G01 | Blocking audit incompleteness | The complete recovery/resource/lock/restore/idempotency matrix has not been independently reconciled against implementation and tests. A green backend suite alone does not close this gate. |
+
+No confirmed critical runtime finding is claimed. The high-risk candidate and
+incomplete audit block a T/PI acceptance recommendation until resolved.
+
+### Resume checklist
+
+Finish the required preflight reads (the large private state output was
+truncated and its final reread was interrupted), then complete the independent
+contract-to-code/test matrix. Explicitly finish #17 real removal and exact
+reimport evidence, typed error distinctions, configured operation deadlines,
+range/lifecycle fencing, concurrent imports, all resource bounds and sanitized
+error-tree coverage. Reconcile the existing process-kill scenarios with each
+required recovery row; process termination does not prove power-loss durability.
+
+`go vet`, dedicated race/repetition/fuzz commands and the architecture-document
+checker were not run in this audit before the stop. They remain required, as
+does CI on any subsequent corrective implementation. No issue was modified.
+No schema change, deletion/GC, deployment or mainline merge was performed.
+Hardware power-loss, real playback and coordinated production media/secret
+restore remain unproven. Recommendation: retain this checkpoint and keep T/PI
+acceptance blocked; do not repeat already accepted delivery as a new task.
