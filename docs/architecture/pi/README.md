@@ -32,11 +32,16 @@ Current execution artifacts:
 - [PI-07/B2a verified ranges checkpoint](pi-07-b2a-verified-ranges-checkpoint.md)
 - [PI-07/B2b bounded inventory and quarantine acceptance](pi-07-review.md#b2b-bounded-inventory-and-quarantine-acceptance)
 - [PI-07/B2c bounded application and lifecycle reconciliation acceptance](pi-07-review.md#b2c-bounded-application-and-lifecycle-reconciliation-acceptance)
+- [PI-07/B helper-process recovery and full sprint acceptance](pi-07-review.md#b-helper-process-recovery-and-full-sprint-acceptance)
 - PI-07/R is independently accepted after resolving all five design gates.
-  A, B1, B2a, bounded B2b and bounded B2c application/lifecycle/reference
-  reconciliation are accepted. B remains open for the real helper-process
-  kill/reopen recovery matrix; issue #23, T, the PI milestone and hardware
-  power-loss evidence remain open.
+  A and B are fully accepted, including the parent-reviewed real helper-process
+  recovery matrix at `a62ea20cd420bd5219b8be71fe6c83eddcc91f6d`; Next CI
+  37327204076 is green. `after-rename`/`before-source-sync` share one real
+  intermediate position, as do `after-source-sync`/`before-destination-sync`;
+  seven scenario labels do not denote seven physically distinct syscall
+  positions. The next ready checkpoint is PI-07/T after fresh admission.
+  Issue #23 remains open for parent issue maintenance; T, the PI milestone
+  and hardware power-loss evidence remain open.
 
 - [PI-06 execution plan](pi-06-plan.md)
 - [PI-06 budget method](pi-06-budget.md)

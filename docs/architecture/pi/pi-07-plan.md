@@ -1,9 +1,10 @@
 # PI-07 TAF lifecycle execution plan
 
-Status: R, A, B1, B2a, bounded B2b and the bounded B2c application/lifecycle/
-reference-reconciliation checkpoint are accepted. B remains open for the real
-helper-process kill/reopen recovery matrix; T and the PI milestone remain open.
-Further delivery requires fresh admission; hardware power-loss evidence is open.
+Status: R, A and PI-07/B are fully accepted after parent review, including the
+real helper-process kill/reopen recovery matrix at code commit
+`a62ea20cd420bd5219b8be71fe6c83eddcc91f6d`, with Next CI 37327204076 green.
+T and the PI milestone remain open. Further delivery requires fresh admission;
+hardware power-loss evidence remains open.
 Refinement baseline: `aef53a69ab10f1480c1dade9797ce4dd9ce645bd`.
 
 Follow the [roadmap](../teddycloud-next-pi-roadmap.md),
@@ -62,12 +63,18 @@ parent sprint and are not additional quota buckets; re-admit each independently.
    37222899075 passed all four jobs. This includes gate fencing, restore/mutation
    cursor invalidation, retained DB references after quarantine, typed missing
    availability and deterministic publish-before-commit retry/reuse evidence.
-   Content/Tag regressions remain green. B remains open only for actual helper
-   termination after durable publication before DB commit, and before/after
-   quarantine rename and each directory sync, followed by real files/DB reopen,
-   bounded inventory of actual placement and exact retry with one binding/receipt.
-   Deterministic failpoints do not supply that process-kill evidence. Issue #23
-   stays open; T, the PI milestone and hardware power-loss evidence stay open.
+   Content/Tag regressions remain green. The remaining real helper-process
+   SIGKILL/reopen matrix is accepted at
+   `a62ea20cd420bd5219b8be71fe6c83eddcc91f6d`; Next CI 37327204076 passed all
+   four jobs. Parent review confirmed real files/DB reopen, bounded inventory,
+   retained DB facts, typed availability and exact retry/reuse with one
+   binding/receipt. `after-rename` and `before-source-sync` name the same real
+   intermediate position; `after-source-sync` and `before-destination-sync`
+   likewise name the same real position. Seven named scenarios do not imply
+   seven physically distinct syscall positions. See the
+   [B recovery acceptance](pi-07-review.md#b-helper-process-recovery-and-full-sprint-acceptance).
+   PI-07/B is fully accepted. Issue #23 remains open for parent issue maintenance;
+   T, the PI milestone and hardware power-loss evidence remain open.
 5. T independently audits every named contract recovery row and resource bound,
    including actual file removal/re-import for existing #17. High-severity defects
    block acceptance; record stable findings rather than relaxing assertions.
