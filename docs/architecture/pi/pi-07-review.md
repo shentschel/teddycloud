@@ -4,7 +4,7 @@ Status: R design, A and PI-07/B are fully accepted after independent parent
 review, including the real helper-process SIGKILL/reopen matrix at
 `a62ea20cd420bd5219b8be71fe6c83eddcc91f6d` and green Next CI 37327204076.
 The independent T audit, PI milestone and hardware power-loss evidence remain
-open. Issue #23 remains open for parent issue maintenance.
+open. Issue #23 is closed/completed (`closed_at`: 2026-10-05T15:02:39Z).
 Finding PI07-T-F01 was subsequently confirmed High, fixed and parent-accepted
 at `76cab7a33eaf715cd0209653c9be2236ced63b94`, with all four jobs of Next CI
 37375380712 green. Only this finding is closed; the rest of T and #17 remain open.
@@ -110,8 +110,9 @@ replay/conflict, corrupt-row refusal and uncertain-commit readback. Parent
 full/focused tests, vet, repetition and whitespace checks passed; the worker
 also passed focused race tests. Remote Next CI run 37201527034 passed all jobs.
 
-B1 was accepted without a present-media claim. Issue #23 stays open; accepted
-B2a/B2b filesystem primitives and bounded B2c integration are recorded below.
+B1 was accepted without a present-media claim. Issue #23 is now closed/completed
+after full B acceptance; accepted B2a/B2b filesystem primitives and bounded
+B2c integration are recorded below.
 Real helper-process recovery was outstanding at B1 acceptance; full B acceptance
 is recorded below.
 
@@ -122,8 +123,8 @@ descriptor-verified range delivery with typed missing/corrupt outcomes and no
 output before full BlobID/envelope verification. Parent focused/full tests,
 vet and whitespace checks passed; Next CI run 37202334719 passed all jobs.
 
-Issue #23 remains open. B2b inventory/quarantine acceptance follows below;
-bounded B2c cross-boundary reconciliation and subsequent real helper-process
+Issue #23 is now closed/completed after full B acceptance. B2b inventory/quarantine
+acceptance follows below; bounded B2c cross-boundary reconciliation and subsequent real helper-process
 recovery acceptance are recorded below.
 
 ## B2b bounded inventory and quarantine acceptance
@@ -146,8 +147,8 @@ passed. B2b is accepted as this bounded adapter checkpoint only.
 At B2b acceptance, application/lifecycle integration, gated database reference
 reconciliation and helper-process recovery were still open. The bounded B2c
 integration acceptance follows below. B and T were incomplete at that checkpoint;
-the subsequent full B acceptance is recorded below. Issue #23, T, the PI milestone
-and hardware power-loss evidence remain open.
+the subsequent full B acceptance is recorded below. Issue #23 is now
+closed/completed; T, the PI milestone and hardware power-loss evidence remain open.
 
 ## B2c bounded application and lifecycle reconciliation acceptance
 
@@ -216,8 +217,8 @@ filesystem qualification and Darwin cross-build passed. This evidence concerns
 process termination and reopen, not hardware power-loss durability.
 
 The independent T audit (including #17), PI milestone and hardware power-loss
-evidence remain open. Issue #23 is deliberately left open for the parent to
-maintain. This closeout makes no code change, deployment or merge.
+evidence remain open. Issue #23 is closed/completed after full B acceptance.
+This closeout makes no code change, deployment or merge.
 
 ## PI-07/T independent audit checkpoint (2026-10-05)
 

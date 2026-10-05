@@ -44,7 +44,7 @@ Current execution artifacts:
   four jobs. See the [finding closeout](pi-07-review.md#pi07-t-f01-finding-closeout-2026-10-05).
   The next ready checkpoint is the remaining PI-07/T audit, including #17
   removal/re-import evidence, after fresh admission.
-  Issue #23 remains open for parent issue maintenance; T, the PI milestone
+  Issue #23 is closed/completed; T, the PI milestone
   and hardware power-loss evidence remain open.
 
 - [PI-06 execution plan](pi-06-plan.md)

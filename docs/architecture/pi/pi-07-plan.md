@@ -77,7 +77,7 @@ parent sprint and are not additional quota buckets; re-admit each independently.
    likewise name the same real position. Seven named scenarios do not imply
    seven physically distinct syscall positions. See the
    [B recovery acceptance](pi-07-review.md#b-helper-process-recovery-and-full-sprint-acceptance).
-   PI-07/B is fully accepted. Issue #23 remains open for parent issue maintenance;
+   PI-07/B is fully accepted. Issue #23 is closed/completed;
    T, the PI milestone and hardware power-loss evidence remain open.
 5. T independently audits every named contract recovery row and resource bound,
    including actual file removal/re-import for existing #17. High-severity defects
