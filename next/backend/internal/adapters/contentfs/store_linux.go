@@ -125,12 +125,12 @@ func (s *platformStore) readRange(ctx context.Context, id content.BlobID, size u
 	if err != nil {
 		return ErrCorrupt
 	}
-	e, err := content.ValidateTAF(ctx, &fileSource{f}, content.FiniteTAFSource, s.options)
+	e, err := s.validateRetainedTAF(ctx, &fileSource{f})
 	if err != nil {
 		if errors.Is(err, content.ErrTAFCanceled) {
 			return ErrCanceled
 		}
-		if errors.Is(err, content.ErrTAFIO) {
+		if errors.Is(err, content.ErrTAFIO) || errors.Is(err, content.ErrInvalidTAFOptions) {
 			return ErrUnavailable
 		}
 		return ErrCorrupt
@@ -525,6 +525,17 @@ func (s *platformStore) shard(id content.BlobID) (int, string, error) {
 	return b, digest + ".taf", err
 }
 
+// Stored profile validity is independent of today's import admission settings.
+// Retained bytes still obey the profile's hard ceiling and the verification
+// deadline; an earlier caller/import deadline continues to win.
+func (s *platformStore) validateRetainedTAF(ctx context.Context, source content.TAFSource) (content.TAFEnvelope, error) {
+	options, err := content.NewTAFOptions(content.HardTAFBytes, s.ranges.duration)
+	if err != nil {
+		return content.TAFEnvelope{}, err
+	}
+	return content.ValidateTAF(ctx, source, content.FiniteTAFSource, options)
+}
+
 func (s *platformStore) verify(ctx context.Context, parent int, name string, id content.BlobID, size uint64) (failure error) {
 	fd, err := s.ops.open(parent, name, unix.O_RDONLY|unix.O_NONBLOCK, 0)
 	if err != nil {
@@ -541,12 +552,12 @@ func (s *platformStore) verify(ctx context.Context, parent int, name string, id 
 	if err != nil {
 		return ErrCorrupt
 	}
-	e, err := content.ValidateTAF(ctx, &fileSource{f}, content.FiniteTAFSource, s.options)
+	e, err := s.validateRetainedTAF(ctx, &fileSource{f})
 	if err != nil {
 		if errors.Is(err, content.ErrTAFCanceled) {
 			return ErrCanceled
 		}
-		if errors.Is(err, content.ErrTAFIO) {
+		if errors.Is(err, content.ErrTAFIO) || errors.Is(err, content.ErrInvalidTAFOptions) {
 			return ErrUnavailable
 		}
 		return ErrCorrupt
