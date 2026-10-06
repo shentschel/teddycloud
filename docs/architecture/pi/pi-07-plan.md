@@ -6,9 +6,12 @@ real helper-process kill/reopen recovery matrix at code commit
 PI07-T-F01, the retained-verification/import-admission coupling, was confirmed
 High and fixed at `76cab7a33eaf715cd0209653c9be2236ced63b94`; parent review is
 complete and [Next CI 37375380712](https://github.com/shentschel/teddycloud/actions/runs/37375380712)
-passed all four jobs. This finding alone is closed. T and the PI milestone
-remain open for the rest of the independent audit and issue #17 evidence.
-Further delivery requires fresh admission; hardware power-loss evidence remains open.
+passed all four jobs. PI-07/T-01 #17 is accepted at
+`39c4c3e4f90231ffd07bbb5597a413485bb16d5d`; Next CI 37422492722 passed all
+four jobs after the narrow advisory lock refresh at
+`d5437e9dc754f8d1b238d15e8e17c93b92878867`. T and the PI milestone remain
+open for the rest of the independent audit. Further delivery requires fresh
+admission; hardware power-loss evidence remains open.
 Refinement baseline: `aef53a69ab10f1480c1dade9797ce4dd9ce645bd`.
 
 Follow the [roadmap](../teddycloud-next-pi-roadmap.md),
@@ -79,12 +82,12 @@ parent sprint and are not additional quota buckets; re-admit each independently.
    [B recovery acceptance](pi-07-review.md#b-helper-process-recovery-and-full-sprint-acceptance).
    PI-07/B is fully accepted. Issue #23 is closed/completed;
    T, the PI milestone and hardware power-loss evidence remain open.
-5. T independently audits every named contract recovery row and resource bound,
-   including actual file removal/re-import for existing #17. High-severity defects
-   block acceptance; record stable findings rather than relaxing assertions.
-   PI07-T-F01 is already reproduced, fixed and parent-accepted with green CI;
-   do not repeat that completed finding as a new task. Resume the remaining
-   contract-to-code/test audit and #17 evidence before accepting T.
+5. T independently audits every named contract recovery row and resource bound.
+   High-severity defects block acceptance; record stable findings rather than
+   relaxing assertions. PI07-T-F01 is already reproduced, fixed and parent-accepted
+   with green CI. PI-07/T-01 #17 removal/re-import evidence is accepted and must
+   not be repeated. Resume the remaining contract-to-code/test audit before
+   accepting T.
 
 The contract's executable acceptance map supplies exact test names and outcomes.
 An implementation may split focused tests within these packages; no HTTP API,

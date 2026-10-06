@@ -7,7 +7,8 @@ The independent T audit, PI milestone and hardware power-loss evidence remain
 open. Issue #23 is closed/completed (`closed_at`: 2026-10-05T15:02:39Z).
 Finding PI07-T-F01 was subsequently confirmed High, fixed and parent-accepted
 at `76cab7a33eaf715cd0209653c9be2236ced63b94`, with all four jobs of Next CI
-37375380712 green. Only this finding is closed; the rest of T and #17 remain open.
+37375380712 green. PI-07/T-01 #17 is also accepted and closed at
+`39c4c3e4f90231ffd07bbb5597a413485bb16d5d`; the rest of T remains open.
 Refinement baseline: `aef53a69ab10f1480c1dade9797ce4dd9ce645bd`.
 
 Inspected roadmap/routing, PI-05/06 plans/reviews/contracts, ADRs 0001–0003,
@@ -302,3 +303,35 @@ and exact re-import evidence for [issue #17](https://github.com/shentschel/teddy
 The focused evidence does not establish completion of the remaining recovery,
 resource, lifecycle, error-sanitization or fuzz audit. Hardware power-loss,
 real playback and production migration/deployment evidence remain unproven.
+
+## PI-07/T-01 missing-media recovery acceptance (2026-10-06)
+
+Commit [`39c4c3e4f90231ffd07bbb5597a413485bb16d5d`](https://github.com/shentschel/teddycloud/commit/39c4c3e4f90231ffd07bbb5597a413485bb16d5d)
+adds Linux integration evidence in `adapters/sqlite/missing_blob_test.go` without
+changing production code. A generated TAF is imported, its generated fixture file
+is removed through test-only access, and both availability and verified range
+delivery return typed missing results without output. The committed Content,
+version, blob binding and import receipt remain unchanged, including the protected
+synthetic catalog record.
+
+A current-schema database backup/restore retains those facts while media remains
+absent. Exact verified re-import with the original command repairs availability
+and range bytes while retaining exactly one blob, version, binding and receipt.
+Separate cases distinguish invalid typed identity, same-size digest corruption,
+missing catalog content and an unavailable database. Existing production behavior
+already satisfied the new test; no corrective product change was necessary.
+
+Focused missing-media tests, the full backend, vet, relevant race suites, focused
+and SQLite repetitions, architecture checks and the Darwin cross-build passed
+locally. Initial CI 37422149365 exposed unrelated newly published advisory
+GHSA-68fv-2mgg-jv7q in locked `source-map-js@1.2.1`. The lock-only refresh
+[`d5437e9dc754f8d1b238d15e8e17c93b92878867`](https://github.com/shentschel/teddycloud/commit/d5437e9dc754f8d1b238d15e8e17c93b92878867)
+selects patched 1.2.2 within PostCSS's existing compatible range. Next CI
+[37422492722](https://github.com/shentschel/teddycloud/actions/runs/37422492722)
+passed all four jobs, including advisory, deterministic build/smoke,
+reproducibility and persistence/race evidence.
+
+PI-07/T-01 #17 is accepted and may be closed. PI-07/T #24 and the PI milestone
+remain open for the rest of the independent contract-to-code/resource/error
+audit. This evidence does not claim hardware power-loss durability, real playback,
+production deployment or coordinated media/credential restore.

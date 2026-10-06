@@ -42,10 +42,13 @@ Current execution artifacts:
   positions. PI07-T-F01 was confirmed High, fixed and parent-accepted at
   `76cab7a33eaf715cd0209653c9be2236ced63b94`; Next CI 37375380712 passed all
   four jobs. See the [finding closeout](pi-07-review.md#pi07-t-f01-finding-closeout-2026-10-05).
-  The next ready checkpoint is the remaining PI-07/T audit, including #17
-  removal/re-import evidence, after fresh admission.
-  Issue #23 is closed/completed; T, the PI milestone
-  and hardware power-loss evidence remain open.
+  PI-07/T-01 #17 is accepted at `39c4c3e4f90231ffd07bbb5597a413485bb16d5d`:
+  generated media removal, typed missing availability/range behavior, unchanged
+  metadata, restore retention and exact identity-preserving re-import are proven.
+  Next CI 37422492722 passed all four jobs after the unrelated advisory lock refresh
+  `d5437e9dc754f8d1b238d15e8e17c93b92878867`. The next ready checkpoint is the
+  remaining PI-07/T contract-to-code audit. Issue #23 is closed/completed; T, the
+  PI milestone and hardware power-loss evidence remain open.
 
 - [PI-06 execution plan](pi-06-plan.md)
 - [PI-06 budget method](pi-06-budget.md)
@@ -112,8 +115,8 @@ The [PI-05 plan](pi-05-plan.md) links completed persistence slices as issues
 #14-#16; its review accepts the database-only upgrade/rollback milestone.
 The [PI-06 plan](pi-06-plan.md) links its A/B/T tasks as issues #19–#21.
 The PI-06 review records R/A/B/T and the transactional Tag milestone accepted.
-PI-07/R design is accepted; delivery tasks are issues #22–#24 and #17 remains
-the nested missing-media audit.
+PI-07/R design is accepted; delivery tasks are issues #22–#24. Nested
+PI-07/T-01 #17 is accepted and closed; issue #24 remains the active T audit.
 Search by stable ID before creating any further issue.
 Run `python3 scripts/check_architecture_docs.py` before publishing architecture
 changes. The path-scoped documentation workflow runs the same check without
@@ -142,6 +145,6 @@ with the correct model, check the actual task and repository state, then execute
 the same request ID when no work has started. A completed sprint may be followed
 by the next admitted sprint within the same run and quota week.
 
-Open persistence follow-up: [PI-07/T-01 missing external blob evidence](https://github.com/shentschel/teddycloud/issues/17).
+Completed persistence evidence: [PI-07/T-01 missing external blob recovery](https://github.com/shentschel/teddycloud/issues/17).
 [F-PERSIST-01 foreign-key snapshot validation](https://github.com/shentschel/teddycloud/issues/18)
 is accepted in the PI-06 review and is a completed prerequisite, not repeat work.
