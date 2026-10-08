@@ -28,7 +28,8 @@ var (
 )
 
 const (
-	DefaultInventoryPage  = 128
+	MaxInventoryPage      = 128
+	DefaultInventoryPage  = MaxInventoryPage
 	MaxInventoryInspected = 1024
 	MaxInventoryCursor    = 256
 	InventoryDuration     = 2 * time.Second
