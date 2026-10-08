@@ -80,6 +80,8 @@ type ReferenceLookup func(context.Context, content.BlobID) (bool, error)
 // filesystem I/O. Implementations return only the stable application errors.
 type MediaStore interface {
 	InventoryInvalidator
+	// ImportDuration is the immutable configured limit shared by publication and commit.
+	ImportDuration() time.Duration
 	Publish(context.Context, content.BlobID, uint64, content.TAFSource, content.TAFSourceMode) (content.TAFEnvelope, error)
 	Inventory(context.Context, string, int, ReferenceLookup) (InventoryPage, error)
 	Quarantine(context.Context, content.BlobID, uint64) error

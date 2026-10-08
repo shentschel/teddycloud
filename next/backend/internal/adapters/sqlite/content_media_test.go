@@ -21,6 +21,11 @@ import (
 
 func mediaService(t *testing.T) (*LifecycleOwner, *contentfs.Store, *contentstore.Service, string, taffixture.Fixture) {
 	t.Helper()
+	return mediaServiceWithOptions(t, content.DefaultTAFOptions())
+}
+
+func mediaServiceWithOptions(t *testing.T, options content.TAFOptions) (*LifecycleOwner, *contentfs.Store, *contentstore.Service, string, taffixture.Fixture) {
+	t.Helper()
 	parent := os.Getenv("TEDDYCLOUD_CONTENTFS_TEST_ROOT")
 	if parent == "" {
 		parent = "/var/tmp"
@@ -34,7 +39,7 @@ func mediaService(t *testing.T) (*LifecycleOwner, *contentfs.Store, *contentstor
 			t.Error(err)
 		}
 	})
-	store, err := contentfs.Open(t.Context(), root, content.DefaultTAFOptions())
+	store, err := contentfs.Open(t.Context(), root, options)
 	if err != nil {
 		t.Fatalf("qualified media filesystem required: %v", err)
 	}

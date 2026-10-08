@@ -31,6 +31,13 @@ func (s *Service) Import(ctx context.Context, key content.ImportKey, command con
 	if s == nil || ctx == nil || key.IsZero() || command.IsZero() || source == nil {
 		return result, ErrInvalidInput
 	}
+	duration := s.media.ImportDuration()
+	if duration <= 0 || duration > content.HardImportDuration {
+		return result, ErrInvalidInput
+	}
+	// Start before owner admission; every nested phase inherits this deadline.
+	ctx, cancel := context.WithTimeout(ctx, duration)
+	defer cancel()
 	err = s.owner.WithinContentOperation(ctx, func(ctx context.Context, session Session) error {
 		envelope, err := s.media.Publish(ctx, command.BlobID(), command.CompleteBytes(), source, mode)
 		if err != nil {

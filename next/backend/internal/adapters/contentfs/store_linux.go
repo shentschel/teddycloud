@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/shentschel/teddycloud/next/backend/internal/domain/content"
 	"golang.org/x/sys/unix"
@@ -67,6 +68,9 @@ type platformStore struct {
 	capacityKnown                          bool
 	scan                                   *inventoryScan
 }
+
+// ImportDuration exposes the same immutable bound used for direct publication.
+func (s *platformStore) ImportDuration() time.Duration { return s.options.Duration() }
 
 func (s *platformStore) setRangeOptions(options RangeOptions) { s.ranges = options }
 

@@ -4,10 +4,14 @@ package contentfs
 
 import (
 	"context"
+	"time"
+
 	"github.com/shentschel/teddycloud/next/backend/internal/domain/content"
 )
 
 type platformStore struct{}
+
+func (*platformStore) ImportDuration() time.Duration { return 0 }
 
 func (*platformStore) setRangeOptions(RangeOptions) {}
 func (*platformStore) readRange(context.Context, content.BlobID, uint64, ByteRange, RangeSink) error {

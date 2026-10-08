@@ -356,3 +356,21 @@ deterministic builds and advisory checks.
 PI07-T-F03 alone is closed. PI-07/T and the PI milestone remain open for
 PI07-T-F02, PI07-T-F04 and the remaining independent audit coverage. No
 deployment, migration, deletion or hardware power-loss claim is made.
+
+## PI07-T-F02 configured import deadline correction
+
+The service now starts the immutable media import duration before owner
+admission and carries that context through publication and the selected SQLite
+session, including commit. The existing fixed outer operation timeout, short
+transaction timeout, direct publication timeout, byte ceilings and retained
+verification limits remain independent and unchanged. Earlier caller deadlines
+win through normal context inheritance.
+
+`TestImportConfiguredDeadlineThroughCommit` uses real qualified media storage
+and SQLite with bounded test delays before SQL admission and after inserts
+immediately before commit. It checks deadline propagation, rollback of all four
+import tables, absent receipts, retained canonical orphans and exact retry
+reusing the same file. Each delay is also tested with an earlier caller deadline.
+
+Verification is pending remote CI; the local process runner is unavailable.
+This corrective checkpoint does not accept PI-07/T or the PI milestone.
