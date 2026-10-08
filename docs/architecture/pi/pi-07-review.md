@@ -335,3 +335,24 @@ PI-07/T-01 #17 is accepted and may be closed. PI-07/T #24 and the PI milestone
 remain open for the rest of the independent contract-to-code/resource/error
 audit. This evidence does not claim hardware power-loss durability, real playback,
 production deployment or coordinated media/credential restore.
+
+
+## PI07-T-F03 inventory page-bound closeout (2026-10-08)
+
+Finding PI07-T-F03 is fixed at
+[`eaf20c91fe0cfb946c6412ab60e3895476e7a5db`](https://github.com/shentschel/teddycloud/commit/eaf20c91fe0cfb946c6412ab60e3895476e7a5db).
+The public inventory page limit is now explicitly 128, independent of the
+existing 1,024-entry inspection bound. Requests above 128 fail before changing
+the active scan or cursor; the accepted 128-entry request continues to enforce
+the 1,024 inspection and four-descriptor bounds.
+
+Parent review confirmed the three-commit diff is limited to
+`contentfs/{store.go,inventory.go,inventory_test.go}`. All four jobs in
+[Next CI 37837578422](https://github.com/shentschel/teddycloud/actions/runs/37837578422)
+passed, including focused SQLite repetition, persistence/domain race evidence,
+qualified Linux filesystem repetition, non-Linux boundary compilation,
+deterministic builds and advisory checks.
+
+PI07-T-F03 alone is closed. PI-07/T and the PI milestone remain open for
+PI07-T-F02, PI07-T-F04 and the remaining independent audit coverage. No
+deployment, migration, deletion or hardware power-loss claim is made.
