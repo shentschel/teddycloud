@@ -40,7 +40,7 @@ func openForInventory(ctx context.Context, root string, options content.TAFOptio
 // Inventory accepts only a Store-generated, single-use in-memory cursor. A
 // partial page holds at most four directory iterators; no global sort/list.
 func (s *Store) Inventory(ctx context.Context, cursor string, pageSize int, references ReferenceLookup) (page InventoryPage, failure error) {
-	if s == nil || ctx == nil || references == nil || len(cursor) > MaxInventoryCursor || pageSize < 0 || pageSize > MaxInventoryInspected {
+	if s == nil || ctx == nil || references == nil || len(cursor) > MaxInventoryCursor || pageSize < 0 || pageSize > MaxInventoryPage {
 		return page, ErrInvalid
 	}
 	if pageSize == 0 {
