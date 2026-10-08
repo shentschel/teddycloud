@@ -124,6 +124,11 @@ func (s *contentSession) transact(ctx context.Context, operation func(contentsto
 			return contentBoundaryError(ctx, err)
 		}
 	}
+	// The test seam and real work immediately before commit may consume the
+	// remaining deadline. Never acknowledge or commit after cancellation.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	commit := transaction.Commit
 	if s.commit != nil {
 		commit = func() error { return s.commit(transaction) }
