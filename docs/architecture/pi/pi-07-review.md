@@ -372,5 +372,14 @@ immediately before commit. It checks deadline propagation, rollback of all four
 import tables, absent receipts, retained canonical orphans and exact retry
 reusing the same file. Each delay is also tested with an earlier caller deadline.
 
-Verification is pending remote CI; the local process runner is unavailable.
-This corrective checkpoint does not accept PI-07/T or the PI milestone.
+Parent review found that cancellation during the pre-commit seam still allowed
+a commit. Follow-up commit
+[`8ffc75141ab6e7c6d6bbbba1dd997fd0d5c584af`](https://github.com/shentschel/teddycloud/commit/8ffc75141ab6e7c6d6bbbba1dd997fd0d5c584af)
+adds the required final context check immediately before commit. The initial CI
+run correctly caught the regression; all four jobs in
+[Next CI 37858019336](https://github.com/shentschel/teddycloud/actions/runs/37858019336)
+then passed. Architecture documentation CI 37857374082 also passed.
+
+PI07-T-F02 alone is closed. The local process runner remains unavailable, so no
+local verification is claimed. PI-07/T and the PI milestone remain open for
+PI07-T-F04 and the remaining independent audit coverage.
