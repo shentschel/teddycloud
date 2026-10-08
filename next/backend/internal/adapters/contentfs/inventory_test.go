@@ -110,8 +110,11 @@ func TestBlobInventoryBoundsAndCursors(t *testing.T) {
 	if _, err = s.Inventory(context.Background(), strings.Repeat("x", 257), 1, noReferences); err != ErrInvalid {
 		t.Fatal(err)
 	}
-	if _, err = s.Inventory(context.Background(), page.Cursor, 1025, noReferences); err != ErrInvalid {
-		t.Fatal(err)
+	if _, err = s.Inventory(context.Background(), page.Cursor, MaxInventoryPage+1, noReferences); err != ErrInvalid {
+		t.Fatal("page ceiling", err)
+	}
+	if s.scan == nil || s.scan.cursor != page.Cursor {
+		t.Fatal("invalid page request changed scan")
 	}
 	next, err := s.Inventory(context.Background(), page.Cursor, 1, noReferences)
 	if err != nil || next.Cursor == page.Cursor {
@@ -183,7 +186,7 @@ func TestBlobInventoryInspectedLimitAndDescriptorDepth(t *testing.T) {
 		}
 		return nil
 	}
-	page, err := s.Inventory(context.Background(), "", 1024, noReferences)
+	page, err := s.Inventory(context.Background(), "", MaxInventoryPage, noReferences)
 	if err != nil || page.Inspected != 1024 || page.Complete || page.Cursor == "" || maxDepth != 4 {
 		t.Fatal(page.Inspected, maxDepth, err)
 	}
