@@ -10,7 +10,9 @@ passed all four jobs. PI-07/T-01 #17 is accepted at
 `39c4c3e4f90231ffd07bbb5597a413485bb16d5d`; Next CI 37422492722 passed all
 four jobs after the narrow advisory lock refresh at
 `d5437e9dc754f8d1b238d15e8e17c93b92878867`. T and the PI milestone remain
-open for the rest of the independent audit. Further delivery requires fresh
+open for the rest of the independent audit. PI07-T-F03 is fixed at
+`eaf20c91fe0cfb946c6412ab60e3895476e7a5db` with Next CI 37837578422 green;
+PI07-T-F02 and PI07-T-F04 remain open. Further delivery requires fresh
 admission; hardware power-loss evidence remains open.
 Refinement baseline: `aef53a69ab10f1480c1dade9797ce4dd9ce645bd`.
 
