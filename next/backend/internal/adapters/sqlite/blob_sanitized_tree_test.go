@@ -163,6 +163,11 @@ func TestBlobSanitizedErrorMatrix(t *testing.T) {
 					wanted = append(wanted, contentstore.ErrCommitUncertain)
 				}
 				assertBlobErrorTree(t, contentBoundaryError(t.Context(), input), foreign, wanted...)
+				owner := blobOwner(t)
+				output := owner.WithinContentOperation(t.Context(), func(ctx context.Context, session contentstore.Session) error {
+					return session.WithinTransaction(ctx, func(contentstore.BlobRepository) error { return input })
+				})
+				assertBlobErrorTree(t, output, foreign, wanted...)
 				for _, expired := range []error{context.Canceled, context.DeadlineExceeded} {
 					ctx, cancel := context.WithCancel(t.Context())
 					if expired == context.DeadlineExceeded {
@@ -208,6 +213,23 @@ func TestBlobSanitizedSQLiteBusyLocked(t *testing.T) {
 				want = append(want, contentstore.ErrCommitUncertain)
 			}
 			assertBlobErrorTree(t, contentBoundaryError(t.Context(), input), err, want...)
+			for _, deadline := range []bool{false, true} {
+				ctx, cancel := context.WithCancel(t.Context())
+				category := context.Canceled
+				if deadline {
+					cancel()
+					ctx, cancel = context.WithDeadline(t.Context(), time.Unix(1, 0))
+					category = context.DeadlineExceeded
+				} else {
+					cancel()
+				}
+				expected := []error{category}
+				if uncertain {
+					expected = append(expected, contentstore.ErrCommitUncertain)
+				}
+				assertBlobErrorTree(t, contentBoundaryError(ctx, input), err, expected...)
+				cancel()
+			}
 		}
 	}
 	check(busy, 5)
@@ -527,4 +549,18 @@ func TestBlobSanitizedRealRepositoryWrite(t *testing.T) {
 	})
 	assertBlobErrorTree(t, err, nil, contentstore.ErrUnavailable)
 	assertBlobCounts(t, owner, 0, 0, 0, 0)
+}
+
+func TestBlobSanitizedCommitWithOtherOutcomes(t *testing.T) {
+	for _, category := range []error{contentstore.ErrConflict, contentstore.ErrCorrupt, context.Canceled, context.DeadlineExceeded} {
+		t.Run(category.Error(), func(t *testing.T) {
+			session, fault := blobFaultSession(t, "commit")
+			fault.failure = blobPrivateTree(category)
+			err := session.WithinTransaction(t.Context(), func(contentstore.BlobRepository) error { return nil })
+			assertBlobErrorTree(t, err, fault.failure, category, contentstore.ErrCommitUncertain)
+			if fault.hits["commit"] != 1 || fault.hits["restore"] != 1 {
+				t.Fatal("commit failure or cleanup seam was not exercised")
+			}
+		})
+	}
 }
