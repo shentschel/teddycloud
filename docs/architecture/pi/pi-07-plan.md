@@ -13,8 +13,11 @@ four jobs after the narrow advisory lock refresh at
 open for the rest of the independent audit. PI07-T-F03 is fixed at
 `eaf20c91fe0cfb946c6412ab60e3895476e7a5db` with Next CI 37837578422 green;
 PI07-T-F02 is fixed through `8ffc75141ab6e7c6d6bbbba1dd997fd0d5c584af`
-with Next CI 37858019336 green; PI07-T-F04 remains open. Further delivery
-requires fresh admission; hardware power-loss evidence remains open.
+with Next CI 37858019336 green. PI07-T-F04 is fixed at
+`5e559c0e61f5dd8299082dc4a9ecc2f8287742f0` with Next CI 37886853669 green
+and accepted after parent review. T remains open for the remaining independent
+audit coverage. Further delivery requires fresh admission; hardware power-loss
+evidence remains open.
 Refinement baseline: `aef53a69ab10f1480c1dade9797ce4dd9ce645bd`.
 
 Follow the [roadmap](../teddycloud-next-pi-roadmap.md),
@@ -87,10 +90,10 @@ parent sprint and are not additional quota buckets; re-admit each independently.
    T, the PI milestone and hardware power-loss evidence remain open.
 5. T independently audits every named contract recovery row and resource bound.
    High-severity defects block acceptance; record stable findings rather than
-   relaxing assertions. PI07-T-F01 is already reproduced, fixed and parent-accepted
-   with green CI. PI-07/T-01 #17 removal/re-import evidence is accepted and must
-   not be repeated. Resume the remaining contract-to-code/test audit before
-   accepting T.
+   relaxing assertions. PI07-T-F01 through PI07-T-F04 are fixed and
+   parent-accepted with green CI. PI-07/T-01 #17 removal/re-import evidence is
+   accepted and must not be repeated. Resume the remaining
+   contract-to-code/test audit before accepting T.
 
 The contract's executable acceptance map supplies exact test names and outcomes.
 An implementation may split focused tests within these packages; no HTTP API,
