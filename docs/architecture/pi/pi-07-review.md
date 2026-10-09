@@ -476,3 +476,26 @@ concurrent import/retry, partial-write restart and blocked Source.Close evidence
 No production behavior, deployment, migration or hardware-durability claim is
 made. The local process runner remains unavailable, so parent verification
 relies on the published diff and CI.
+
+
+## PI07-T-F06 real ReadRange lifecycle/restore fence
+
+Test-only commit
+[`0d919c037dd3a428745629f8ac12c88d4d064bc8`](https://github.com/shentschel/teddycloud/commit/0d919c037dd3a428745629f8ac12c88d4d064bc8)
+extends only `adapters/sqlite/content_media_test.go`. The generated-fixture
+integration test runs actual ContentFS ReadRange inside WithinContentOperation
+and blocks independently in RangeSink Write and Close. Gate notifications,
+rather than sleeps, prove Restore and Close remain fenced through both phases.
+
+Restore and Close revoke the old session and reference callback after the
+operation drains. A canceled waiting Restore leaves the selected database,
+generation, path, imported metadata and media usable and does not create the
+destination. Bounded contexts and cleanup drain every worker.
+
+Parent review confirmed the one-file scope and synchronization semantics. All
+four jobs in
+[Next CI 37965157072](https://github.com/shentschel/teddycloud/actions/runs/37965157072)
+passed. PI07-T-F06 is accepted. PI-07/T and the milestone remain open for the
+recorded concurrent import/retry and partial-write restart/blocked Source.Close
+evidence. No production change, deployment, migration, production restore or
+hardware-durability claim is made.
