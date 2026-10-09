@@ -17,9 +17,11 @@ with Next CI 37858019336 green. PI07-T-F04 is fixed at
 `5e559c0e61f5dd8299082dc4a9ecc2f8287742f0` with Next CI 37886853669 green
 and accepted after parent review. PI07-T-F05a's SQLite/application sanitizer
 evidence is accepted through `b9dbe988edcf875e8aff964f179b68b45d2cefb7`
-with Next CI 37921779205 green. T remains open for F05b and the other remaining
-independent audit coverage. Further delivery requires fresh admission; hardware
-power-loss evidence remains open.
+with Next CI 37921779205 green. PI07-T-F05b's ContentFS sanitizer evidence is
+accepted through `05e79acf5169a2f415f26c6d9311ccbcadb24af0` with Next CI
+37963971157 green. T remains open for the other remaining independent audit
+coverage. Further delivery requires fresh admission; hardware power-loss
+evidence remains open.
 Refinement baseline: `aef53a69ab10f1480c1dade9797ce4dd9ce645bd`.
 
 Follow the [roadmap](../teddycloud-next-pi-roadmap.md),
@@ -93,10 +95,10 @@ parent sprint and are not additional quota buckets; re-admit each independently.
 5. T independently audits every named contract recovery row and resource bound.
    High-severity defects block acceptance; record stable findings rather than
    relaxing assertions. PI07-T-F01 through PI07-T-F04 are fixed and
-   parent-accepted with green CI; PI07-T-F05a's test-only SQLite/application
-   sanitizer matrix is also accepted. PI-07/T-01 #17 removal/re-import evidence
-   is accepted and must not be repeated. Resume F05b and the remaining
-   contract-to-code/test audit before accepting T.
+   parent-accepted with green CI; PI07-T-F05a/F05b's test-only sanitizer
+   matrices are also accepted. PI-07/T-01 #17 removal/re-import evidence is
+   accepted and must not be repeated. Resume the remaining lifecycle,
+   concurrency and restart audit before accepting T.
 
 The contract's executable acceptance map supplies exact test names and outcomes.
 An implementation may split focused tests within these packages; no HTTP API,
