@@ -401,9 +401,13 @@ at the pre-output/pre-rename seams, directory swaps and missing components.
 Inventory already applies checkDir while descending each directory through
 pushInventory; its bounded iterator algorithm is unchanged.
 
-The local runner failed to create a process with os error 2. No local test
-result is claimed. [Next CI 37886853669](https://github.com/shentschel/teddycloud/actions/runs/37886853669)
-is pending at this publication checkpoint; final CI results and independent
-parent review are still required. PI-07/T and the milestone remain open.
-The trusted-root boundary still excludes arbitrary hostile same-owner mutation;
-descriptor checks do not establish hardware power-loss or deployment evidence.
+The local runner failed to create a process with os error 2, so no local test
+result is claimed. Parent review confirmed the five-file scope and the retained
+openat2, descriptor, trust-recheck and read-only semantics. All four jobs in
+[Next CI 37886853669](https://github.com/shentschel/teddycloud/actions/runs/37886853669)
+passed; architecture documentation CI 37886909766 also passed.
+
+PI07-T-F04 alone is closed. PI-07/T and the milestone remain open for the
+remaining independent audit coverage. The trusted-root boundary still excludes
+arbitrary hostile same-owner mutation; descriptor checks do not establish
+hardware power-loss or deployment evidence.
