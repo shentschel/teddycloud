@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -293,6 +294,28 @@ func TestImportLostResponseApplicationReadback(t *testing.T) {
 		t.Fatalf("readback: %+v %v %v", got, found, err)
 	}
 	assertBlobCounts(t, owner, 1, 1, 1, 1)
+	// A lost response is recovered by the exact same Import, not only readback.
+	// Publication validates a fresh source, verifies the existing canonical,
+	// and retains the duplicate stage under the current no-delete contract.
+	retry, err := service.Import(t.Context(), key, c, f.Open(), content.FiniteTAFSource)
+	if err != nil || retry != got {
+		t.Fatalf("lost-response exact retry: %+v %v", retry, err)
+	}
+	assertBlobCounts(t, owner, 1, 1, 1, 1)
+	var canonical, stages int
+	for _, entry := range mediaInventory(t, service) {
+		switch entry.Kind {
+		case contentstore.ReferencedCanonical:
+			canonical++
+		case contentstore.StagingEntry:
+			stages++
+		default:
+			t.Fatalf("unexpected retained entry after exact retry: %+v", entry)
+		}
+	}
+	if canonical != 1 || stages != 1 {
+		t.Fatalf("lost-response retry retention: canonical=%d stages=%d", canonical, stages)
+	}
 }
 
 func TestContentStoreMediaRestorePreV4(t *testing.T) {
@@ -760,6 +783,143 @@ func TestContentStoreRealReadRangeLifecycleFence(t *testing.T) {
 			}
 			if err := store.Verify(ctx, command.BlobID(), command.CompleteBytes()); err != nil {
 				t.Fatal("lifecycle changed media:", err)
+			}
+		})
+	}
+}
+
+type importProbeSource struct {
+	content.TAFSource
+	reads, closes atomic.Int32
+}
+
+func (s *importProbeSource) Read(ctx context.Context, b []byte) (int, error) {
+	s.reads.Add(1)
+	return s.TAFSource.Read(ctx, b)
+}
+
+func (s *importProbeSource) Close() error {
+	s.closes.Add(1)
+	return s.TAFSource.Close()
+}
+
+// PI07-T-F07: the owner rejects overlapping calls with Busy, leaving their
+// sources caller-owned. Retrying after the admitted call completes must be
+// idempotent. The different-bytes case is an acceptance regression: publication
+// currently precedes receipt conflict detection and leaks an orphan canonical.
+func TestContentStoreConcurrentImportRetryMatrix(t *testing.T) {
+	for _, scenario := range []string{"identical", "different-command", "different-bytes"} {
+		t.Run(scenario, func(t *testing.T) {
+			owner, _, service, root, fixture := mediaService(t)
+			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+			defer cancel()
+			command, key := blobCommand(t, 1, false), blobKey(t, 1)
+			retryCommand, retryFixture := command, fixture
+			if scenario == "different-command" {
+				retryCommand = blobCommand(t, 2, false)
+			}
+			if scenario == "different-bytes" {
+				var err error
+				retryFixture, err = taffixture.New(8193, 456, []uint32{0, 1})
+				if err != nil {
+					t.Fatal(err)
+				}
+				audio, err := catalog.NewAudioID(456)
+				if err != nil {
+					t.Fatal(err)
+				}
+				fp, err := catalog.NewAudioFingerprint(audio, command.Version().Fingerprint().Hash())
+				if err != nil {
+					t.Fatal(err)
+				}
+				version, err := catalog.NewContentVersion(blobCommand(t, 2, false).Version().ID(), command.Version().ContentID(), fp, command.Version().OrderEvidence())
+				if err != nil {
+					t.Fatal(err)
+				}
+				retryCommand, err = content.NewImportCommand(version, content.NewBlobID(retryFixture.BlobDigest()), retryFixture.CompleteBytes(), command.Profile())
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			blocked := &blockedImportSource{TAFSource: fixture.Open(), entered: make(chan struct{}), release: make(chan struct{})}
+			var first contentstore.ImportResult
+			done := make(chan error, 1)
+			received := false
+			t.Cleanup(func() {
+				cancel()
+				blocked.closing.Do(func() { close(blocked.release) })
+				if !received {
+					drain, stop := context.WithTimeout(context.Background(), 2*time.Second)
+					defer stop()
+					_ = awaitRangeResult(t, drain, done)
+				}
+			})
+			go func() {
+				var err error
+				first, err = service.Import(ctx, key, command, blocked, content.FiniteTAFSource)
+				done <- err
+			}()
+			awaitRangeSignal(t, ctx, blocked.entered)
+			source := &importProbeSource{TAFSource: retryFixture.Open()}
+			t.Cleanup(func() {
+				if source.closes.Load() == 0 {
+					_ = source.Close()
+				}
+			})
+			got, err := service.Import(ctx, key, retryCommand, source, content.FiniteTAFSource)
+			if !errors.Is(err, contentstore.ErrBusy) || got != (contentstore.ImportResult{}) {
+				t.Fatalf("overlap: %+v %v", got, err)
+			}
+			if source.reads.Load() != 0 || source.closes.Load() != 0 {
+				t.Fatal("Busy admission consumed caller-owned source")
+			}
+			assertBlobCounts(t, owner, 0, 0, 0, 0)
+			blocked.closing.Do(func() { close(blocked.release) })
+			err = awaitRangeResult(t, ctx, done)
+			received = true
+			if err != nil || first != importResult(command) {
+				t.Fatalf("admitted import: %+v %v", first, err)
+			}
+			digest := command.BlobID().String()[7:]
+			path := filepath.Join(root, "blobs", "sha256", digest[:2], digest[2:4], digest+".taf")
+			before, err := os.Stat(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err = service.Import(ctx, key, retryCommand, source, content.FiniteTAFSource)
+			if scenario == "identical" {
+				if err != nil || got != first {
+					t.Fatalf("exact retry: %+v %v", got, err)
+				}
+			} else if !errors.Is(err, contentstore.ErrConflict) || got != (contentstore.ImportResult{}) {
+				t.Fatalf("conflicting retry: %+v %v", got, err)
+			}
+			assertBlobCounts(t, owner, 1, 1, 1, 1)
+			got, found, err := service.LookupImport(ctx, key, command)
+			if err != nil || !found || got != first {
+				t.Fatalf("original receipt changed: %+v %v %v", got, found, err)
+			}
+			after, err := os.Stat(path)
+			if err != nil || !os.SameFile(before, after) {
+				t.Fatalf("canonical file replaced: %v", err)
+			}
+			if err := service.Availability(ctx, command.BlobID(), command.CompleteBytes()); err != nil {
+				t.Fatal(err)
+			}
+			var referenced, unreferenced int
+			for _, entry := range mediaInventory(t, service) {
+				switch entry.Kind {
+				case contentstore.ReferencedCanonical:
+					referenced++
+				case contentstore.UnreferencedCanonical:
+					unreferenced++
+				}
+			}
+			// Existing publication retains duplicate staging bytes on EEXIST;
+			// these are not extra canonical blobs. Do not hide a new canonical
+			// from a rejected conflicting command behind that retention policy.
+			if referenced != 1 || unreferenced != 0 {
+				t.Fatalf("conflicting retry published extra canonical: referenced=%d unreferenced=%d", referenced, unreferenced)
 			}
 		})
 	}
