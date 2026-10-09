@@ -273,7 +273,7 @@ func (c *blobFaultConn) BeginTx(context.Context, driver.TxOptions) (driver.Tx, e
 }
 func (c *blobFaultConn) ExecContext(_ context.Context, query string, _ []driver.NamedValue) (driver.Result, error) {
 	phase := "write"
-	if strings.HasPrefix(query, "PRAGMA busy_timeout=") {
+	if strings.HasPrefix(query, "PRAGMA busy_timeout(") {
 		phase = "restore"
 	}
 	if err := c.fail(phase); err != nil {
