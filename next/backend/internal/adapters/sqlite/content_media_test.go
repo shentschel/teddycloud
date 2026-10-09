@@ -534,3 +534,233 @@ func TestContentStoreReadQuarantineRestoreFence(t *testing.T) {
 		t.Fatalf("leaked connection: %+v", stats)
 	}
 }
+
+type lifecycleRangeSink struct {
+	ctx          context.Context
+	writeEntered chan struct{}
+	writeRelease chan struct{}
+	closeEntered chan struct{}
+	closeRelease chan struct{}
+	writeOnce    sync.Once
+	closeOnce    sync.Once
+	data         []byte
+}
+
+func (s *lifecycleRangeSink) Write(ctx context.Context, b []byte) (int, error) {
+	s.writeOnce.Do(func() { close(s.writeEntered) })
+	select {
+	case <-s.writeRelease:
+		s.data = append(s.data, b...)
+		return len(b), nil
+	case <-ctx.Done():
+		return 0, ctx.Err()
+	}
+}
+
+func (s *lifecycleRangeSink) Close() error {
+	s.closeOnce.Do(func() { close(s.closeEntered) })
+	select {
+	case <-s.closeRelease:
+		return nil
+	case <-s.ctx.Done():
+		return s.ctx.Err()
+	}
+}
+
+// Observe the gate notification under its lock: no scheduling sleeps and no
+// inference from a goroutine merely having started.
+func awaitRangeLifecycleWaiter(t *testing.T, ctx context.Context, owner *LifecycleOwner) {
+	t.Helper()
+	for {
+		owner.gate.mutex.Lock()
+		waiting := owner.gate.lifecycleWaiters > 0
+		changed := owner.gate.changed
+		owner.gate.mutex.Unlock()
+		if waiting {
+			return
+		}
+		select {
+		case <-changed:
+		case <-ctx.Done():
+			t.Fatal("lifecycle waiter not observed:", ctx.Err())
+		}
+	}
+}
+
+func awaitRangeSignal(t *testing.T, ctx context.Context, signal <-chan struct{}) {
+	t.Helper()
+	select {
+	case <-signal:
+	case <-ctx.Done():
+		t.Fatal("range phase not reached:", ctx.Err())
+	}
+}
+
+func awaitRangeResult(t *testing.T, ctx context.Context, result <-chan error) error {
+	t.Helper()
+	select {
+	case err := <-result:
+		return err
+	case <-ctx.Done():
+		t.Fatal("range/lifecycle did not finish:", ctx.Err())
+		return ctx.Err()
+	}
+}
+
+func TestContentStoreRealReadRangeLifecycleFence(t *testing.T) {
+	for _, action := range []string{"restore", "close", "cancel-restore"} {
+		t.Run(action, func(t *testing.T) {
+			owner, store, service, _, fixture := mediaService(t)
+			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+			defer cancel()
+			command, key := blobCommand(t, 1, false), blobKey(t, 1)
+			// An empty snapshot makes a successful switch observably different
+			// from cancellation, which must retain the imported reference.
+			snapshot, err := owner.database.CreateBackup(ctx, filepath.Join(t.TempDir(), "empty.sqlite"), SchemaMigrations())
+			if err != nil {
+				t.Fatal(err)
+			}
+			want, err := service.Import(ctx, key, command, fixture.Open(), content.FiniteTAFSource)
+			if err != nil {
+				t.Fatal(err)
+			}
+			oldDB, oldPath, oldGeneration := owner.database, owner.config.Path, owner.generation.Load()
+			destination := filepath.Join(t.TempDir(), "restored.sqlite")
+			sink := &lifecycleRangeSink{
+				ctx: ctx, writeEntered: make(chan struct{}), writeRelease: make(chan struct{}),
+				closeEntered: make(chan struct{}), closeRelease: make(chan struct{}),
+			}
+			byteRange, err := contentfs.NewByteRange(0, 32)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var oldSession contentstore.Session
+			var oldReference contentstore.ReferenceLookup
+			readDone := make(chan error, 1)
+			lifecycleDone := make(chan error, 1)
+			go func() {
+				readDone <- owner.WithinContentOperation(ctx, func(ctx context.Context, session contentstore.Session) error {
+					oldSession, oldReference = session, session.References
+					return store.ReadRange(ctx, command.BlobID(), command.CompleteBytes(), byteRange, sink)
+				})
+			}()
+			// Cancellation releases both sink phases even if an assertion fails.
+			// Drain the workers before fixture cleanup closes their owner/store.
+			lifecycleStarted, lifecycleReceived, readReceived := false, false, false
+			t.Cleanup(func() {
+				cancel()
+				drain, stop := context.WithTimeout(context.Background(), 2*time.Second)
+				defer stop()
+				if !readReceived {
+					_ = awaitRangeResult(t, drain, readDone)
+				}
+				if lifecycleStarted && !lifecycleReceived {
+					_ = awaitRangeResult(t, drain, lifecycleDone)
+				}
+			})
+			awaitRangeSignal(t, ctx, sink.writeEntered)
+			lifecycleCtx, cancelLifecycle := context.WithCancel(ctx)
+			defer cancelLifecycle()
+			lifecycleStarted = true
+			go func() {
+				if action == "close" {
+					lifecycleDone <- owner.Close(lifecycleCtx)
+				} else {
+					lifecycleDone <- owner.Restore(lifecycleCtx, snapshot, destination)
+				}
+			}()
+			awaitRangeLifecycleWaiter(t, ctx, owner)
+			assertFenced := func() {
+				t.Helper()
+				select {
+				case err := <-lifecycleDone:
+					lifecycleReceived = true
+					t.Fatalf("lifecycle crossed blocked sink: %v", err)
+				default:
+				}
+				select {
+				case err := <-readDone:
+					readReceived = true
+					t.Fatalf("read returned before sink release: %v", err)
+				default:
+				}
+				owner.gate.mutex.Lock()
+				active, waiters := owner.gate.active, owner.gate.lifecycleWaiters
+				owner.gate.mutex.Unlock()
+				if !active || waiters != 1 {
+					t.Fatalf("fence state: active=%v waiters=%d", active, waiters)
+				}
+			}
+			assertFenced()
+			close(sink.writeRelease)
+			awaitRangeSignal(t, ctx, sink.closeEntered)
+			assertFenced()
+			if action == "cancel-restore" {
+				cancelLifecycle()
+				err := awaitRangeResult(t, ctx, lifecycleDone)
+				lifecycleReceived = true
+				if !errors.Is(err, context.Canceled) {
+					t.Fatalf("waiting restore cancellation: %v", err)
+				}
+			}
+			close(sink.closeRelease)
+			err = awaitRangeResult(t, ctx, readDone)
+			readReceived = true
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !lifecycleReceived {
+				err = awaitRangeResult(t, ctx, lifecycleDone)
+				lifecycleReceived = true
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			header := fixture.Header()
+			if string(sink.data) != string(header[:32]) {
+				t.Fatal("real range delivered incorrect fixture bytes")
+			}
+			if err := oldSession.WithinTransaction(ctx, func(contentstore.BlobRepository) error {
+				t.Error("revoked session invoked callback")
+				return nil
+			}); !errors.Is(err, contentstore.ErrRevoked) {
+				t.Fatalf("old session: %v", err)
+			}
+			if _, err := oldReference(ctx, command.BlobID()); !errors.Is(err, contentstore.ErrRevoked) {
+				t.Fatalf("old reference callback: %v", err)
+			}
+			switch action {
+			case "restore":
+				if owner.database == oldDB || owner.config.Path != destination || owner.generation.Load() != oldGeneration+1 {
+					t.Fatal("restore did not switch owner")
+				}
+				assertBlobCounts(t, owner, 0, 0, 0, 0)
+			case "close":
+				if owner.database != nil {
+					t.Fatal("close retained selected database")
+				}
+				if _, err := owner.CurrentVersion(ctx); !errors.Is(err, ErrLifecycleClosed) {
+					t.Fatalf("closed owner usable: %v", err)
+				}
+			case "cancel-restore":
+				if owner.database != oldDB || owner.config.Path != oldPath || owner.generation.Load() != oldGeneration {
+					t.Fatal("canceled restore changed active owner")
+				}
+				if _, err := os.Stat(destination); !errors.Is(err, os.ErrNotExist) {
+					t.Fatalf("canceled restore created destination: %v", err)
+				}
+				got, found, err := service.LookupImport(ctx, key, command)
+				if err != nil || !found || got != want {
+					t.Fatalf("canceled restore lost metadata: %+v %v %v", got, found, err)
+				}
+				assertBlobCounts(t, owner, 1, 1, 1, 1)
+				if err := service.Availability(ctx, command.BlobID(), command.CompleteBytes()); err != nil {
+					t.Fatal("active owner/media unusable:", err)
+				}
+			}
+			if err := store.Verify(ctx, command.BlobID(), command.CompleteBytes()); err != nil {
+				t.Fatal("lifecycle changed media:", err)
+			}
+		})
+	}
+}
