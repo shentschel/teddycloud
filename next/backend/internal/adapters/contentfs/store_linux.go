@@ -110,8 +110,20 @@ func (s *platformStore) readRange(ctx context.Context, id content.BlobID, size u
 		}
 	}()
 	digest := id.String()[7:]
-	name := "sha256/" + digest[:2] + "/" + digest[2:4] + "/" + digest + ".taf"
-	fd, err := s.ops.open(s.blobs, name, unix.O_RDONLY|unix.O_NONBLOCK, 0)
+	walk, err := s.walkTrustedDirectory(s.blobs, "sha256", digest[:2], digest[2:4])
+	if err == unix.ENOENT {
+		return ErrMissing
+	}
+	if err != nil {
+		return ErrUnavailable
+	}
+	defer func() {
+		if walk.close(s) != nil {
+			failure = ErrUnavailable
+		}
+	}()
+	parent, name := walk.leaf(), digest+".taf"
+	fd, err := s.ops.open(parent, name, unix.O_RDONLY|unix.O_NONBLOCK, 0)
 	if err == unix.ENOENT {
 		return ErrMissing
 	}
@@ -140,10 +152,10 @@ func (s *platformStore) readRange(ctx context.Context, id content.BlobID, size u
 		return ErrCorrupt
 	}
 	after, err := s.checkFile(fd, int64(size))
-	if err != nil || !unchangedStat(before, after) || e.BlobID() != id || e.Profile() != content.TAFProfileV1 || e.CompleteBytes() != size || !sameEntry(s.blobs, name, fd) {
+	if err != nil || !unchangedStat(before, after) || e.BlobID() != id || e.Profile() != content.TAFProfileV1 || e.CompleteBytes() != size || !sameEntry(parent, name, fd) {
 		return ErrCorrupt
 	}
-	if s.ops.check("range-verified") != nil {
+	if s.ops.check("range-verified") != nil || !walk.valid(s) {
 		return ErrUnavailable
 	}
 	var buffer [content.TAFStreamBufferBytes]byte
@@ -182,7 +194,7 @@ func (s *platformStore) readRange(ctx context.Context, id content.BlobID, size u
 		return ErrUnavailable
 	}
 	final, err := s.checkFile(fd, int64(size))
-	if err != nil || !unchangedStat(after, final) || !sameEntry(s.blobs, name, fd) {
+	if err != nil || !unchangedStat(after, final) || !sameEntry(parent, name, fd) || !walk.valid(s) {
 		return ErrUnavailable
 	}
 	if ctx.Err() != nil {

@@ -40,7 +40,7 @@ func (s *Store) Quarantine(ctx context.Context, id content.BlobID, completeBytes
 		return ErrRetained
 	}
 	digest := id.String()[7:]
-	parent, err := s.ops.open(s.blobs, "sha256/"+digest[:2]+"/"+digest[2:4], unix.O_RDONLY|unix.O_DIRECTORY, 0)
+	walk, err := s.walkTrustedDirectory(s.blobs, "sha256", digest[:2], digest[2:4])
 	if err == unix.ENOENT {
 		return ErrMissing
 	}
@@ -48,14 +48,15 @@ func (s *Store) Quarantine(ctx context.Context, id content.BlobID, completeBytes
 		return ErrUnavailable
 	}
 	defer func() {
-		if unix.Close(parent) != nil {
+		if walk.close(&s.platformStore) != nil {
 			s.poisoned = true
 			failure = ErrUnavailable
 		}
 	}()
-	if s.checkDir(parent) != nil {
+	if s.checkDir(s.quarantine) != nil {
 		return ErrUnavailable
 	}
+	parent := walk.leaf()
 	name := digest + ".taf"
 	fd, err := s.ops.open(parent, name, unix.O_RDONLY|unix.O_NONBLOCK, 0)
 	if err == unix.ENOENT {
@@ -113,7 +114,7 @@ func (s *Store) Quarantine(ctx context.Context, id content.BlobID, completeBytes
 			return ErrCanceled
 		}
 		current, err := s.checkFile(fd, -1)
-		if err != nil || !unchangedStat(after, current) || !sameEntry(parent, name, fd) {
+		if err != nil || !unchangedStat(after, current) || !sameEntry(parent, name, fd) || !walk.valid(&s.platformStore) || s.checkDir(s.quarantine) != nil {
 			return ErrUnavailable
 		}
 		err = s.ops.rename(parent, name, s.quarantine, dest)
@@ -128,7 +129,7 @@ func (s *Store) Quarantine(ctx context.Context, id content.BlobID, completeBytes
 		// Flush both even if the first fails; never acknowledge uncertain placement.
 		sourceErr := s.ops.sync(parent, "quarantine-source-sync")
 		destErr := s.ops.sync(s.quarantine, "quarantine-dest-sync")
-		if sourceErr != nil || destErr != nil || !sameEntry(s.quarantine, dest, fd) {
+		if sourceErr != nil || destErr != nil || !sameEntry(s.quarantine, dest, fd) || !walk.valid(&s.platformStore) || s.checkDir(s.quarantine) != nil {
 			return ErrUncertain
 		}
 		if ctx.Err() != nil {
