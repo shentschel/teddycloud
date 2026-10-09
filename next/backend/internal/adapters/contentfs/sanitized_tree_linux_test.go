@@ -218,7 +218,7 @@ func TestBlobSanitizedContentFSPublish(t *testing.T) {
 type fsFailingSink struct {
 	bytes.Buffer
 	writeErr, closeErr error
-	closes            int
+	closes             int
 }
 
 func (s *fsFailingSink) Write(_ context.Context, b []byte) (int, error) {
