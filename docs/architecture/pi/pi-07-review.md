@@ -441,3 +441,38 @@ F05b ContentFS error-seam matrix and the other previously recorded lifecycle,
 concurrency and restart evidence gaps. No production behavior, deployment,
 migration or hardware-durability claim is made. The local process runner remains
 unavailable, so parent verification relies on the published diff and CI.
+
+
+## PI07-T-F05b sanitized ContentFS error-tree evidence
+
+Test-only commits
+[`5c51a5f03729aace489c9dbe7bf84cc7ae1b4541`](https://github.com/shentschel/teddycloud/commit/5c51a5f03729aace489c9dbe7bf84cc7ae1b4541)
+and
+[`05e79acf5169a2f415f26c6d9311ccbcadb24af0`](https://github.com/shentschel/teddycloud/commit/05e79acf5169a2f415f26c6d9311ccbcadb24af0)
+add one Linux ContentFS regression file and no production change. Its recursive
+assertion traverses both unwrap forms and rejects foreign leaves and explicit
+canaries for paths, SQL, credentials, UID/rUID, import/content identifiers and
+provider responses.
+
+The focused matrix injects failures through Open, Publish source read/close and
+filesystem seams, Verify/ReadRange pread and sink write/close, Inventory
+reference callbacks and traversal, Quarantine rename/sync boundaries, and
+Close. It verifies stable categories, fail-closed output and inventory behavior,
+quarantine mutation boundaries, retained bytes for uncertain publication or
+quarantine, and exactly-once sink closure. Existing F01-F04 and missing-media
+behavior are not repeated.
+
+Parent review confirmed the two-commit scope is only
+`next/backend/internal/adapters/contentfs/sanitized_tree_linux_test.go`.
+All four jobs in
+[Next CI 37963971157](https://github.com/shentschel/teddycloud/actions/runs/37963971157)
+passed. F05b's executable ContentFS sanitizer evidence is accepted; direct
+kernel close errors without an injection seam remain represented by the public
+Close failure test rather than unsafe production hooks.
+
+PI07-T-F05 is now complete across F05a and F05b. PI-07/T and the milestone
+remain open for the previously recorded real ReadRange lifecycle/restore fence,
+concurrent import/retry, partial-write restart and blocked Source.Close evidence.
+No production behavior, deployment, migration or hardware-durability claim is
+made. The local process runner remains unavailable, so parent verification
+relies on the published diff and CI.
