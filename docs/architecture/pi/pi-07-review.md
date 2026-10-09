@@ -383,3 +383,27 @@ then passed. Architecture documentation CI 37857374082 also passed.
 PI07-T-F02 alone is closed. The local process runner remains unavailable, so no
 local verification is claimed. PI-07/T and the PI milestone remain open for
 PI07-T-F04 and the remaining independent audit coverage.
+
+## PI07-T-F04 intermediate directory trust correction
+
+Code commit [`5e559c0e61f5dd8299082dc4a9ecc2f8287742f0`](https://github.com/shentschel/teddycloud/commit/5e559c0e61f5dd8299082dc4a9ecc2f8287742f0)
+adds a read-only descriptor walk for all three canonical shard components.
+Each open retains the existing openat2 confinement and applies checkDir's
+owner, device, write-mode and casefold policy. The chain remains open until
+operation completion and its trust and entry identities are rechecked before
+range output and after delivery. Quarantine uses the same source walk and
+checks its retained destination directory before moving and acknowledging.
+Missing paths are never created by this walk.
+
+The focused regressions cover 0777 at each shard level, 0700 controls,
+quarantine source/destination rejection without moving bytes, trust changes
+at the pre-output/pre-rename seams, directory swaps and missing components.
+Inventory already applies checkDir while descending each directory through
+pushInventory; its bounded iterator algorithm is unchanged.
+
+The local runner failed to create a process with os error 2. No local test
+result is claimed. [Next CI 37886853669](https://github.com/shentschel/teddycloud/actions/runs/37886853669)
+is pending at this publication checkpoint; final CI results and independent
+parent review are still required. PI-07/T and the milestone remain open.
+The trusted-root boundary still excludes arbitrary hostile same-owner mutation;
+descriptor checks do not establish hardware power-loss or deployment evidence.
