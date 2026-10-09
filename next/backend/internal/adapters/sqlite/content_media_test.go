@@ -185,7 +185,9 @@ type failpointSession struct {
 }
 
 func (p *publishCommitFailpoint) WithinContentOperation(ctx context.Context, callback func(context.Context, contentstore.Session) error) error {
-	return p.LifecycleOwner.WithinContentOperation(ctx, func(ctx context.Context, s contentstore.Session) error { return callback(ctx, &failpointSession{Session: s, point: p}) })
+	return p.LifecycleOwner.WithinContentOperation(ctx, func(ctx context.Context, s contentstore.Session) error {
+		return callback(ctx, &failpointSession{Session: s, point: p})
+	})
 }
 func (s *failpointSession) WithinTransaction(ctx context.Context, callback func(contentstore.BlobRepository) error) error {
 	s.transactions++
