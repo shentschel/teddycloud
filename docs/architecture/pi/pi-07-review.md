@@ -411,3 +411,33 @@ PI07-T-F04 alone is closed. PI-07/T and the milestone remain open for the
 remaining independent audit coverage. The trusted-root boundary still excludes
 arbitrary hostile same-owner mutation; descriptor checks do not establish
 hardware power-loss or deployment evidence.
+
+
+## PI07-T-F05a sanitized SQLite/application error-tree evidence
+
+Test-only commits
+[`2f3ba489e384bc1b6faea80d7a433d6d9f0a6102`](https://github.com/shentschel/teddycloud/commit/2f3ba489e384bc1b6faea80d7a433d6d9f0a6102)
+through
+[`b9dbe988edcf875e8aff964f179b68b45d2cefb7`](https://github.com/shentschel/teddycloud/commit/b9dbe988edcf875e8aff964f179b68b45d2cefb7)
+add one SQLite-package regression file and no production change. A recursive
+assertion walks both Go unwrap shapes and rejects foreign leaves, messages and
+explicit synthetic canaries for paths, SQL, credentials, UID/rUID, import and
+content identifiers, and provider responses.
+
+The matrix covers every public content category, nil and unknown errors,
+nested joins/wrappers, real SQLite BUSY/LOCKED errors, cancellation/deadline
+precedence and commit uncertainty. Fault-driver and real-database cases exercise
+owner/session/repository/service boundaries, attachment/invalidation, content
+operations, reference query/scan/iteration/close, connection, begin, write,
+commit and busy-timeout restoration. Parent review confirmed the three-commit
+scope is only
+`next/backend/internal/adapters/sqlite/blob_sanitized_tree_test.go`.
+All four jobs in
+[Next CI 37921779205](https://github.com/shentschel/teddycloud/actions/runs/37921779205)
+passed.
+
+PI07-T-F05a alone is accepted. PI-07/T and the milestone remain open for the
+F05b ContentFS error-seam matrix and the other previously recorded lifecycle,
+concurrency and restart evidence gaps. No production behavior, deployment,
+migration or hardware-durability claim is made. The local process runner remains
+unavailable, so parent verification relies on the published diff and CI.
