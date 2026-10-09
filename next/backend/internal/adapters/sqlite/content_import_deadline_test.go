@@ -26,26 +26,30 @@ type importDeadlineOwner struct {
 func (o *importDeadlineOwner) WithinContentOperation(ctx context.Context, f func(context.Context, contentstore.Session) error) error {
 	o.deadline, _ = ctx.Deadline()
 	return o.LifecycleOwner.WithinContentOperation(ctx, func(ctx context.Context, session contentstore.Session) error {
-		if o.phase == "during-db" {
-			session.(*contentSession).beforeCommit = func() error {
-				return awaitImportDeadline(o.t, ctx)
-			}
-		}
-		return f(ctx, importDeadlineSession{Session: session, owner: o})
+		return f(ctx, &importDeadlineSession{Session: session, owner: o})
 	})
 }
 
 type importDeadlineSession struct {
 	contentstore.Session
-	owner *importDeadlineOwner
+	owner        *importDeadlineOwner
+	transactions int
 }
 
-func (s importDeadlineSession) WithinTransaction(ctx context.Context, f func(contentstore.BlobRepository) error) error {
+func (s *importDeadlineSession) WithinTransaction(ctx context.Context, f func(contentstore.BlobRepository) error) error {
 	deadline, ok := ctx.Deadline()
 	if s.owner.phase != "" && (!ok || !deadline.Equal(s.owner.deadline)) {
 		s.owner.t.Fatal("DB phase did not inherit the import deadline")
 	}
-	if s.owner.phase == "before-db" {
+	// Receipt preflight is SQL phase one; keep these failure seams after
+	// durable publication, in phase two.
+	s.transactions++
+	if s.transactions == 2 && s.owner.phase == "during-db" {
+		s.Session.(*contentSession).beforeCommit = func() error {
+			return awaitImportDeadline(s.owner.t, ctx)
+		}
+	}
+	if s.transactions == 2 && s.owner.phase == "before-db" {
 		if err := awaitImportDeadline(s.owner.t, ctx); err != nil {
 			return err
 		}

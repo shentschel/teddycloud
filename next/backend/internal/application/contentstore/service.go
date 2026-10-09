@@ -25,7 +25,8 @@ func NewService(ctx context.Context, owner MediaOwner, media MediaStore) (*Servi
 }
 
 // Import transfers source ownership only when media publication is admitted.
-// Rejected gate admission leaves it with the caller. Publication failure keeps
+// Rejected gate admission or receipt preflight leaves it with the caller.
+// Publication failure keeps
 // retained bytes; no result is advertised until the DB phase completes.
 func (s *Service) Import(ctx context.Context, key content.ImportKey, command content.ImportCommand, source content.TAFSource, mode content.TAFSourceMode) (result ImportResult, err error) {
 	if s == nil || ctx == nil || key.IsZero() || command.IsZero() || source == nil {
@@ -39,6 +40,15 @@ func (s *Service) Import(ctx context.Context, key content.ImportKey, command con
 	ctx, cancel := context.WithTimeout(ctx, duration)
 	defer cancel()
 	err = s.owner.WithinContentOperation(ctx, func(ctx context.Context, session Session) error {
+		// Keep the owner fence across both SQL phases, but release the preflight
+		// transaction before media I/O. A matching receipt is not success:
+		// exact retries still validate their source and repair missing media.
+		if err := session.WithinTransaction(ctx, func(repository BlobRepository) error {
+			_, _, err := repository.LookupImport(ctx, key, command)
+			return err
+		}); err != nil {
+			return err
+		}
 		envelope, err := s.media.Publish(ctx, command.BlobID(), command.CompleteBytes(), source, mode)
 		if err != nil {
 			return err

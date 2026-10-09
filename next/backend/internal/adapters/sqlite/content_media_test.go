@@ -180,14 +180,16 @@ type publishCommitFailpoint struct {
 }
 type failpointSession struct {
 	contentstore.Session
-	point *publishCommitFailpoint
+	point        *publishCommitFailpoint
+	transactions int
 }
 
 func (p *publishCommitFailpoint) WithinContentOperation(ctx context.Context, callback func(context.Context, contentstore.Session) error) error {
-	return p.LifecycleOwner.WithinContentOperation(ctx, func(ctx context.Context, s contentstore.Session) error { return callback(ctx, failpointSession{s, p}) })
+	return p.LifecycleOwner.WithinContentOperation(ctx, func(ctx context.Context, s contentstore.Session) error { return callback(ctx, &failpointSession{Session: s, point: p}) })
 }
-func (s failpointSession) WithinTransaction(ctx context.Context, callback func(contentstore.BlobRepository) error) error {
-	if s.point.fail {
+func (s *failpointSession) WithinTransaction(ctx context.Context, callback func(contentstore.BlobRepository) error) error {
+	s.transactions++
+	if s.transactions == 2 && s.point.fail {
 		s.point.fail = false
 		return contentstore.ErrUnavailable
 	}
@@ -805,10 +807,10 @@ func (s *importProbeSource) Close() error {
 
 // PI07-T-F07: the owner rejects overlapping calls with Busy, leaving their
 // sources caller-owned. Retrying after the admitted call completes must be
-// idempotent. The different-bytes case is an acceptance regression: publication
-// currently precedes receipt conflict detection and leaks an orphan canonical.
+// idempotent. Receipt conflicts must be rejected before publishing any bytes;
+// matching receipts must still validate the supplied source.
 func TestContentStoreConcurrentImportRetryMatrix(t *testing.T) {
-	for _, scenario := range []string{"identical", "different-command", "different-bytes"} {
+	for _, scenario := range []string{"identical", "different-command", "different-bytes", "identical-bad-source"} {
 		t.Run(scenario, func(t *testing.T) {
 			owner, _, service, root, fixture := mediaService(t)
 			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
@@ -837,6 +839,13 @@ func TestContentStoreConcurrentImportRetryMatrix(t *testing.T) {
 					t.Fatal(err)
 				}
 				retryCommand, err = content.NewImportCommand(version, content.NewBlobID(retryFixture.BlobDigest()), retryFixture.CompleteBytes(), command.Profile())
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			if scenario == "identical-bad-source" {
+				var err error
+				retryFixture, err = taffixture.New(8193, 456, []uint32{0, 1})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -891,8 +900,22 @@ func TestContentStoreConcurrentImportRetryMatrix(t *testing.T) {
 				if err != nil || got != first {
 					t.Fatalf("exact retry: %+v %v", got, err)
 				}
+			} else if scenario == "identical-bad-source" {
+				if !errors.Is(err, contentstore.ErrMismatch) || got != (contentstore.ImportResult{}) {
+					t.Fatalf("matching receipt bypassed source validation: %+v %v", got, err)
+				}
 			} else if !errors.Is(err, contentstore.ErrConflict) || got != (contentstore.ImportResult{}) {
 				t.Fatalf("conflicting retry: %+v %v", got, err)
+			}
+			if scenario == "different-command" || scenario == "different-bytes" {
+				if source.reads.Load() != 0 || source.closes.Load() != 0 {
+					t.Fatal("receipt conflict consumed caller-owned source")
+				}
+				if entries := mediaInventory(t, service); len(entries) != 1 {
+					t.Fatalf("receipt conflict created retained bytes: %+v", entries)
+				}
+			} else if source.reads.Load() == 0 || source.closes.Load() != 1 {
+				t.Fatal("admitted retry did not validate and close its source")
 			}
 			assertBlobCounts(t, owner, 1, 1, 1, 1)
 			got, found, err := service.LookupImport(ctx, key, command)
