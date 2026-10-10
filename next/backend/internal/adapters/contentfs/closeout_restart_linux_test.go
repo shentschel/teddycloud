@@ -320,8 +320,14 @@ func TestBlobBlockedSourceCloseImportAndRetry(t *testing.T) {
 					t.Fatal("released source not published", got)
 				}
 			} else {
-				if !errors.Is(got.err, ErrCanceled) || got.result != (contentstore.ImportResult{}) {
-					t.Fatal("canceled close acknowledged success", got)
+				// The SQLite owner exposes the caller's context error at the
+				// application boundary; direct Publish uses ErrCanceled.
+				wantErr := error(context.Canceled)
+				if mode == "deadline" {
+					wantErr = context.DeadlineExceeded
+				}
+				if !errors.Is(got.err, wantErr) || got.result != (contentstore.ImportResult{}) {
+					t.Fatalf("canceled close: result=%+v error=%v (%T), want %v", got.result, got.err, got.err, wantErr)
 				}
 				assertNoBlob(t, root, f)
 			}
