@@ -46,9 +46,10 @@ Current execution artifacts:
   generated media removal, typed missing availability/range behavior, unchanged
   metadata, restore retention and exact identity-preserving re-import are proven.
   Next CI 37422492722 passed all four jobs after the unrelated advisory lock refresh
-  `d5437e9dc754f8d1b238d15e8e17c93b92878867`. The next ready checkpoint is the
-  remaining PI-07/T contract-to-code audit. Issue #23 is closed/completed; T, the
-  PI milestone and hardware power-loss evidence remain open.
+  `d5437e9dc754f8d1b238d15e8e17c93b92878867`. PI-07/T and the scoped software
+  milestone are accepted through `b5880ef69f3600652b5f7950953c6f2b31339d49`;
+  Next CI 38066425643 is green. Physical power-loss evidence remains explicitly
+  unproven and outside this acceptance. Issues #23 and #24 are completed.
 
 - [PI-06 execution plan](pi-06-plan.md)
 - [PI-06 budget method](pi-06-budget.md)
@@ -116,7 +117,7 @@ The [PI-05 plan](pi-05-plan.md) links completed persistence slices as issues
 The [PI-06 plan](pi-06-plan.md) links its A/B/T tasks as issues #19–#21.
 The PI-06 review records R/A/B/T and the transactional Tag milestone accepted.
 PI-07/R design is accepted; delivery tasks are issues #22–#24. Nested
-PI-07/T-01 #17 is accepted and closed; issue #24 remains the active T audit.
+PI-07/T-01 #17 and PI-07/T #24 are accepted and closed.
 Search by stable ID before creating any further issue.
 Run `python3 scripts/check_architecture_docs.py` before publishing architecture
 changes. The path-scoped documentation workflow runs the same check without
@@ -129,14 +130,15 @@ status in the repository-local `.pi-automation-state.json`. The file survives a
 host restart but is intentionally ignored by Git because it belongs to one Codex
 host. It resumes the next unfinished idempotent sprint whenever both current
 windows have safe capacity under the roadmap's active window-specific admission
-policy: future R/T reserves are weekly only; the five-hour gate includes current
-work, integration, uncertainty and five-percent safety. Older budget text that
+policy: each admission protects only the next bounded task, integration,
+verification, uncertainty, closeout and five-percent safety; later backlog work
+is re-estimated after completion rather than reserved in advance. Older budget text that
 held future R/T capacity in each five-hour window is superseded by this policy. An exhausted window sets `waiting_budget`; a verified
 reset resumes that same work instead of skipping to a new PI. Reset timestamps
 may drift by seconds, so a timestamp difference alone is not treated as proof of
 a new weekly window. The fixed six-hour cadence checks each five-hour reset no
 later than one cycle afterwards while weekly capacity permits. When weekly
-capacity cannot cover a safely completable task plus reserves, the same automation
+capacity cannot cover one safely completable next task plus closeout and safety, the same automation
 moves to shortly after the actual weekly reset; after verifying the reset it
 returns to six-hour cadence. Schedule changes require successful tool verification. A
 queued dispatch has a stable request ID and is not sent again while a matching
