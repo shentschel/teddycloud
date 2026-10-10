@@ -5,6 +5,7 @@ package contentfs
 import (
 	"context"
 	"encoding/hex"
+	"errors"
 	"os"
 	"path/filepath"
 	"sync"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/shentschel/teddycloud/next/backend/internal/adapters/sqlite"
+	applicationcatalog "github.com/shentschel/teddycloud/next/backend/internal/application/catalog"
 	"github.com/shentschel/teddycloud/next/backend/internal/application/contentstore"
 	"github.com/shentschel/teddycloud/next/backend/internal/domain/catalog"
 	"github.com/shentschel/teddycloud/next/backend/internal/domain/content"
@@ -43,6 +45,19 @@ func closeoutService(t *testing.T, root, db string) (*Store, *sqlite.LifecycleOw
 			t.Error(err)
 		}
 	})
+	id, err := identity.ParseContentID("cnt_0123456789abcdefghjkmnpqrs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	item, err := catalog.NewContent(id, catalog.NewContentFacts("Synthetic closeout fixture", catalog.NewProductIdentifiers(nil, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := owner.WithinTransaction(t.Context(), func(r applicationcatalog.ContentRepository) error {
+		return r.Save(t.Context(), item)
+	}); err != nil {
+		t.Fatal(err)
+	}
 	service, err := contentstore.NewService(t.Context(), owner, store)
 	if err != nil {
 		t.Fatal(err)
@@ -152,7 +167,7 @@ func TestBlobPartialWriteRestartAndRetry(t *testing.T) {
 				return n, err
 			}
 			result, err := service.Import(t.Context(), key, command, f.Open(), content.FiniteTAFSource)
-			if err != ErrUnavailable || result != (contentstore.ImportResult{}) {
+			if !errors.Is(err, ErrUnavailable) || result != (contentstore.ImportResult{}) {
 				t.Fatal("partial write acknowledged", result, err)
 			}
 			assertNoBlob(t, root, f)
@@ -289,7 +304,7 @@ func TestBlobBlockedSourceCloseImportAndRetry(t *testing.T) {
 				store.mu.Unlock()
 				t.Fatal("publisher released ownership while source Close blocked")
 			}
-			if _, _, err := service.LookupImport(t.Context(), key, command); err != ErrBusy {
+			if _, _, err := service.LookupImport(t.Context(), key, command); !errors.Is(err, ErrBusy) {
 				t.Fatal("application owner fence released during Close", err)
 			}
 			release()
@@ -305,7 +320,7 @@ func TestBlobBlockedSourceCloseImportAndRetry(t *testing.T) {
 					t.Fatal("released source not published", got)
 				}
 			} else {
-				if got.err != ErrCanceled || got.result != (contentstore.ImportResult{}) {
+				if !errors.Is(got.err, ErrCanceled) || got.result != (contentstore.ImportResult{}) {
 					t.Fatal("canceled close acknowledged success", got)
 				}
 				assertNoBlob(t, root, f)
