@@ -533,3 +533,31 @@ deterministic build/smoke, reproducibility and advisory checks.
 Parent review accepts PI07-T-F07. PI-07/T and the milestone remain open for
 partial-write restart and blocked Source.Close evidence. No deployment,
 migration or hardware-durability claim is made.
+
+## PI07-T-F08 closeout and restart evidence
+
+Test-only commits through
+[b5880ef](https://github.com/shentschel/teddycloud/commit/b5880ef69f3600652b5f7950953c6f2b31339d49)
+add the ContentFS closeout/restart test file and no production change.
+The partial-write matrix injects short-write plus ENOSPC, closes and reopens the
+store for inventory, completes a bounded scan, and proves one retained stage
+with the exact written byte count, no canonical publication or metadata, and a
+subsequent valid retry that preserves the stage and creates exactly one
+referenced canonical.
+
+The blocked Source.Close matrix uses channel synchronization without sleeps. It
+proves Publish/Import cannot return, publish, expose metadata or release either
+the filesystem owner or application lifecycle fence while Close is blocked.
+After release, normal import succeeds; cancellation and deadline return the
+owner's context error without publication or metadata, and an exact retry
+succeeds. Source Close is called exactly once.
+
+Parent review confirmed the single-file test-only scope. All four jobs in
+[Next CI 38066425643](https://github.com/shentschel/teddycloud/actions/runs/38066425643)
+passed, including focused repetition, race evidence, full backend tests, vet,
+deterministic build/smoke, reproducibility and advisory checks.
+
+PI07-T-F08 and PI-07/T are accepted. The PI-07 software milestone is accepted
+for the qualified local Linux filesystem and documented scope. Physical
+power-loss durability, production migration/deployment, playback and hardware
+evidence remain explicitly unproven and outside this acceptance.
