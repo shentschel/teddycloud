@@ -499,3 +499,37 @@ passed. PI07-T-F06 is accepted. PI-07/T and the milestone remain open for the
 recorded concurrent import/retry and partial-write restart/blocked Source.Close
 evidence. No production change, deployment, migration, production restore or
 hardware-durability claim is made.
+
+## PI07-T-F07 concurrent import/retry and conflict preflight
+
+Test checkpoint
+[`2b2a7e9664870a336b14e9bcc0a88f0fbc59816c`](https://github.com/shentschel/teddycloud/commit/2b2a7e9664870a336b14e9bcc0a88f0fbc59816c)
+added a deterministic concurrent import/retry matrix and exposed a product
+defect: a conflicting retry with the same idempotency key but different media
+published an unreferenced canonical blob before the receipt conflict was
+detected.
+
+Production/test commit
+[`46ace2d656b55b848ac95aaddbcb4f74cf01a682`](https://github.com/shentschel/teddycloud/commit/46ace2d656b55b848ac95aaddbcb4f74cf01a682)
+adds a short receipt preflight transaction inside the existing lifecycle fence
+and before media publication. The preflight rejects conflicting commands
+without consuming the caller-owned source or publishing bytes. A matching
+receipt is not treated as success: exact retries still validate and publish the
+provided source so missing media can be repaired. The original atomic
+RecordImport transaction remains the final authority after publication; no SQL
+transaction spans filesystem I/O. Existing deadline and commit failpoints now
+target the second transaction. Formatting-only commit
+[`39cd1a6f66e7caf2aed6a03b4dd74c8b53ed4abf`](https://github.com/shentschel/teddycloud/commit/39cd1a6f66e7caf2aed6a03b4dd74c8b53ed4abf)
+contains no semantic change.
+
+The matrix covers Busy admission without source ownership transfer, identical
+retry, conflicting command, conflicting bytes, invalid source with a matching
+receipt, lost-response exact retry, canonical file identity and unchanged
+database facts. All four jobs in
+[Next CI 38003478754](https://github.com/shentschel/teddycloud/actions/runs/38003478754)
+passed, including focused repetition, race evidence, full backend tests, vet,
+deterministic build/smoke, reproducibility and advisory checks.
+
+Parent review accepts PI07-T-F07. PI-07/T and the milestone remain open for
+partial-write restart and blocked Source.Close evidence. No deployment,
+migration or hardware-durability claim is made.
