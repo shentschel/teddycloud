@@ -23,9 +23,10 @@ accepted through `05e79acf5169a2f415f26c6d9311ccbcadb24af0` with Next CI
 `0d919c037dd3a428745629f8ac12c88d4d064bc8` with Next CI 37965157072 green.
 PI07-T-F07's concurrent import/retry audit and conflict preflight fix are
 accepted through `39cd1a6f66e7caf2aed6a03b4dd74c8b53ed4abf` with Next CI
-38003478754 green. T remains open for partial-write restart and blocked
-Source.Close evidence. Further delivery requires fresh admission; hardware power-loss
-evidence remains open.
+38003478754 green. PI07-T-F08's partial-write restart and blocked Source.Close
+evidence is accepted through `b5880ef69f3600652b5f7950953c6f2b31339d49`
+with Next CI 38066425643 green. PI-07/T and the scoped software milestone are
+accepted. Physical power-loss evidence remains explicitly unproven.
 Refinement baseline: `aef53a69ab10f1480c1dade9797ce4dd9ce645bd`.
 
 Follow the [roadmap](../teddycloud-next-pi-roadmap.md),
@@ -101,8 +102,8 @@ parent sprint and are not additional quota buckets; re-admit each independently.
    relaxing assertions. PI07-T-F01 through PI07-T-F04 are fixed and
    parent-accepted with green CI; PI07-T-F05a/F05b's test-only sanitizer
    matrices are also accepted. PI-07/T-01 #17 removal/re-import evidence is
-   accepted and must not be repeated. Resume the remaining partial-write restart and blocked Source.Close audit
-   before accepting T.
+   accepted and must not be repeated. PI07-T-F08 closes the remaining partial-write restart and blocked Source.Close
+   audit. T is accepted; retain the documented physical power-loss limitation.
 
 The contract's executable acceptance map supplies exact test names and outcomes.
 An implementation may split focused tests within these packages; no HTTP API,
