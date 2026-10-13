@@ -22,6 +22,8 @@ assumed.
 
 Current execution artifacts:
 
+- [PI-08/R1 catalog source and compatibility inventory](pi-08-r1-catalog-inventory.md)
+
 - [PI-07 plan checkpoint](pi-07-plan.md)
 - [PI-07 budget checkpoint](pi-07-budget.md)
 - [PI-07 review checkpoint](pi-07-review.md)
