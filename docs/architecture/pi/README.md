@@ -27,6 +27,7 @@ Current execution artifacts:
 - [PI-08 budget method](pi-08-budget.md)
 - [PI-08 final catalog-source and provenance policy](pi-08-catalog-policy.md)
 - [PI-08/A1.1 catalog domain foundation checkpoint](pi-08-a1-domain-checkpoint.md)
+- [PI-08/A1.2a guarded catalog decisions checkpoint](pi-08-a1-decisions-checkpoint.md)
 - PI-08/R's bounded decisions are complete; acceptance requires the plan's
   commit-linked documentation/remote verification evidence on issue #25.
   A/B/T and the versioned-catalog-query milestone remain undelivered.
