@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"sync/atomic"
 )
 
 // All authority constructors are for trusted core composition only. No text
@@ -89,6 +90,7 @@ type SourceSpec struct {
 }
 
 type sourceBinding struct {
+	revoked        atomic.Bool
 	id             SourceID
 	revision       RegistrationRevision
 	issuer         IssuerPrincipal
@@ -173,7 +175,7 @@ func (c IngestCapability) Authorize(source SourceRegistration, key ClaimKey) err
 	if c.binding != source.binding {
 		return ErrCatalogSourceMismatch
 	}
-	if !source.Allows(key) {
+	if !source.Active() || !source.Allows(key) {
 		return ErrCatalogUnauthorized
 	}
 	return nil
@@ -246,4 +248,17 @@ func BoundSources(sources []SourceRegistration) ([]SourceRegistration, error) {
 		}
 	}
 	return append([]SourceRegistration(nil), sources...), nil
+}
+
+// Active reports the current core registration status; retained provenance is
+// unchanged by revocation. Revocation is monotonic and safe across capability copies.
+func (s SourceRegistration) Active() bool {
+	return s.binding != nil && !s.binding.revoked.Load()
+}
+
+// Revoke is a trusted composition-root operation, never an imported command.
+func (s SourceRegistration) Revoke() {
+	if s.binding != nil {
+		s.binding.revoked.Store(true)
+	}
 }
