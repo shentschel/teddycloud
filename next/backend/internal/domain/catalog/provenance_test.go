@@ -19,12 +19,12 @@ func testArtifact(t *testing.T, source SourceRegistration, ingest IngestCapabili
 		t.Fatal(err)
 	}
 	artifact, err := NewArtifact(ingest, source, ArtifactFacts{
-		ID:		id,
-		SHA256:		[32]byte{1},
-		ByteLength:	100,
-		RecordCount:	2,
-		ParserRevision:	"offline/1",
-		SourceRevision:	"opaque-z",
+		ID:             id,
+		SHA256:         [32]byte{1},
+		ByteLength:     100,
+		RecordCount:    2,
+		ParserRevision: "offline/1",
+		SourceRevision: "opaque-z",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -56,13 +56,13 @@ func testObservation(t *testing.T, source SourceRegistration, ingest IngestCapab
 		t.Fatal(err)
 	}
 	observation, err := NewCatalogObservation(ingest, source, ObservationInput{
-		ID:		id,
-		Subject:	subject,
-		Claim:		claim,
-		Coordinate:	coordinate,
-		AssertedOrigin:	"claimed publisher",
-		ObservedAt:	time.Date(2026, 1, 2, 3, 4, 5, 6, time.FixedZone("offset", 3600)),
-		Confidence:	evidence.ConfidenceUnknown,
+		ID:             id,
+		Subject:        subject,
+		Claim:          claim,
+		Coordinate:     coordinate,
+		AssertedOrigin: "claimed publisher",
+		ObservedAt:     time.Date(2026, 1, 2, 3, 4, 5, 6, time.FixedZone("offset", 3600)),
+		Confidence:     evidence.ConfidenceUnknown,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -294,9 +294,9 @@ func TestCatalogArtifactIdentityAndBounds(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, attempt := range []struct {
-		index		uint64
-		locator		string
-		snapshot	RecordSnapshot
+		index    uint64
+		locator  string
+		snapshot RecordSnapshot
 	}{
 		{32, "record", snapshot},
 		{0, strings.Repeat("x", 129), snapshot},

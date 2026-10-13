@@ -18,11 +18,11 @@ func testRegistration(t *testing.T, acquisition AcquisitionClass, claims ...Clai
 		t.Fatal(err)
 	}
 	source, ingest, err := NewSourceRegistration(id, issuer, SourceSpec{
-		Adapter:	"offline-json",
-		AdapterVersion:	"1",
-		Scope:		"catalog",
-		Acquisition:	acquisition,
-		AllowedClaims:	claims,
+		Adapter:        "offline-json",
+		AdapterVersion: "1",
+		Scope:          "catalog",
+		Acquisition:    acquisition,
+		AllowedClaims:  claims,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -43,9 +43,9 @@ func TestCatalogIssuerBinding(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, attempt := range []struct {
-		handle	IngestCapability
-		source	SourceRegistration
-		want	error
+		handle IngestCapability
+		source SourceRegistration
+		want   error
 	}{
 		{IngestCapability{}, source, ErrCatalogUnauthorized},
 		{ingest, SourceRegistration{}, ErrCatalogUnauthorized},

@@ -24,17 +24,17 @@ func (id BatchID) IsZero() bool {
 // artifact claims. SHA256 identifies admitted bytes, not an authenticated origin.
 // No raw artifact bytes/digest may be retained on sensitive-field rejection.
 type ArtifactFacts struct {
-	ID		BatchID
-	SHA256		[32]byte
-	ByteLength	uint64
-	RecordCount	uint64
-	ParserRevision	string
-	SourceRevision	string
+	ID             BatchID
+	SHA256         [32]byte
+	ByteLength     uint64
+	RecordCount    uint64
+	ParserRevision string
+	SourceRevision string
 }
 
 type Artifact struct {
-	source	SourceRegistration
-	facts	ArtifactFacts
+	source SourceRegistration
+	facts  ArtifactFacts
 }
 
 func NewArtifact(capability IngestCapability, source SourceRegistration, facts ArtifactFacts) (Artifact, error) {
@@ -71,10 +71,10 @@ func (a Artifact) Source() SourceRegistration {
 }
 
 type RecordCoordinate struct {
-	artifact	Artifact
-	index		uint64
-	locator		string
-	snapshot	RecordSnapshot
+	artifact Artifact
+	index    uint64
+	locator  string
+	snapshot RecordSnapshot
 }
 
 func NewRecordCoordinate(artifact Artifact, index uint64, locator string, snapshot RecordSnapshot) (RecordCoordinate, error) {
@@ -104,8 +104,8 @@ func (c RecordCoordinate) Snapshot() RecordSnapshot {
 }
 
 type CatalogSubject struct {
-	content	identity.ContentID
-	version	identity.ContentVersionID
+	content identity.ContentID
+	version identity.ContentVersionID
 }
 
 func ContentSubject(content identity.ContentID) (CatalogSubject, error) {
@@ -133,10 +133,10 @@ func (s CatalogSubject) VersionID() identity.ContentVersionID {
 // CatalogClaim is a closed typed union. Fingerprints are inseparable and wider
 // uint64 AudioIDs remain candidates; this type makes no durable-width decision.
 type CatalogClaim struct {
-	key		ClaimKey
-	text	string
-	fingerprint	AudioFingerprint
-	owner		identity.ContentID
+	key         ClaimKey
+	text        string
+	fingerprint AudioFingerprint
+	owner       identity.ContentID
 }
 
 func TitleClaim(title string) (CatalogClaim, error) {
@@ -208,13 +208,13 @@ func (c CatalogClaim) validFor(subject CatalogSubject) bool {
 }
 
 type ObservationInput struct {
-	ID		evidence.ID
-	Subject		CatalogSubject
-	Claim		CatalogClaim
-	Coordinate	RecordCoordinate
-	AssertedOrigin	string
-	ObservedAt	time.Time
-	Confidence	evidence.Confidence
+	ID             evidence.ID
+	Subject        CatalogSubject
+	Claim          CatalogClaim
+	Coordinate     RecordCoordinate
+	AssertedOrigin string
+	ObservedAt     time.Time
+	Confidence     evidence.Confidence
 }
 
 // CatalogObservation is immutable pending evidence. It has no review state or

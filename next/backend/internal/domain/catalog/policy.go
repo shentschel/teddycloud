@@ -81,30 +81,30 @@ const (
 // SourceSpec is trusted configuration. Scope and adapter references are bounded
 // opaque text, never paths, accounts to merge, or network addresses to resolve.
 type SourceSpec struct {
-	Adapter		string
-	AdapterVersion	string
-	Scope		string
-	Acquisition	AcquisitionClass
-	AllowedClaims	[]ClaimKey
+	Adapter        string
+	AdapterVersion string
+	Scope          string
+	Acquisition    AcquisitionClass
+	AllowedClaims  []ClaimKey
 }
 
 type sourceBinding struct {
-	id		SourceID
-	revision	RegistrationRevision
-	issuer		IssuerPrincipal
-	adapter		string
-	adapterVersion	string
-	scope		string
-	acquisition	AcquisitionClass
-	claims		uint8
+	id             SourceID
+	revision       RegistrationRevision
+	issuer         IssuerPrincipal
+	adapter        string
+	adapterVersion string
+	scope          string
+	acquisition    AcquisitionClass
+	claims         uint8
 }
 
 type SourceRegistration struct{ binding *sourceBinding }
 type IngestCapability struct{ binding *sourceBinding }
 
 type ReviewCapability struct {
-	binding		*sourceBinding
-	reviewer	IssuerPrincipal
+	binding  *sourceBinding
+	reviewer IssuerPrincipal
 }
 
 var ErrCatalogUnauthorized = errors.New("catalog capability required")
@@ -145,14 +145,14 @@ func NewSourceRegistration(id SourceID, issuer IssuerPrincipal, spec SourceSpec)
 		return SourceRegistration{}, IngestCapability{}, err
 	}
 	binding := &sourceBinding{
-		id:		id,
-		revision:	RegistrationRevision{value: revision},
-		issuer:		issuer,
-		adapter:	spec.Adapter,
-		adapterVersion:	spec.AdapterVersion,
-		scope:		spec.Scope,
-		acquisition:	spec.Acquisition,
-		claims:		mask,
+		id:             id,
+		revision:       RegistrationRevision{value: revision},
+		issuer:         issuer,
+		adapter:        spec.Adapter,
+		adapterVersion: spec.AdapterVersion,
+		scope:          spec.Scope,
+		acquisition:    spec.Acquisition,
+		claims:         mask,
 	}
 	return SourceRegistration{binding: binding}, IngestCapability{binding: binding}, nil
 }
