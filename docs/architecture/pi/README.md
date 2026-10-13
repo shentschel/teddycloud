@@ -23,6 +23,12 @@ assumed.
 Current execution artifacts:
 
 - [PI-08/R1 catalog source and compatibility inventory](pi-08-r1-catalog-inventory.md)
+- [PI-08 execution plan and R acceptance gate](pi-08-plan.md)
+- [PI-08 budget method](pi-08-budget.md)
+- [PI-08 final catalog-source and provenance policy](pi-08-catalog-policy.md)
+- PI-08/R's bounded decisions are complete; acceptance requires the plan's
+  commit-linked documentation/remote verification evidence on issue #25.
+  A/B/T and the versioned-catalog-query milestone remain undelivered.
 
 - [PI-07 plan checkpoint](pi-07-plan.md)
 - [PI-07 budget checkpoint](pi-07-budget.md)
