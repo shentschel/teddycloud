@@ -4,6 +4,7 @@ import (
 	"context"
 
 	domaincatalog "github.com/shentschel/teddycloud/next/backend/internal/domain/catalog"
+	"github.com/shentschel/teddycloud/next/backend/internal/domain/evidence"
 	"github.com/shentschel/teddycloud/next/backend/internal/domain/identity"
 )
 
@@ -56,8 +57,29 @@ const (
 	MediaEnvelopeVerified
 )
 
+// CatalogReviewStatus describes the Content editorial projections below, not
+// version-registration or order decisions. Reviewed means at least one active
+// editorial projection, including a conflict; other fields may remain unknown.
+// These internal states do not establish public V3 vocabulary or source authority.
+type CatalogReviewStatus uint8
+
+const (
+	// The zero value is conservatively unmanaged, never implicitly reviewed.
+	CatalogUnmanaged CatalogReviewStatus = iota
+	CatalogManagedUnreviewed
+	CatalogReviewed
+)
+
+// CatalogRecord keeps stored facts separate from reviewed editorial projections.
+// Baseline is stored Content context, even when a later reviewed value differs.
+// Its zero value preserves an empty stored title and absent product identifiers.
+// Version is an immutable stored tuple, including legacy order evidence; neither
+// its presence nor Review grants catalog acceptance to ownership, pair or order.
+// ProtectedCustom is a separate protection flag, never a review/physical class.
 type CatalogRecord struct {
 	Content         identity.ContentID
+	Baseline        domaincatalog.ContentFacts
+	Review          CatalogReviewStatus
 	Version         domaincatalog.ContentVersion
 	ProtectedCustom bool
 	Title           domaincatalog.CatalogField
@@ -68,7 +90,8 @@ type CatalogRecord struct {
 
 // QueryResult is a bounded page, never an implicit scalar winner. Repositories
 // count the real encoded response before materializing it, including escaping,
-// and return EncodedBytes. Entries sort by opaque ContentID then VersionID.
+// and return EncodedBytes, charging Baseline and every projection/support link.
+// Entries sort by opaque ContentID then VersionID.
 // Incomplete results never assert uniqueness; Next is bound by CursorCodec.
 type QueryResult struct {
 	Kind         ResultKind
@@ -154,6 +177,12 @@ func validateQueryResult(query Query, result QueryResult) error {
 		if entry.Content.IsZero() || entry.Media > MediaEnvelopeVerified || !query.Content.IsZero() && entry.Content != query.Content {
 			return ErrRepositoryUnavailable
 		}
+		if err := validateCatalogRecord(entry); err != nil {
+			return err
+		}
+		if query.Kind == GetContent && (entry.Version != (domaincatalog.ContentVersion{}) || entry.Media != MediaUnknown) {
+			return ErrRepositoryUnavailable
+		}
 		if query.Kind != GetContent {
 			if entry.Version.ID().IsZero() || entry.Version.ContentID() != entry.Content || entry.Version.Fingerprint().IsZero() {
 				return ErrRepositoryUnavailable
@@ -173,6 +202,101 @@ func validateQueryResult(query Query, result QueryResult) error {
 		}
 	}
 	if conflict && result.Kind != Conflicted && result.Kind != Incomplete {
+		return ErrRepositoryUnavailable
+	}
+	return nil
+}
+
+// validateCatalogRecord checks representation, not the existence/authority of
+// persisted decisions. Repositories must verify same-subject support relations
+// before constructing fields; this boundary never manufactures review evidence.
+func validateCatalogRecord(entry CatalogRecord) error {
+	if entry.Review > CatalogReviewed {
+		return ErrRepositoryUnavailable
+	}
+	title := entry.Baseline.Title()
+	if err := domaincatalog.CheckLimit(domaincatalog.TextBytes, 0, uint64(len(title))); err != nil {
+		return err
+	}
+	if title != "" && !evidence.ValidText(title, int(domaincatalog.TextBytes.Maximum())) {
+		return ErrRepositoryUnavailable
+	}
+	product := entry.Baseline.ProductIdentifiers()
+	if model, present := product.Model(); present {
+		if _, err := domaincatalog.ParseModelNumber(model.String()); err != nil {
+			return ErrRepositoryUnavailable
+		}
+	}
+	if article, present := product.Article(); present {
+		if _, err := domaincatalog.ParseArticleNumber(article.String()); err != nil {
+			return ErrRepositoryUnavailable
+		}
+	}
+	reviewed := false
+	links := uint64(0)
+	seen := make(map[evidence.ID]struct{})
+	for _, projection := range []struct {
+		key   domaincatalog.ClaimKey
+		field domaincatalog.CatalogField
+	}{
+		{domaincatalog.TitleClaimKey, entry.Title},
+		{domaincatalog.ModelClaimKey, entry.Model},
+		{domaincatalog.ArticleClaimKey, entry.Article},
+	} {
+		field := projection.field
+		count := len(field.Alternatives)
+		if err := domaincatalog.CheckLimit(domaincatalog.RetainedObservations, 0, uint64(count)); err != nil {
+			return err
+		}
+		switch field.Status {
+		case domaincatalog.CatalogFactUnknown:
+			if count != 0 {
+				return ErrRepositoryUnavailable
+			}
+		case domaincatalog.CatalogFactAccepted:
+			if count != 1 || entry.Review != CatalogReviewed {
+				return ErrRepositoryUnavailable
+			}
+			reviewed = true
+		case domaincatalog.CatalogFactConflict:
+			if count < 2 || entry.Review != CatalogReviewed {
+				return ErrRepositoryUnavailable
+			}
+			reviewed = true
+		default:
+			return ErrRepositoryUnavailable
+		}
+		for i, alternative := range field.Alternatives {
+			claim := alternative.Claim
+			if claim.Key() != projection.key || len(alternative.Support) == 0 {
+				return ErrRepositoryUnavailable
+			}
+			// CatalogClaim is immutable and constructible only through its
+			// checked domain constructors. Same-key text alternatives use
+			// the domain's canonical length-prefixed text order.
+			if i > 0 {
+				previous := field.Alternatives[i-1].Claim.Text()
+				value := claim.Text()
+				if len(previous) > len(value) || len(previous) == len(value) && previous >= value {
+					return ErrRepositoryUnavailable
+				}
+			}
+			if err := domaincatalog.CheckLimit(domaincatalog.RetainedSupportLinks, links, uint64(len(alternative.Support))); err != nil {
+				return err
+			}
+			links += uint64(len(alternative.Support))
+			for j, id := range alternative.Support {
+				if id.IsZero() || j > 0 && alternative.Support[j-1].String() >= id.String() {
+					return ErrRepositoryUnavailable
+				}
+				if _, duplicate := seen[id]; duplicate {
+					return ErrRepositoryUnavailable
+				}
+				seen[id] = struct{}{}
+			}
+		}
+	}
+	if (entry.Review == CatalogReviewed) != reviewed {
 		return ErrRepositoryUnavailable
 	}
 	return nil
