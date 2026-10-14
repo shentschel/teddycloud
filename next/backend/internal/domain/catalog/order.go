@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"bytes"
 	"encoding/hex"
 	"sort"
 
@@ -13,9 +14,10 @@ import (
 type CatalogOrderNamespace struct{ binding *catalogOrderNamespace }
 
 type catalogOrderNamespace struct {
-	id       [16]byte
-	source   SourceRegistration
-	contract string
+	persistenceOnly bool
+	id              [16]byte
+	source          SourceRegistration
+	contract        string
 }
 
 func NewCatalogOrderNamespace(source SourceRegistration, contract string) (CatalogOrderNamespace, error) {
@@ -55,7 +57,7 @@ func NewCatalogOrderCapability(review ReviewCapability, namespace CatalogOrderNa
 }
 
 func (c CatalogOrderCapability) authorize(namespace CatalogOrderNamespace) error {
-	if namespace.binding == nil || c.namespace.binding == nil || c.review.reviewer.IsZero() || c.review.binding == nil {
+	if namespace.binding == nil || c.namespace.binding == nil || namespace.binding.persistenceOnly || c.namespace.binding.persistenceOnly || c.review.reviewer.IsZero() || c.review.binding == nil {
 		return ErrCatalogUnauthorized
 	}
 	if c.namespace != namespace || c.review.binding != namespace.Source().binding {
@@ -224,8 +226,8 @@ func (s CatalogOrderState) effective(next *catalogOrderDecision) (CatalogEffecti
 		version   identity.ContentVersionID
 		position  uint64
 	}
-	positions := make(map[positionKey]map[evidence.ID]bool)
-	for _, decision := range s.active(next) {
+	positions     := make(map[positionKey]map[evidence.ID]bool)
+	for           _, decision := range s.active(next) {
 		for _, entry := range decision.command.Entries {
 			key := positionKey{decision.command.Namespace, entry.Version, entry.Position}
 			if positions[key] == nil {
@@ -239,11 +241,11 @@ func (s CatalogOrderState) effective(next *catalogOrderDecision) (CatalogEffecti
 			}
 		}
 	}
-	seenVersions := make(map[identity.ContentVersionID]bool)
+	seenVersions  := make(map[identity.ContentVersionID]bool)
 	seenPositions := make(map[uint64]identity.ContentVersionID)
-	var namespace CatalogOrderNamespace
-	conflict := false
-	for key, ids := range positions {
+	var           namespace CatalogOrderNamespace
+	conflict      := false
+	for           key, ids := range positions {
 		if namespace.binding != nil && namespace != key.namespace || seenVersions[key.version] {
 			conflict = true
 		}
@@ -270,12 +272,12 @@ func (s CatalogOrderState) effective(next *catalogOrderDecision) (CatalogEffecti
 		}
 		return a.Entry.Position < b.Entry.Position
 	})
-	if conflict {
+	if            conflict {
 		view.Status = CatalogFactConflict
 	} else if len(seenVersions) > 0 && len(seenVersions) == len(s.versions) {
 		view.Status = CatalogFactAccepted
 	}
-	return view, nil
+	return        view, nil
 }
 
 func (s CatalogOrderState) Compare(left, right ContentVersion) VersionOrdering {
@@ -710,4 +712,198 @@ func (s CatalogOrderState) RetainedEncodingSize() (uint64, error) {
 	e := catalogEncoder{}
 	s.encodeOrderState(&e, nil, nil)
 	return e.size, e.err
+}
+
+// PersistenceEncoding is the bounded internal order-state encoding. Historical
+// immutable version order is retained but cannot confer effective order.
+func (s CatalogOrderState) PersistenceEncoding() ([]byte, error) {
+	size, err := s.RetainedEncodingSize()
+	if err != nil {
+		return nil, err
+	}
+	e := catalogEncoder{data: make([]byte, 0, int(size))}
+	s.encodeOrderState(&e, nil, nil)
+	return e.data, e.err
+}
+
+func (d *catalogPersistenceDecoder) versionID() identity.ContentVersionID {
+	id, err := identity.ParseContentVersionID(d.text(30))
+	if err != nil {
+		d.reject(ErrInvalidCatalog)
+	}
+	return id
+}
+
+func (d *catalogPersistenceDecoder) contentID() identity.ContentID {
+	id, err := identity.ParseContentID(d.text(30))
+	if err != nil {
+		d.reject(ErrInvalidCatalog)
+	}
+	return id
+}
+
+func (d *catalogPersistenceDecoder) version() ContentVersion {
+	id, content := d.versionID(), d.contentID()
+	audio, err := NewAudioID(d.number())
+	if err != nil {
+		d.reject(err)
+	}
+	hashText := d.text(40)
+	hash, err := ParseAudioHash(hashText)
+	if err != nil || hash.String() != hashText {
+		d.reject(ErrInvalidCatalog)
+	}
+	namespace, position, known := d.text(ReferenceBytes.Maximum()), d.number(), d.boolean()
+	order := UnknownVersionOrderEvidence()
+	if known {
+		order, err = NewVersionOrderEvidence(namespace, position)
+		if err != nil {
+			d.reject(err)
+		}
+	} else if namespace != "" || position != 0 {
+		d.reject(ErrInvalidCatalog)
+	}
+	version, err := NewContentVersion(id, content, AudioFingerprint{audioID: audio, hash: hash}, order)
+	if err != nil {
+		d.reject(err)
+	}
+	return version
+}
+
+func (d *catalogPersistenceDecoder) sequence() CatalogSequenceEvidence {
+	namespace := d.namespace()
+	input := CatalogSequenceInput{ID: d.evidenceID(), Content: d.contentID(), Version: d.versionID(), Position: d.number()}
+	input.Coordinate = d.coordinate(namespace.Source(), true)
+	observation, err := NewCatalogSequenceEvidence(IngestCapability{binding: namespace.Source().binding}, namespace, input)
+	if err != nil {
+		d.reject(err)
+	}
+	return observation
+}
+
+func (d *catalogPersistenceDecoder) orderEntry(supportLimit Resource) CatalogOrderEntry {
+	entry := CatalogOrderEntry{Version: d.versionID(), Position: d.number()}
+	for count := d.count(supportLimit); count > 0; count-- {
+		entry.Support = append(entry.Support, d.evidenceID())
+	}
+	return entry
+}
+
+func (d *catalogPersistenceDecoder) orderCommand() (IssuerPrincipal, CatalogOrderCommand) {
+	if d.text(32) != "pi08-order-command/1" || d.text(32) != CatalogDecisionPolicy {
+		d.reject(ErrInvalidCatalog)
+	}
+	command := CatalogOrderCommand{ID: d.commandID(), Content: d.contentID(), Namespace: d.namespace()}
+	reviewer := d.reviewer()
+	command.Expected, command.Reason = d.revision(), d.text(TextBytes.Maximum())
+	for count := d.count(RetainedVersions); count > 0; count-- {
+		command.Entries = append(command.Entries, d.orderEntry(SelectedSupport))
+	}
+	for count := d.count(MutationObservations); count > 0; count-- {
+		command.Evidence = append(command.Evidence, d.sequence())
+	}
+	for count := d.count(SelectedSupport); count > 0; count-- {
+		command.Supersedes = append(command.Supersedes, d.commandID())
+	}
+	return reviewer, command
+}
+
+func (d *catalogPersistenceDecoder) orderResult() CatalogOrderResult {
+	result := CatalogOrderResult{Command: d.commandID()}
+	result.View.Revision = d.revision()
+	status := d.number()
+	if status > uint64(CatalogFactConflict) {
+		d.reject(ErrInvalidCatalog)
+	}
+	result.View.Status = CatalogFactStatus(status)
+	for count := d.count(RetainedVersions); count > 0; count-- {
+		result.View.Positions = append(result.View.Positions, CatalogEffectivePosition{Namespace: d.namespace(), Entry: d.orderEntry(RetainedSupportLinks)})
+	}
+	return result
+}
+
+// RehydrateCatalogOrderState restores complete history only after bounded
+// decoding and exact deterministic replay against trusted historical bindings.
+// It validates canonical commands, original results, supersession relations,
+// evidence bindings, immutable versions, links and revision continuity.
+// No persistence path returns an ingest, review or order capability.
+func RehydrateCatalogOrderState(raw []byte, bindings CatalogPersistenceBindings) (CatalogOrderState, error) {
+	d, err := newCatalogPersistenceDecoder(raw, bindings)
+	if err != nil {
+		return CatalogOrderState{}, err
+	}
+	if d.text(32) != "pi08-order-state/1" {
+		d.reject(ErrInvalidCatalog)
+	}
+	content, revision, links := d.contentID(), d.revision(), d.number()
+	var versions []ContentVersion
+	for count := d.count(RetainedVersions); count > 0; count-- {
+		versions = append(versions, d.version())
+	}
+	var observations []CatalogSequenceEvidence
+	for count := d.count(RetainedObservations); count > 0; count-- {
+		observations = append(observations, d.sequence())
+	}
+	var decisions []catalogOrderDecision
+	for count := d.count(RetainedDecisions); count > 0; count-- {
+		reviewer, command := d.orderCommand()
+		canonical, result := d.text(RetainedBytes.Maximum()), d.orderResult()
+		decisions = append(decisions, catalogOrderDecision{command: command, reviewer: reviewer, canonical: canonical, result: result})
+	}
+	if d.err != nil {
+		return CatalogOrderState{}, d.err
+	}
+	if d.offset != len(raw) || revision.value != uint64(len(decisions))+1 {
+		return CatalogOrderState{}, ErrInvalidCatalog
+	}
+	if err := CheckLimit(RetainedSupportLinks, 0, links); err != nil {
+		return CatalogOrderState{}, err
+	}
+	state, err := NewCatalogOrderState(content, versions)
+	if err != nil {
+		return CatalogOrderState{}, err
+	}
+	for _, decision := range decisions {
+		if decision.command.Expected != state.revision {
+			return CatalogOrderState{}, ErrInvalidCatalog
+		}
+		namespace := decision.command.Namespace
+		capability := CatalogOrderCapability{namespace: namespace, review: ReviewCapability{binding: namespace.Source().binding, reviewer: decision.reviewer}}
+		state, _, err = state.Apply(capability, decision.command)
+		if err != nil {
+			return CatalogOrderState{}, err
+		}
+	}
+	if state.revision != revision || state.links != links || len(state.evidence) != len(observations) {
+		return CatalogOrderState{}, ErrInvalidCatalog
+	}
+	encoded, err := state.PersistenceEncoding()
+	if err != nil {
+		return CatalogOrderState{}, err
+	}
+	if !bytes.Equal(encoded, raw) {
+		return CatalogOrderState{}, ErrInvalidCatalog
+	}
+	for i := range state.evidence {
+		state.evidence[i] = d.context.liveSequence(state.evidence[i])
+	}
+	for i := range state.decisions {
+		decision := &state.decisions[i]
+		decision.command.Namespace = d.context.liveSpace[decision.command.Namespace]
+		for j := range decision.command.Evidence {
+			decision.command.Evidence[j] = d.context.liveSequence(decision.command.Evidence[j])
+		}
+		for j := range decision.result.View.Positions {
+			position := &decision.result.View.Positions[j]
+			position.Namespace = d.context.liveSpace[position.Namespace]
+		}
+	}
+	return state, nil
+}
+
+func (c *catalogPersistenceContext) liveSequence(observation CatalogSequenceEvidence) CatalogSequenceEvidence {
+	observation.namespace = c.liveSpace[observation.namespace]
+	coordinate := &observation.input.Coordinate
+	coordinate.artifact.source = c.liveSource[coordinate.artifact.source]
+	return observation
 }

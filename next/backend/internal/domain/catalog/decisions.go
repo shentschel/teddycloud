@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"bytes"
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/shentschel/teddycloud/next/backend/internal/domain/evidence"
+	"github.com/shentschel/teddycloud/next/backend/internal/domain/identity"
 )
 
 // These encodings and IDs are internal PI-08/1 contracts, not public V3.
@@ -603,4 +605,281 @@ func (s CatalogReviewState) RetainedEncodingSize() (uint64, error) {
 	e := catalogEncoder{}
 	s.encodeProspective(&e, nil, nil)
 	return e.size, e.err
+}
+
+// PersistenceEncoding retains exact admitted state and original replay results.
+// This internal format is versioned independently of public V3.
+func (s CatalogReviewState) PersistenceEncoding() ([]byte, error) {
+	size, err := s.RetainedEncodingSize()
+	if err != nil {
+		return nil, err
+	}
+	e := catalogEncoder{data: make([]byte, 0, int(size))}
+	s.encodeProspective(&e, nil, nil)
+	return e.data, e.err
+}
+
+func (d *catalogPersistenceDecoder) subject() CatalogSubject {
+	content, err := identity.ParseContentID(d.text(30))
+	if err != nil {
+		d.reject(ErrInvalidCatalog)
+	}
+	versionText := d.text(30)
+	subject := CatalogSubject{content: content}
+	if versionText != "" {
+		subject.version, err = identity.ParseContentVersionID(versionText)
+		if err != nil {
+			d.reject(ErrInvalidCatalog)
+		}
+	}
+	return subject
+}
+
+func (d *catalogPersistenceDecoder) evidenceID() evidence.ID {
+	id, err := evidence.ParseID(d.text(30))
+	if err != nil {
+		d.reject(ErrInvalidCatalog)
+	}
+	return id
+}
+
+func (d *catalogPersistenceDecoder) claim() CatalogClaim {
+	key := d.number()
+	text := d.text(TextBytes.Maximum())
+	audio := d.number()
+	hash := d.text(40)
+	owner := d.text(30)
+	var claim CatalogClaim
+	var err error
+	switch key {
+	case uint64(TitleClaimKey):
+		claim, err = TitleClaim(text)
+	case uint64(ModelClaimKey):
+		var model ModelNumber
+		model, err = ParseModelNumber(text)
+		if err == nil {
+			claim, err = ModelClaim(model)
+		}
+	case uint64(ArticleClaimKey):
+		var article ArticleNumber
+		article, err = ParseArticleNumber(text)
+		if err == nil {
+			claim, err = ArticleClaim(article)
+		}
+	case uint64(FingerprintClaimKey):
+		var id AudioID
+		var parsed AudioHash
+		id, err = NewAudioID(audio)
+		if err == nil {
+			parsed, err = ParseAudioHash(hash)
+		}
+		if err == nil {
+			claim, err = FingerprintClaim(AudioFingerprint{audioID: id, hash: parsed})
+		}
+	case uint64(OwnershipClaimKey):
+		var id identity.ContentID
+		id, err = identity.ParseContentID(owner)
+		if err == nil {
+			claim, err = OwnershipClaim(id)
+		}
+	default:
+		err = ErrInvalidCatalog
+	}
+	if err != nil {
+		d.reject(err)
+	}
+	// Reject cross-union data and normalization, including uppercase hashes.
+	if uint64(claim.key) != key || claim.text != text || claim.fingerprint.AudioID().Uint64() != audio || claim.fingerprint.Hash().String() != hash || claim.owner.String() != owner {
+		d.reject(ErrInvalidCatalog)
+	}
+	return claim
+}
+
+func (d *catalogPersistenceDecoder) coordinate(source SourceRegistration, binaryBatch bool) RecordCoordinate {
+	var batch [16]byte
+	if binaryBatch {
+		copy(batch[:], d.take(16))
+		if batch == [16]byte{} {
+			d.reject(ErrInvalidCatalog)
+		}
+	} else {
+		var err error
+		batch, err = persistenceOpaque(d.text(32))
+		if err != nil {
+			d.reject(err)
+		}
+	}
+	var digest [32]byte
+	copy(digest[:], d.take(32))
+	facts := ArtifactFacts{
+		ID:             BatchID{value: batch}, SHA256: digest,
+		ByteLength:     d.number(), RecordCount: d.number(),
+		ParserRevision: d.text(ReferenceBytes.Maximum()), SourceRevision: d.text(ReferenceBytes.Maximum()),
+	}
+	artifact, err := NewArtifact(IngestCapability{binding: source.binding}, source, facts)
+	if err != nil {
+		d.reject(err)
+	}
+	index, locator := d.number(), d.text(ReferenceBytes.Maximum())
+	snapshot, err := NewRecordSnapshot([]byte(d.text(RecordBytes.Maximum())))
+	if err != nil {
+		d.reject(err)
+	}
+	coordinate, err := NewRecordCoordinate(artifact, index, locator, snapshot)
+	if err != nil {
+		d.reject(err)
+	}
+	return coordinate
+}
+
+func (d *catalogPersistenceDecoder) observation() CatalogObservation {
+	id, subject, claim := d.evidenceID(), d.subject(), d.claim()
+	source := d.source()
+	coordinate := d.coordinate(source, false)
+	origin := d.text(ReferenceBytes.Maximum())
+	stamp := d.text(64)
+	observed, err := time.Parse(time.RFC3339Nano, stamp)
+	if err != nil || observed.UTC().Format(time.RFC3339Nano) != stamp {
+		d.reject(ErrInvalidCatalog)
+	}
+	confidence := d.number()
+	if confidence > uint64(evidence.Corroborated) {
+		d.reject(ErrInvalidCatalog)
+	}
+	observation, err := NewCatalogObservation(IngestCapability{binding: source.binding}, source, ObservationInput{
+		ID:             id, Subject: subject, Claim: claim, Coordinate: coordinate,
+		AssertedOrigin: origin, ObservedAt: observed, Confidence: evidence.Confidence(confidence),
+	})
+	if err != nil {
+		d.reject(err)
+	}
+	return observation
+}
+
+func (d *catalogPersistenceDecoder) reviewCommand() (IssuerPrincipal, CatalogReviewCommand) {
+	if d.text(32) != "pi08-command/1" || d.text(32) != CatalogDecisionPolicy {
+		d.reject(ErrInvalidCatalog)
+	}
+	command := CatalogReviewCommand{ID: d.commandID()}
+	kind := d.number()
+	if kind < uint64(RecordObservations) || kind > uint64(ResolveConflict) {
+		d.reject(ErrInvalidCatalog)
+	}
+	command.Kind, command.Subject, command.Source = CatalogDecisionKind(kind), d.subject(), d.source()
+	reviewer := d.reviewer()
+	command.Expected = d.revision()
+	key := d.number()
+	if key > uint64(OwnershipClaimKey) {
+		d.reject(ErrInvalidCatalog)
+	}
+	command.Key, command.Reason = ClaimKey(key), d.text(TextBytes.Maximum())
+	for count := d.count(MutationObservations); count > 0; count-- {
+		command.Observations = append(command.Observations, d.observation())
+	}
+	for count := d.count(SelectedSupport); count > 0; count-- {
+		command.Support = append(command.Support, d.evidenceID())
+	}
+	return reviewer, command
+}
+
+func (d *catalogPersistenceDecoder) decisionResult() CatalogDecisionResult {
+	result := CatalogDecisionResult{Command: d.commandID(), Revision: d.revision(), ProtectedCustom: d.boolean()}
+	status := d.number()
+	if status > uint64(CatalogFactConflict) {
+		d.reject(ErrInvalidCatalog)
+	}
+	result.Field.Status = CatalogFactStatus(status)
+	for count := d.count(RetainedObservations); count > 0; count-- {
+		alternative := CatalogAlternative{Claim: d.claim()}
+		for links := d.count(RetainedSupportLinks); links > 0; links-- {
+			alternative.Support = append(alternative.Support, d.evidenceID())
+		}
+		result.Field.Alternatives = append(result.Field.Alternatives, alternative)
+	}
+	return result
+}
+
+// RehydrateCatalogReviewState validates the complete retained encoding through
+// deterministic historical replay. Exact re-encoding checks original results,
+// canonical commands, sorting, uniqueness, links and revision continuity.
+// Bindings and reviewers must come from the trusted core; bytes never grant
+// authority. No live registration is changed, including on rejection.
+func RehydrateCatalogReviewState(raw []byte, bindings CatalogPersistenceBindings) (CatalogReviewState, error) {
+	d, err := newCatalogPersistenceDecoder(raw, bindings)
+	if err != nil {
+		return CatalogReviewState{}, err
+	}
+	if d.text(32) != "pi08-review-state/1" {
+		d.reject(ErrInvalidCatalog)
+	}
+	subject, revision, protected, links := d.subject(), d.revision(), d.boolean(), d.number()
+	var observations []CatalogObservation
+	for count := d.count(RetainedObservations); count > 0; count-- {
+		observations = append(observations, d.observation())
+	}
+	var decisions []catalogDecision
+	for count := d.count(RetainedDecisions); count > 0; count-- {
+		reviewer, command := d.reviewCommand()
+		canonical := d.text(RetainedBytes.Maximum())
+		result := d.decisionResult()
+		decisions = append(decisions, catalogDecision{command: command, reviewer: reviewer, canonical: canonical, result: result})
+	}
+	if d.err != nil {
+		return CatalogReviewState{}, d.err
+	}
+	if d.offset != len(raw) || revision.value != uint64(len(decisions))+1 {
+		return CatalogReviewState{}, ErrInvalidCatalog
+	}
+	if err := CheckLimit(RetainedSupportLinks, 0, links); err != nil {
+		return CatalogReviewState{}, err
+	}
+	seedProtected := protected
+	if len(decisions) > 0 {
+		first := decisions[0]
+		seedProtected = first.result.ProtectedCustom
+		if first.command.Kind == RecordObservations && first.command.Source.Spec().Acquisition == OfflineCustom {
+			seedProtected = false
+		}
+	}
+	state, err := NewCatalogReviewState(subject, seedProtected)
+	if err != nil {
+		return CatalogReviewState{}, err
+	}
+	for _, decision := range decisions {
+		if decision.command.Expected != state.revision {
+			return CatalogReviewState{}, ErrInvalidCatalog
+		}
+		state, _, err = state.Apply(ReviewCapability{binding: decision.command.Source.binding, reviewer: decision.reviewer}, decision.command)
+		if err != nil {
+			return CatalogReviewState{}, err
+		}
+	}
+	if state.revision != revision || state.protected != protected || state.links != links || len(state.observations) != len(observations) {
+		return CatalogReviewState{}, ErrInvalidCatalog
+	}
+	encoded, err := state.PersistenceEncoding()
+	if err != nil {
+		return CatalogReviewState{}, err
+	}
+	if !bytes.Equal(encoded, raw) {
+		return CatalogReviewState{}, ErrInvalidCatalog
+	}
+	// Only the replay-derived state is returned, bound back to trusted handles.
+	for i := range state.observations {
+		state.observations[i] = d.context.liveObservation(state.observations[i])
+	}
+	for i := range state.decisions {
+		command := &state.decisions[i].command
+		command.Source = d.context.liveSource[command.Source]
+		for j := range command.Observations {
+			command.Observations[j] = d.context.liveObservation(command.Observations[j])
+		}
+	}
+	return state, nil
+}
+
+func (c *catalogPersistenceContext) liveObservation(observation CatalogObservation) CatalogObservation {
+	coordinate := &observation.input.Coordinate
+	coordinate.artifact.source = c.liveSource[coordinate.artifact.source]
+	return observation
 }
