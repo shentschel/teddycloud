@@ -271,6 +271,8 @@ func TestCatalogSchemaTypedClaims(t *testing.T) {
 		catalogSchemaID("obs", 3), catalogSchemaID("ver", 1), catalogSchemaID("cnt", 1),
 		bytes.Repeat([]byte{255}, 8), bytes.Repeat([]byte{1}, 20),
 		strings.Repeat("4", 32), strings.Repeat("1", 32), strings.Repeat("2", 32))
+	catalogSchemaExec(t, db.db, `INSERT INTO tc_catalog_observations SELECT ?,subject_id,content_id,2,'01-0100',NULL,NULL,NULL,batch_id,record_index,source_id,registration_revision,asserted_origin,observed_at,confidence FROM tc_catalog_observations WHERE observation_id=?`,
+		catalogSchemaID("obs", 4), catalogSchemaID("obs", 1))
 	columns := []string{"observation_id", "subject_id", "content_id", "claim_key", "text_value", "audio_id", "audio_sha1", "owner_content_id", "batch_id", "record_index", "source_id", "registration_revision", "asserted_origin", "observed_at", "confidence"}
 	for _, tc := range []struct {
 		name   string
@@ -279,7 +281,7 @@ func TestCatalogSchemaTypedClaims(t *testing.T) {
 		value  string
 	}{
 		{"unknown claim", 1, "claim_key", "6"},
-		{"invalid model alphabet", 1, "claim_key", "2"},
+		{"invalid model alphabet", 4, "text_value", "'invalid model'"},
 		{"absent title", 1, "text_value", "NULL"},
 		{"empty title", 1, "text_value", "''"},
 		{"oversized title", 1, "text_value", "printf('%4097s','x')"},
