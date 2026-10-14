@@ -712,9 +712,12 @@ func (d *catalogPersistenceDecoder) coordinate(source SourceRegistration, binary
 	var digest [32]byte
 	copy(digest[:], d.take(32))
 	facts := ArtifactFacts{
-		ID:             BatchID{value: batch}, SHA256: digest,
-		ByteLength:     d.number(), RecordCount: d.number(),
-		ParserRevision: d.text(ReferenceBytes.Maximum()), SourceRevision: d.text(ReferenceBytes.Maximum()),
+		ID:             BatchID{value: batch},
+		SHA256:         digest,
+		ByteLength:     d.number(),
+		RecordCount:    d.number(),
+		ParserRevision: d.text(ReferenceBytes.Maximum()),
+		SourceRevision: d.text(ReferenceBytes.Maximum()),
 	}
 	artifact, err := NewArtifact(IngestCapability{binding: source.binding}, source, facts)
 	if err != nil {
@@ -747,8 +750,13 @@ func (d *catalogPersistenceDecoder) observation() CatalogObservation {
 		d.reject(ErrInvalidCatalog)
 	}
 	observation, err := NewCatalogObservation(IngestCapability{binding: source.binding}, source, ObservationInput{
-		ID:             id, Subject: subject, Claim: claim, Coordinate: coordinate,
-		AssertedOrigin: origin, ObservedAt: observed, Confidence: evidence.Confidence(confidence),
+		ID:             id,
+		Subject:        subject,
+		Claim:          claim,
+		Coordinate:     coordinate,
+		AssertedOrigin: origin,
+		ObservedAt:     observed,
+		Confidence:     evidence.Confidence(confidence),
 	})
 	if err != nil {
 		d.reject(err)

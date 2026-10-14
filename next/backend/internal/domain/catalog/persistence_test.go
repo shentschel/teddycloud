@@ -89,17 +89,39 @@ func TestCatalogReviewPersistenceRejectsTampering(t *testing.T) {
 	state, bindings, _, _ := persistenceReview(t)
 	raw, _ := state.PersistenceEncoding()
 	for _, mutate := range []func(*CatalogReviewState){
-		func(s *CatalogReviewState) { s.revision.value++ },
-		func(s *CatalogReviewState) { s.links++ },
-		func(s *CatalogReviewState) { s.protected = !s.protected },
-		func(s *CatalogReviewState) { s.observations = s.observations[1:] },
-		func(s *CatalogReviewState) { s.observations[0], s.observations[1] = s.observations[1], s.observations[0] },
-		func(s *CatalogReviewState) { s.decisions[1].canonical += "x" },
-		func(s *CatalogReviewState) { s.decisions[1].result.Revision.value++ },
-		func(s *CatalogReviewState) { s.decisions[1].result.Field.Status = CatalogFactUnknown },
-		func(s *CatalogReviewState) { s.decisions[1].command.Expected.value++ },
-		func(s *CatalogReviewState) { s.decisions[1].reviewer = IssuerPrincipal{} },
-		func(s *CatalogReviewState) { s.decisions[1].command.ID = s.decisions[0].command.ID },
+		func(s *CatalogReviewState) {
+			s.revision.value++
+		},
+		func(s *CatalogReviewState) {
+			s.links++
+		},
+		func(s *CatalogReviewState) {
+			s.protected = !s.protected
+		},
+		func(s *CatalogReviewState) {
+			s.observations = s.observations[1:]
+		},
+		func(s *CatalogReviewState) {
+			s.observations[0], s.observations[1] = s.observations[1], s.observations[0]
+		},
+		func(s *CatalogReviewState) {
+			s.decisions[1].canonical += "x"
+		},
+		func(s *CatalogReviewState) {
+			s.decisions[1].result.Revision.value++
+		},
+		func(s *CatalogReviewState) {
+			s.decisions[1].result.Field.Status = CatalogFactUnknown
+		},
+		func(s *CatalogReviewState) {
+			s.decisions[1].command.Expected.value++
+		},
+		func(s *CatalogReviewState) {
+			s.decisions[1].reviewer = IssuerPrincipal{}
+		},
+		func(s *CatalogReviewState) {
+			s.decisions[1].command.ID = s.decisions[0].command.ID
+		},
 	} {
 		copy := state
 		copy.observations = append([]CatalogObservation(nil), state.observations...)
@@ -180,14 +202,30 @@ func TestCatalogOrderPersistenceRoundTrip(t *testing.T) {
 		t.Fatal("detached order capability granted")
 	}
 	for _, mutate := range []func(*CatalogOrderState){
-		func(s *CatalogOrderState) { s.links++ },
-		func(s *CatalogOrderState) { s.revision.value++ },
-		func(s *CatalogOrderState) { s.versions = s.versions[:1] },
-		func(s *CatalogOrderState) { s.evidence = s.evidence[1:] },
-		func(s *CatalogOrderState) { s.decisions[0].canonical += "x" },
-		func(s *CatalogOrderState) { s.decisions[0].result.View.Status = CatalogFactUnknown },
-		func(s *CatalogOrderState) { s.decisions[1].command.Expected.value++ },
-		func(s *CatalogOrderState) { s.decisions[1].command.Supersedes = []CatalogCommandID{correction.ID} },
+		func(s *CatalogOrderState) {
+			s.links++
+		},
+		func(s *CatalogOrderState) {
+			s.revision.value++
+		},
+		func(s *CatalogOrderState) {
+			s.versions = s.versions[:1]
+		},
+		func(s *CatalogOrderState) {
+			s.evidence = s.evidence[1:]
+		},
+		func(s *CatalogOrderState) {
+			s.decisions[0].canonical += "x"
+		},
+		func(s *CatalogOrderState) {
+			s.decisions[0].result.View.Status = CatalogFactUnknown
+		},
+		func(s *CatalogOrderState) {
+			s.decisions[1].command.Expected.value++
+		},
+		func(s *CatalogOrderState) {
+			s.decisions[1].command.Supersedes = []CatalogCommandID{correction.ID}
+		},
 	} {
 		copy := state
 		copy.decisions = append([]catalogOrderDecision(nil), state.decisions...)

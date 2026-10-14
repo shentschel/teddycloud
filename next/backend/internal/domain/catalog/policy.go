@@ -318,9 +318,14 @@ func newCatalogPersistenceContext(bindings CatalogPersistenceBindings) (*catalog
 		}
 		b := source.binding
 		copy := SourceRegistration{binding: &sourceBinding{
-			id:      b.id, revision: b.revision, issuer: b.issuer,
-			adapter: b.adapter, adapterVersion: b.adapterVersion,
-			scope:   b.scope, acquisition: b.acquisition, claims: b.claims,
+			id:             b.id,
+			revision:       b.revision,
+			issuer:         b.issuer,
+			adapter:        b.adapter,
+			adapterVersion: b.adapterVersion,
+			scope:          b.scope,
+			acquisition:    b.acquisition,
+			claims:         b.claims,
 		}}
 		c.sources[key] = copy
 		c.liveSource[copy] = source
@@ -341,7 +346,9 @@ func newCatalogPersistenceContext(bindings CatalogPersistenceBindings) (*catalog
 			return nil, err
 		}
 		copy := CatalogOrderNamespace{binding: &catalogOrderNamespace{
-			id: namespace.binding.id, source: copySource, contract: namespace.binding.contract,
+			id:       namespace.binding.id,
+			source:   copySource,
+			contract: namespace.binding.contract,
 		}}
 		c.namespaces[copy.binding.id] = copy
 		c.liveSpace[copy] = namespace
@@ -525,16 +532,27 @@ func (d *catalogPersistenceDecoder) source() SourceRegistration {
 			return SourceRegistration{}
 		}
 		b := &sourceBinding{
-			id:          SourceID{value: id}, revision: RegistrationRevision{value: revision}, issuer: IssuerPrincipal{value: issuer},
-			adapter:     adapter, adapterVersion: adapterVersion, scope: scope,
-			acquisition: AcquisitionClass(acquisition), claims: claims,
+			id:             SourceID{value: id},
+			revision:       RegistrationRevision{value: revision},
+			issuer:         IssuerPrincipal{value: issuer},
+			adapter:        adapter,
+			adapterVersion: adapterVersion,
+			scope:          scope,
+			acquisition:    AcquisitionClass(acquisition),
+			claims:         claims,
 		}
 		source = SourceRegistration{binding: b}
 		// The detached provenance handle is distinct from the private active copy.
 		detached := SourceRegistration{binding: &sourceBinding{
-			persistenceOnly: true, id: b.id, revision: b.revision, issuer: b.issuer,
-			adapter:         adapter, adapterVersion: adapterVersion, scope: scope,
-			acquisition:     b.acquisition, claims: claims,
+			persistenceOnly: true,
+			id:              b.id,
+			revision:        b.revision,
+			issuer:          b.issuer,
+			adapter:         adapter,
+			adapterVersion:  adapterVersion,
+			scope:           scope,
+			acquisition:     b.acquisition,
+			claims:          claims,
 		}}
 		d.context.sources[key] = source
 		d.context.liveSource[source] = detached

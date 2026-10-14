@@ -226,8 +226,8 @@ func (s CatalogOrderState) effective(next *catalogOrderDecision) (CatalogEffecti
 		version   identity.ContentVersionID
 		position  uint64
 	}
-	positions     := make(map[positionKey]map[evidence.ID]bool)
-	for           _, decision := range s.active(next) {
+	positions := make(map[positionKey]map[evidence.ID]bool)
+	for _, decision := range s.active(next) {
 		for _, entry := range decision.command.Entries {
 			key := positionKey{decision.command.Namespace, entry.Version, entry.Position}
 			if positions[key] == nil {
@@ -241,11 +241,11 @@ func (s CatalogOrderState) effective(next *catalogOrderDecision) (CatalogEffecti
 			}
 		}
 	}
-	seenVersions  := make(map[identity.ContentVersionID]bool)
+	seenVersions := make(map[identity.ContentVersionID]bool)
 	seenPositions := make(map[uint64]identity.ContentVersionID)
-	var           namespace CatalogOrderNamespace
-	conflict      := false
-	for           key, ids := range positions {
+	var namespace CatalogOrderNamespace
+	conflict := false
+	for key, ids := range positions {
 		if namespace.binding != nil && namespace != key.namespace || seenVersions[key.version] {
 			conflict = true
 		}
@@ -272,12 +272,12 @@ func (s CatalogOrderState) effective(next *catalogOrderDecision) (CatalogEffecti
 		}
 		return a.Entry.Position < b.Entry.Position
 	})
-	if            conflict {
+	if conflict {
 		view.Status = CatalogFactConflict
 	} else if len(seenVersions) > 0 && len(seenVersions) == len(s.versions) {
 		view.Status = CatalogFactAccepted
 	}
-	return        view, nil
+	return view, nil
 }
 
 func (s CatalogOrderState) Compare(left, right ContentVersion) VersionOrdering {
