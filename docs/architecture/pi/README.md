@@ -31,6 +31,7 @@ Current execution artifacts:
 - [PI-08/A1.2b effective-order checkpoint](pi-08-a1-order-checkpoint.md)
 - [PI-08/A1.3a catalog application service checkpoint](pi-08-a1-service-checkpoint.md)
 - [PI-08/A2.1 durable catalog schema checkpoint](pi-08-a2-schema-checkpoint.md)
+- [PI-08/A2.2 managed Save guard checkpoint](pi-08-a2-managed-save-checkpoint.md)
 - PI-08/R's bounded decisions are complete; acceptance requires the plan's
   commit-linked documentation/remote verification evidence on issue #25.
   A/B/T and the versioned-catalog-query milestone remain undelivered.
