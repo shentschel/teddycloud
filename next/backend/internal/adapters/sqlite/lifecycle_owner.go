@@ -540,7 +540,7 @@ func (owner *LifecycleOwner) WithinContentOperation(ctx context.Context, operati
 	if err != nil {
 		return contentBoundaryError(ctx, err)
 	}
-	if version != 4 {
+	if version < 4 {
 		return contentstore.ErrSchemaUnavailable
 	}
 	session := &contentSession{owner: owner, database: owner.database, generation: owner.generation.Load(), ctx: operationContext, active: true}

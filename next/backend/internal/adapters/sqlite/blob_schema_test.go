@@ -16,7 +16,7 @@ func TestBlobSchemaRecovery(t *testing.T) {
 			directory := t.TempDir()
 			path := filepath.Join(directory, "db.sqlite")
 			migrations := SchemaMigrations()
-			if len(migrations) != 4 || migrations[3].Version != 4 || migrations[3].ID != "0004-content-blobs" {
+			if len(migrations) < 4 || migrations[3].Version != 4 || migrations[3].ID != "0004-content-blobs" {
 				t.Fatal("unexpected migration identity")
 			}
 			db, err := Open(t.Context(), Config{Path: path}, migrations[:version])

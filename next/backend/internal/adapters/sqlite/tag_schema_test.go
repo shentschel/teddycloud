@@ -167,14 +167,14 @@ func TestTagSchemaFreshReopenAndConstraints(t *testing.T) {
 
 func TestTagSchemaMigrationsDefensiveCopy(t *testing.T) {
 	first := SchemaMigrations()
-	if len(first) != 4 {
-		t.Fatalf("migration count = %d, want 4", len(first))
+	if len(first) != 5 {
+		t.Fatalf("migration count = %d, want 5", len(first))
 	}
 	first[1].ID = "modified"
 	first[1].Statements[0] = "modified"
 	first = append(first, Migration{Version: 3, ID: "caller-only"})
 	second := SchemaMigrations()
-	if len(second) != 4 || second[1].ID != "0002-tag-identity" || !strings.Contains(second[1].Statements[0], "CREATE TABLE tc_tags") {
+	if len(second) != 5 || second[1].ID != "0002-tag-identity" || !strings.Contains(second[1].Statements[0], "CREATE TABLE tc_tags") {
 		t.Fatal("caller changed canonical tag migration")
 	}
 }
