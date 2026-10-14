@@ -84,6 +84,20 @@ func (r *catalogRepository) Query(ctx context.Context, query app.Query) (result 
 		return app.QueryResult{}, err
 	}
 	snapshot.Write(base)
+	// The single pooled connection has a stable total_changes counter; SQLite's
+	// data_version catches other connections. Together they also invalidate an
+	// ABA write whose final values happen to equal the old snapshot.
+	var changes, dataVersion uint64
+	if err := r.transaction.QueryRowContext(call, "SELECT total_changes()").Scan(&changes); err != nil {
+		return app.QueryResult{}, repositoryError(call, err)
+	}
+	if err := r.transaction.QueryRowContext(call, "PRAGMA data_version").Scan(&dataVersion); err != nil {
+		return app.QueryResult{}, repositoryError(call, err)
+	}
+	var generations [16]byte
+	binary.BigEndian.PutUint64(generations[:8], changes)
+	binary.BigEndian.PutUint64(generations[8:], dataVersion)
+	snapshot.Write(generations[:])
 	for _, version := range versions {
 		encoded, err := catalogVersionBytes(version)
 		if err != nil {
@@ -342,11 +356,20 @@ func (r *catalogRepository) catalogFields(ctx context.Context, record *app.Catal
  (SELECT count(*) FROM tc_catalog_observations WHERE content_id=?),
  (SELECT count(*) FROM tc_catalog_decision_support s JOIN tc_catalog_subjects u USING(subject_id) WHERE u.content_id=?),
  (SELECT COALESCE(sum(length(canonical_command)+length(canonical_result)),0) FROM tc_catalog_decisions WHERE content_id=?) +
- (SELECT COALESCE(sum(length(o.text_value)+COALESCE(length(b.snapshot),0)+512),0) FROM tc_catalog_observations o LEFT JOIN tc_catalog_records b ON b.batch_id=o.batch_id AND b.record_index=o.record_index WHERE o.content_id=?)`, id, id, id, id, id).Scan(&decisions, &observations, &links, &retained); err != nil {
+ (SELECT COALESCE(sum(COALESCE(length(o.text_value),0)+COALESCE(length(b.snapshot),0)+512),0) FROM tc_catalog_observations o LEFT JOIN tc_catalog_records b ON b.batch_id=o.batch_id AND b.record_index=o.record_index WHERE o.content_id=?)`, id, id, id, id, id).Scan(&decisions, &observations, &links, &retained); err != nil {
 		return repositoryError(ctx, err)
 	}
 	if decisions > domain.RetainedDecisions.Maximum() || observations > domain.RetainedObservations.Maximum() || links > domain.RetainedSupportLinks.Maximum() || retained > domain.RetainedBytes.Maximum() {
 		return app.ErrLimitExceeded
+	}
+	var invalidRevision bool
+	if err := r.transaction.QueryRowContext(ctx, `SELECT EXISTS(
+ SELECT 1 FROM tc_catalog_subjects u WHERE u.content_id=? AND
+ u.review_revision<>1+(SELECT count(*) FROM tc_catalog_decisions d WHERE d.subject_id=u.subject_id))`, id).Scan(&invalidRevision); err != nil {
+		return repositoryError(ctx, err)
+	}
+	if invalidRevision {
+		return app.ErrRepositoryUnavailable
 	}
 	if !managed && (decisions != 0 || observations != 0 || links != 0) {
 		return app.ErrRepositoryUnavailable
@@ -514,7 +537,7 @@ func (r *catalogRepository) catalogSupport(ctx context.Context, command, subject
 				claim, err = domain.ArticleClaim(article)
 			}
 		case domain.FingerprintClaimKey:
-			if len(audio) != 8 || len(hash) != 20 || subject == content {
+			if len(audio) != 8 || len(hash) != 20 || subject == content || text.Valid || owner.Valid {
 				return nil, app.ErrRepositoryUnavailable
 			}
 			var audioID domain.AudioID
@@ -531,7 +554,7 @@ func (r *catalogRepository) catalogSupport(ctx context.Context, command, subject
 				}
 			}
 		case domain.OwnershipClaimKey:
-			if !owner.Valid || owner.String != content || subject == content {
+			if !owner.Valid || owner.String != content || subject == content || text.Valid || len(audio) != 0 || len(hash) != 0 {
 				return nil, app.ErrRepositoryUnavailable
 			}
 			var id identity.ContentID

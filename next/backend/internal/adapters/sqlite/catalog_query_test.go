@@ -207,6 +207,33 @@ func TestCatalogRevisionBoundCursor(t *testing.T) {
 		t.Fatalf("same-revision legacy write: %v", err)
 	}
 	catalogSchemaExec(t, owner.database.db, "UPDATE tc_catalog_content SET title='Stored <baseline>' WHERE content_id=?", catalogSchemaID("cnt", 1))
+	if _, err := catalogRead(t, owner, query); !errors.Is(err, app.ErrStaleCursor) {
+		t.Fatalf("same-value ABA write: %v", err)
+	}
+	query.Page.Cursor, query.Page.ExpectedRevision = "", domain.CatalogRevision{}
+	fresh, err := catalogRead(t, owner, query)
+	if err != nil {
+		t.Fatal(err)
+	}
+	query.Page.Cursor, query.Page.ExpectedRevision = fresh.Next, fresh.Revision
+	external, err := Open(t.Context(), owner.config, SchemaMigrations())
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalogSchemaExec(t, external.db, "UPDATE tc_catalog_content SET title='External ABA'")
+	catalogSchemaExec(t, external.db, "UPDATE tc_catalog_content SET title='Stored <baseline>'")
+	if err := external.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := catalogRead(t, owner, query); !errors.Is(err, app.ErrStaleCursor) {
+		t.Fatalf("external same-value ABA write: %v", err)
+	}
+	query.Page.Cursor, query.Page.ExpectedRevision = "", domain.CatalogRevision{}
+	fresh, err = catalogRead(t, owner, query)
+	if err != nil {
+		t.Fatal(err)
+	}
+	query.Page.Cursor, query.Page.ExpectedRevision = fresh.Next, fresh.Revision
 	owner.generation.Add(1)
 	if _, err := catalogRead(t, owner, query); !errors.Is(err, app.ErrStaleCursor) {
 		t.Fatalf("restore generation: %v", err)
@@ -304,7 +331,7 @@ func TestCatalogQueryBounds(t *testing.T) {
 func TestCatalogQueryCorruptRelations(t *testing.T) {
 	for _, mutation := range []string{
 		"UPDATE tc_catalog_managed SET aggregate_revision=3 WHERE content_id='" + catalogSchemaID("cnt", 1) + "'",
-		"DROP TRIGGER tc_catalog_observations_no_update; UPDATE tc_catalog_observations SET text_value='bad'||char(0)||'text'",
+		"DROP TRIGGER tc_catalog_observations_no_update; PRAGMA ignore_check_constraints=ON; UPDATE tc_catalog_observations SET text_value='bad'||char(0)||'text'; PRAGMA ignore_check_constraints=OFF",
 		"DROP TRIGGER tc_catalog_decision_support_no_delete; DELETE FROM tc_catalog_decision_support",
 		"DROP TRIGGER tc_catalog_decision_support_no_update; PRAGMA foreign_keys=OFF; UPDATE tc_catalog_decision_support SET observation_id='" + catalogSchemaID("obs", 99) + "'; PRAGMA foreign_keys=ON",
 	} {
