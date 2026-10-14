@@ -92,6 +92,33 @@ func (database *Database) withinSQLTransaction(ctx context.Context, operation fu
 }
 
 func (repository contentRepository) Save(ctx context.Context, content domaincatalog.Content) error {
+	// Read the selected handle's ledger inside this transaction: an exact
+	// pre-PI-08 restore has no managed table and must remain usable as-is.
+	var version, dirty int
+	if err := repository.transaction.QueryRowContext(ctx,
+		`SELECT COALESCE(MAX(version), 0), COALESCE(MAX(dirty), 0)
+		 FROM tc_schema_migrations`,
+	).Scan(&version, &dirty); err != nil {
+		return repositoryError(ctx, err)
+	}
+	if version < 1 || dirty != 0 {
+		return applicationcatalog.ErrRepositoryUnavailable
+	}
+	if version >= 5 {
+		var managed bool
+		if err := repository.transaction.QueryRowContext(ctx,
+			`SELECT EXISTS(SELECT 1 FROM tc_catalog_managed WHERE content_id = ?)`,
+			content.ID().String(),
+		).Scan(&managed); err != nil {
+			return repositoryError(ctx, err)
+		}
+		if managed {
+			return applicationcatalog.ErrUnauthorized
+		}
+	}
+	// The guard and upsert share a SQL transaction and its read snapshot.
+	// SQLite refuses to promote a stale snapshot to a writer after another
+	// connection commits adoption; contention never replays the callback.
 	model, article := nullableProductIdentifiers(content.Facts().ProductIdentifiers())
 	if err := repository.execWithContention(
 		ctx,
