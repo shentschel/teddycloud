@@ -440,7 +440,275 @@ func TestCatalogQueryThroughApplication(t *testing.T) {
 	}
 	query.Kind, query.Content, query.Page = app.FindVersionsByAudioID, identity.ContentID{}, app.PageRequest{Limit: 1}
 	query.AudioID, _ = domain.NewAudioID(123)
-	if _, err := service.Query(t.Context(), query); !errors.Is(err, app.ErrUnsupported) {
-		t.Fatalf("deferred global find: %v", err)
+	result, err := service.Query(t.Context(), query)
+	if err != nil || result.Kind != app.Incomplete || result.Complete || len(result.Entries) != 1 {
+		t.Fatalf("application global find: %#v %v", result, err)
+	}
+	query.Page.Cursor, query.Page.ExpectedRevision = result.Next, result.Revision
+	last, err = service.Query(t.Context(), query)
+	if err != nil || last.Kind != app.Incomplete || last.Complete || last.Next != "" {
+		t.Fatalf("global continuation implied uniqueness: %#v %v", last, err)
+	}
+	query.Page = app.PageRequest{Limit: 128}
+	result, err = service.Query(t.Context(), query)
+	if err != nil || result.Kind != app.Ambiguous || !result.Complete || len(result.Entries) != 2 {
+		t.Fatalf("application global ambiguity: %#v %v", result, err)
+	}
+}
+
+func catalogFindQuery(t *testing.T, kind app.QueryKind, limit uint64) app.Query {
+	t.Helper()
+	audio, err := domain.NewAudioID(123)
+	if err != nil {
+		t.Fatal(err)
+	}
+	query := app.Query{Kind: kind, Page: app.PageRequest{Limit: limit}}
+	if kind == app.FindVersionsByAudioID {
+		query.AudioID = audio
+	} else {
+		hash, err := domain.ParseAudioHash(strings.Repeat("01", 20))
+		if err != nil {
+			t.Fatal(err)
+		}
+		query.Fingerprint, err = domain.NewAudioFingerprint(audio, hash)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	return query
+}
+
+func TestCatalogGlobalFindIdentitiesAndOutcomes(t *testing.T) {
+	for _, kind := range []app.QueryKind{app.FindVersionsByPair, app.FindVersionsByAudioID} {
+		t.Run("find", func(t *testing.T) {
+			owner := catalogQueryOwner(t)
+			query := catalogFindQuery(t, kind, 128)
+			empty, err := catalogRead(t, owner, query)
+			if err != nil || empty.Kind != app.NoMatch || !empty.Complete || empty.Inspected != 0 {
+				t.Fatalf("empty catalog: %#v %v", empty, err)
+			}
+			catalogSeedVersions(t, owner, 1)
+			one, err := catalogRead(t, owner, query)
+			if err != nil || one.Kind != app.Found || !one.Complete || len(one.Entries) != 1 {
+				t.Fatalf("unique: %#v %v", one, err)
+			}
+			// Reverse version identity order across owners to exercise tuple order.
+			catalogSchemaExec(t, owner.database.db, "UPDATE tc_content_versions SET version_id=? WHERE version_id=?", catalogSchemaID("ver", 3), catalogSchemaID("ver", 1))
+			catalogSchemaExec(t, owner.database.db, "INSERT INTO tc_catalog_content VALUES (?,'Other owner',NULL,NULL)", catalogSchemaID("cnt", 2))
+			catalogSchemaExec(t, owner.database.db, "INSERT INTO tc_content_versions VALUES (?,?,123,?,0,NULL,NULL)", catalogSchemaID("ver", 1), catalogSchemaID("cnt", 2), bytes.Repeat([]byte{1}, 20))
+			catalogSchemaExec(t, owner.database.db, "INSERT INTO tc_content_versions VALUES (?,?,123,?,0,NULL,NULL)", catalogSchemaID("ver", 2), catalogSchemaID("cnt", 1), bytes.Repeat([]byte{1}, 20))
+			result, err := catalogRead(t, owner, query)
+			if err != nil || result.Kind != app.Ambiguous || !result.Complete || len(result.Entries) != 3 || result.Inspected != 3 {
+				t.Fatalf("duplicate pairs: %#v %v", result, err)
+			}
+			for i, version := range []int{2, 3, 1} {
+				if result.Entries[i].Version.ID() != catalogQueryVersion(t, version) || result.Entries[i].Media != app.CatalogOnly {
+					t.Fatal("opaque identities/order/media lost")
+				}
+			}
+			again, err := catalogRead(t, owner, query)
+			if err != nil || !reflect.DeepEqual(again, result) {
+				t.Fatal("global result was nondeterministic")
+			}
+			query.Content = catalogQueryContent(t, 2)
+			result, err = catalogRead(t, owner, query)
+			if err != nil || result.Kind != app.Found || result.Entries[0].Content != query.Content {
+				t.Fatalf("optional owner filter: %#v %v", result, err)
+			}
+			query.Content = catalogQueryContent(t, 99)
+			result, err = catalogRead(t, owner, query)
+			if err != nil || result.Kind != app.NoMatch || !result.Complete {
+				t.Fatalf("absent owner filter: %#v %v", result, err)
+			}
+			query = catalogFindQuery(t, kind, 128)
+			catalogSchemaExec(t, owner.database.db, "UPDATE tc_content_versions SET audio_sha1=? WHERE version_id=?", bytes.Repeat([]byte{2}, 20), catalogSchemaID("ver", 1))
+			result, err = catalogRead(t, owner, query)
+			want := 3
+			if kind == app.FindVersionsByPair {
+				want = 2
+			}
+			if err != nil || result.Kind != app.Ambiguous || len(result.Entries) != want {
+				t.Fatalf("pair versus audio matching: %#v %v", result, err)
+			}
+			for _, table := range []string{"tc_blobs", "tc_version_blobs", "tc_blob_imports", "tc_catalog_managed", "tc_catalog_decisions"} {
+				var count int
+				if err := owner.database.db.QueryRowContext(t.Context(), "SELECT count(*) FROM "+table).Scan(&count); err != nil || count != 0 {
+					t.Fatalf("find fabricated %s: %d %v", table, count, err)
+				}
+			}
+		})
+	}
+}
+
+func TestCatalogGlobalFindCursor(t *testing.T) {
+	for _, kind := range []app.QueryKind{app.FindVersionsByPair, app.FindVersionsByAudioID} {
+		owner := catalogQueryOwner(t)
+		catalogSeedVersions(t, owner, 3)
+		query := catalogFindQuery(t, kind, 1)
+		first, err := catalogRead(t, owner, query)
+		if err != nil || first.Kind != app.Incomplete || first.Next == "" || first.Complete {
+			t.Fatalf("first: %#v %v", first, err)
+		}
+		for n := 2; n <= 3; n++ {
+			if n == 2 {
+				query.Page.Cursor = first.Next
+			}
+			query.Page.ExpectedRevision = first.Revision
+			page, err := catalogRead(t, owner, query)
+			if err != nil || page.Kind != app.Incomplete || page.Complete || page.Entries[0].Version.ID() != catalogQueryVersion(t, n) || (page.Next == "") != (n == 3) {
+				t.Fatalf("page %d: %#v %v", n, page, err)
+			}
+			query.Page.Cursor = page.Next
+		}
+		query.Page.Cursor = first.Next
+		original := query
+		query.Page.Limit = 2
+		if _, err := catalogRead(t, owner, query); !errors.Is(err, app.ErrStaleCursor) {
+			t.Fatalf("changed limit: %v", err)
+		}
+		query = original
+		query.Content = catalogQueryContent(t, 1)
+		if _, err := catalogRead(t, owner, query); !errors.Is(err, app.ErrStaleCursor) {
+			t.Fatalf("changed owner filter: %v", err)
+		}
+		query = catalogFindQuery(t, kind, 1)
+		if kind == app.FindVersionsByAudioID {
+			query.AudioID, _ = domain.NewAudioID(124)
+		} else {
+			hash, _ := domain.ParseAudioHash(strings.Repeat("02", 20))
+			audio, _ := domain.NewAudioID(123)
+			query.Fingerprint, _ = domain.NewAudioFingerprint(audio, hash)
+		}
+		query.Page = original.Page
+		if _, err := catalogRead(t, owner, query); !errors.Is(err, app.ErrStaleCursor) {
+			t.Fatalf("changed search attribute: %v", err)
+		}
+		query = original
+		query.Page.Cursor = first.Next[:len(first.Next)-1] + "!"
+		if _, err := catalogRead(t, owner, query); !errors.Is(err, app.ErrStaleCursor) {
+			t.Fatalf("tamper: %v", err)
+		}
+		query = original
+		query.Page.ExpectedRevision, _ = domain.NewCatalogRevision(2)
+		if _, err := catalogRead(t, owner, query); !errors.Is(err, app.ErrStaleCursor) {
+			t.Fatalf("stale revision: %v", err)
+		}
+		query = original
+		catalogSchemaExec(t, owner.database.db, "UPDATE tc_catalog_content SET title='ABA'")
+		catalogSchemaExec(t, owner.database.db, "UPDATE tc_catalog_content SET title='Stored <baseline>'")
+		if _, err := catalogRead(t, owner, query); !errors.Is(err, app.ErrStaleCursor) {
+			t.Fatalf("same-value ABA: %v", err)
+		}
+		query.Page = app.PageRequest{Limit: 1}
+		fresh, err := catalogRead(t, owner, query)
+		if err != nil {
+			t.Fatal(err)
+		}
+		query.Page.Cursor, query.Page.ExpectedRevision = fresh.Next, fresh.Revision
+		external, err := Open(t.Context(), owner.config, SchemaMigrations())
+		if err != nil {
+			t.Fatal(err)
+		}
+		catalogSchemaExec(t, external.db, "UPDATE tc_catalog_content SET title='External ABA'")
+		catalogSchemaExec(t, external.db, "UPDATE tc_catalog_content SET title='Stored <baseline>'")
+		if err := external.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := catalogRead(t, owner, query); !errors.Is(err, app.ErrStaleCursor) {
+			t.Fatalf("external ABA: %v", err)
+		}
+		query.Page = app.PageRequest{Limit: 1}
+		fresh, err = catalogRead(t, owner, query)
+		if err != nil {
+			t.Fatal(err)
+		}
+		query.Page.Cursor, query.Page.ExpectedRevision = fresh.Next, fresh.Revision
+		owner.generation.Add(1)
+		if _, err := catalogRead(t, owner, query); !errors.Is(err, app.ErrStaleCursor) {
+			t.Fatalf("restore generation: %v", err)
+		}
+	}
+}
+
+func TestCatalogGlobalFindBoundsAndCorruption(t *testing.T) {
+	owner := catalogQueryOwner(t)
+	catalogSeedVersions(t, owner, 1)
+	query := catalogFindQuery(t, app.FindVersionsByAudioID, 128)
+	query.Page.Limit = 129
+	if _, err := catalogRead(t, owner, query); !errors.Is(err, app.ErrLimitExceeded) {
+		t.Fatalf("entry one-over: %v", err)
+	}
+	query.Page.Limit = 128
+	query.Page.Cursor = strings.Repeat("x", 257)
+	if _, err := catalogRead(t, owner, query); !errors.Is(err, app.ErrLimitExceeded) {
+		t.Fatalf("cursor one-over: %v", err)
+	}
+	query.Page.Cursor = ""
+	catalogSchemaExec(t, owner.database.db, `WITH RECURSIVE n(x) AS (VALUES(2) UNION ALL SELECT x+1 FROM n WHERE x<1024)
+ INSERT INTO tc_content_versions SELECT printf('ver_%026d',x),?,123,zeroblob(20),0,NULL,NULL FROM n`, catalogSchemaID("cnt", 1))
+	result, err := catalogRead(t, owner, query)
+	if err != nil || result.Inspected != 1024 || result.Kind != app.Incomplete {
+		t.Fatalf("global exact scan bound: %#v %v", result, err)
+	}
+	catalogSchemaExec(t, owner.database.db, "INSERT INTO tc_content_versions VALUES (?,?,999,zeroblob(20),0,NULL,NULL)", catalogSchemaID("ver", 1025), catalogSchemaID("cnt", 1))
+	if _, err := catalogRead(t, owner, query); !errors.Is(err, app.ErrLimitExceeded) {
+		t.Fatalf("nonmatching row exceeds global scan: %v", err)
+	}
+	for _, mutation := range []string{
+		"PRAGMA ignore_check_constraints=ON; UPDATE tc_content_versions SET audio_sha1=zeroblob(19); PRAGMA ignore_check_constraints=OFF",
+		"PRAGMA foreign_keys=OFF; UPDATE tc_content_versions SET content_id='" + catalogSchemaID("cnt", 99) + "'; PRAGMA foreign_keys=ON",
+		"UPDATE tc_catalog_content SET title='bad'||char(0)||'text'",
+		"PRAGMA ignore_check_constraints=ON; UPDATE tc_content_versions SET order_known=2; PRAGMA ignore_check_constraints=OFF",
+	} {
+		t.Run(mutation[:min(len(mutation), 40)], func(t *testing.T) {
+			owner := catalogQueryOwner(t)
+			catalogSeedVersions(t, owner, 1)
+			catalogSchemaExec(t, owner.database.db, mutation)
+			query := catalogFindQuery(t, app.FindVersionsByAudioID, 128)
+			query.AudioID, _ = domain.NewAudioID(999)
+			if _, err := catalogRead(t, owner, query); !errors.Is(err, app.ErrRepositoryUnavailable) {
+				t.Fatalf("corruption hidden by no match: %v", err)
+			}
+		})
+	}
+}
+
+func TestCatalogGlobalFindEncodedBytes(t *testing.T) {
+	owner := catalogQueryOwner(t)
+	catalogSeedVersions(t, owner, 128)
+	catalogSchemaExec(t, owner.database.db, "UPDATE tc_catalog_content SET title=?", strings.Repeat("<", 4096))
+	query := catalogFindQuery(t, app.FindVersionsByPair, 128)
+	first, err := catalogRead(t, owner, query)
+	if err != nil || first.Kind != app.Incomplete || first.Next == "" || len(first.Entries) == 0 || len(first.Entries) >= 128 || first.EncodedBytes > domain.QueryBytes.Maximum() {
+		t.Fatalf("escaped byte bounded page: %#v %v", first, err)
+	}
+	seen := len(first.Entries)
+	page := first
+	for page.Next != "" {
+		query.Page.Cursor, query.Page.ExpectedRevision = page.Next, page.Revision
+		page, err = catalogRead(t, owner, query)
+		if err != nil || page.Kind != app.Incomplete || page.Complete || page.EncodedBytes > domain.QueryBytes.Maximum() {
+			t.Fatalf("byte bounded continuation: %#v %v", page, err)
+		}
+		seen += len(page.Entries)
+	}
+	if seen != 128 {
+		t.Fatalf("lost candidates: %d", seen)
+	}
+}
+
+func TestCatalogGlobalFindReviewedProjection(t *testing.T) {
+	db := catalogSchemaFixture(t)
+	owner := &LifecycleOwner{gate: newLifecycleGate(), database: db}
+	catalogSchemaExec(t, db.db, "UPDATE tc_catalog_managed SET aggregate_revision=2 WHERE content_id=?", catalogSchemaID("cnt", 1))
+	catalogSchemaExec(t, db.db, "UPDATE tc_catalog_subjects SET review_revision=2 WHERE subject_id=?", catalogSchemaID("cnt", 1))
+	query := catalogFindQuery(t, app.FindVersionsByPair, 128)
+	result, err := catalogRead(t, owner, query)
+	if err != nil || result.Kind != app.Ambiguous || result.Revision.Uint64() != 2 || result.Entries[0].Review != app.CatalogReviewed || len(result.Entries[0].Title.Alternatives[0].Support) != 1 {
+		t.Fatalf("review projection/support lost: %#v %v", result, err)
+	}
+	catalogSchemaExec(t, db.db, "DROP TRIGGER tc_catalog_decision_support_no_delete; DELETE FROM tc_catalog_decision_support")
+	if _, err := catalogRead(t, owner, query); !errors.Is(err, app.ErrRepositoryUnavailable) {
+		t.Fatalf("missing reviewed support: %v", err)
 	}
 }

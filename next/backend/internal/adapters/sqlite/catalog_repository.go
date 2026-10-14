@@ -48,6 +48,9 @@ func (r *catalogRepository) Query(ctx context.Context, query app.Query) (result 
 	if err := catalogQueryInput(query); err != nil {
 		return result, err
 	}
+	if query.Kind == app.FindVersionsByPair || query.Kind == app.FindVersionsByAudioID {
+		return r.catalogFind(call, query)
+	}
 	record, revision, found, err := r.catalogContent(call, query.Content)
 	if err != nil {
 		return result, err
@@ -158,25 +161,209 @@ func (r *catalogRepository) Query(ctx context.Context, query app.Query) (result 
 }
 
 func catalogQueryInput(q app.Query) error {
-	if q.Kind == app.FindVersionsByPair || q.Kind == app.FindVersionsByAudioID {
-		return app.ErrUnsupported
-	}
-	if q.Page.Limit == 0 || q.Content.IsZero() {
+	if q.Kind < app.GetContent || q.Kind > app.ListVersions || q.Page.Limit == 0 {
 		return app.ErrInvalidInput
 	}
 	if q.Page.Limit > domain.QueryEntries.Maximum() || uint64(len(q.Page.Cursor)) > domain.CursorBytes.Maximum() {
 		return app.ErrLimitExceeded
 	}
-	if q.Page.Cursor != "" && (q.Kind != app.ListVersions || q.Page.ExpectedRevision.Uint64() == 0) {
+	global := q.Kind == app.FindVersionsByPair || q.Kind == app.FindVersionsByAudioID
+	if q.Page.Cursor != "" && ((!global && q.Kind != app.ListVersions) || q.Page.ExpectedRevision.Uint64() == 0) {
 		return app.ErrInvalidInput
 	}
-	if q.Kind != app.GetContent && q.Kind != app.GetVersion && q.Kind != app.ListVersions {
-		return app.ErrInvalidInput
-	}
-	if !q.Fingerprint.IsZero() || !q.AudioID.IsZero() || q.Kind == app.GetVersion && q.Version.IsZero() || q.Kind != app.GetVersion && !q.Version.IsZero() {
-		return app.ErrInvalidInput
+	switch q.Kind {
+	case app.FindVersionsByPair:
+		if q.Fingerprint.IsZero() || !q.AudioID.IsZero() || !q.Version.IsZero() {
+			return app.ErrInvalidInput
+		}
+	case app.FindVersionsByAudioID:
+		if q.AudioID.IsZero() || !q.Fingerprint.IsZero() || !q.Version.IsZero() {
+			return app.ErrInvalidInput
+		}
+	default:
+		if q.Content.IsZero() || !q.Fingerprint.IsZero() || !q.AudioID.IsZero() || q.Kind == app.GetVersion && q.Version.IsZero() || q.Kind != app.GetVersion && !q.Version.IsZero() {
+			return app.ErrInvalidInput
+		}
 	}
 	return nil
+}
+
+// catalogFind scans a bounded, validated snapshot before asserting uniqueness.
+// Fingerprints are search attributes; the page key remains the independent
+// opaque ContentID/VersionID tuple. Even nonmatching rows count toward admission.
+func (r *catalogRepository) catalogFind(ctx context.Context, query app.Query) (app.QueryResult, error) {
+	var count uint64
+	if err := r.transaction.QueryRowContext(ctx, "SELECT count(*) FROM (SELECT 1 FROM tc_content_versions LIMIT 1025)").Scan(&count); err != nil {
+		return app.QueryResult{}, repositoryError(ctx, err)
+	}
+	if count > domain.ResolutionCandidates.Maximum() {
+		return app.QueryResult{}, app.ErrLimitExceeded
+	}
+	var corrupt bool
+	if err := r.transaction.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM pragma_foreign_key_check LIMIT 1)").Scan(&corrupt); err != nil {
+		return app.QueryResult{}, repositoryError(ctx, err)
+	}
+	if corrupt {
+		return app.QueryResult{}, app.ErrRepositoryUnavailable
+	}
+	rows, err := r.transaction.QueryContext(ctx, `SELECT DISTINCT
+ CASE WHEN typeof(content_id)='text' AND length(CAST(content_id AS BLOB))=30 THEN content_id END
+ FROM tc_content_versions ORDER BY 1 COLLATE BINARY LIMIT 1025`)
+	if err != nil {
+		return app.QueryResult{}, repositoryError(ctx, err)
+	}
+	var contents []identity.ContentID
+	for rows.Next() {
+		var value sql.NullString
+		if err := rows.Scan(&value); err != nil {
+			rows.Close()
+			return app.QueryResult{}, repositoryError(ctx, err)
+		}
+		id, err := identity.ParseContentID(value.String)
+		if !value.Valid || err != nil || uint64(len(contents)) >= domain.ResolutionCandidates.Maximum() {
+			rows.Close()
+			return app.QueryResult{}, app.ErrRepositoryUnavailable
+		}
+		contents = append(contents, id)
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return app.QueryResult{}, repositoryError(ctx, err)
+	}
+	revision, _ := domain.NewCatalogRevision(1)
+	result := app.QueryResult{Inspected: count}
+	snapshot := sha256.New()
+	var changes, dataVersion uint64
+	if err := r.transaction.QueryRowContext(ctx, "SELECT total_changes()").Scan(&changes); err != nil {
+		return app.QueryResult{}, repositoryError(ctx, err)
+	}
+	if err := r.transaction.QueryRowContext(ctx, "PRAGMA data_version").Scan(&dataVersion); err != nil {
+		return app.QueryResult{}, repositoryError(ctx, err)
+	}
+	var counters [16]byte
+	binary.BigEndian.PutUint64(counters[:8], changes)
+	binary.BigEndian.PutUint64(counters[8:], dataVersion)
+	snapshot.Write(counters[:])
+	type candidate struct {
+		record app.CatalogRecord
+		key    string
+	}
+	var matches []candidate
+	var scanned, retained uint64
+	for _, id := range contents {
+		record, current, found, err := r.catalogContent(ctx, id)
+		if err != nil {
+			return app.QueryResult{}, err
+		}
+		if !found {
+			return app.QueryResult{}, app.ErrRepositoryUnavailable
+		}
+		if current.Uint64() > revision.Uint64() {
+			revision = current
+		}
+		base, err := catalogRecordBytes(record)
+		if err != nil {
+			return app.QueryResult{}, app.ErrRepositoryUnavailable
+		}
+		if err := domain.CheckLimit(domain.RetainedBytes, retained, uint64(len(base))); err != nil {
+			return app.QueryResult{}, app.ErrLimitExceeded
+		}
+		retained += uint64(len(base))
+		snapshot.Write(base)
+		versions, err := r.catalogVersions(ctx, id)
+		if err != nil {
+			return app.QueryResult{}, err
+		}
+		scanned += uint64(len(versions))
+		for _, row := range versions {
+			encoded, err := catalogVersionBytes(row)
+			if err != nil {
+				return app.QueryResult{}, app.ErrRepositoryUnavailable
+			}
+			if err := domain.CheckLimit(domain.RetainedBytes, retained, uint64(len(encoded)+40)); err != nil {
+				return app.QueryResult{}, app.ErrLimitExceeded
+			}
+			retained += uint64(len(encoded) + 40)
+			snapshot.Write(encoded)
+			snapshot.Write(row.Digest[:])
+			var size [8]byte
+			binary.BigEndian.PutUint64(size[:], row.Size)
+			snapshot.Write(size[:])
+			if !query.Content.IsZero() && id != query.Content {
+				continue
+			}
+			pair := row.Version.Fingerprint()
+			if query.Kind == app.FindVersionsByPair && pair != query.Fingerprint || query.Kind == app.FindVersionsByAudioID && pair.AudioID() != query.AudioID {
+				continue
+			}
+			entry := record
+			entry.Version, entry.Media = row.Version, row.Media
+			matches = append(matches, candidate{record: entry, key: id.String() + row.Version.ID().String()})
+		}
+	}
+	if scanned != count {
+		return app.QueryResult{}, app.ErrRepositoryUnavailable
+	}
+	result.Revision = revision
+	if query.Page.ExpectedRevision.Uint64() != 0 && query.Page.ExpectedRevision != revision {
+		return app.QueryResult{}, app.ErrStaleCursor
+	}
+	var digest [32]byte
+	copy(digest[:], snapshot.Sum(nil))
+	start := 0
+	if query.Page.Cursor != "" {
+		after, err := r.catalogCursorAfter(query, revision, digest)
+		if err != nil {
+			return app.QueryResult{}, err
+		}
+		start = sort.Search(len(matches), func(i int) bool { return matches[i].key >= after })
+		if start == len(matches) || matches[start].key != after {
+			return app.QueryResult{}, app.ErrStaleCursor
+		}
+		start++
+	}
+	// Reserve the maximum cursor plus envelope while charging actual escaped
+	// record/version bytes. The final encoder checks the exact complete envelope.
+	charged := uint64(512)
+	end := start
+	for end < len(matches) && uint64(len(result.Entries)) < query.Page.Limit {
+		entry := matches[end].record
+		base, err := catalogRecordBytes(entry)
+		if err != nil {
+			return app.QueryResult{}, app.ErrRepositoryUnavailable
+		}
+		version, err := catalogVersionBytes(catalogVersionRow{Version: entry.Version, Media: entry.Media})
+		if err != nil {
+			return app.QueryResult{}, app.ErrRepositoryUnavailable
+		}
+		added := uint64(len(base) + len(version) + 32)
+		if charged+added > domain.QueryBytes.Maximum() {
+			if len(result.Entries) == 0 {
+				return app.QueryResult{}, app.ErrLimitExceeded
+			}
+			break
+		}
+		charged += added
+		result.Entries = append(result.Entries, entry)
+		end++
+	}
+	result.Complete = start == 0 && end == len(matches)
+	if !result.Complete {
+		result.Kind = app.Incomplete
+		if end < len(matches) {
+			result.Next, err = r.catalogCursor(query, revision, digest, matches[end-1].key)
+			if err != nil {
+				return app.QueryResult{}, err
+			}
+		}
+	} else {
+		result.Kind = catalogResultKind(result.Entries)
+		if result.Kind == app.Found && len(result.Entries) > 1 {
+			result.Kind = app.Ambiguous
+		}
+	}
+	return catalogPageSize(result)
 }
 
 func (r *catalogRepository) catalogContent(ctx context.Context, id identity.ContentID) (app.CatalogRecord, domain.CatalogRevision, bool, error) {
@@ -694,6 +881,8 @@ func (r *catalogRepository) catalogCursorMAC(query app.Query, revision domain.Ca
 	}
 	mac := hmac.New(sha256.New, catalogCursorSecret.key[:])
 	fmt.Fprintf(mac, "pi08-sqlite-cursor/1|%p|%p|%d|%d|%s|%s|%d|%d|", r.owner, r.database, r.generation, query.Kind, query.Content.String(), query.Version.String(), query.Page.Limit, revision.Uint64())
+	fmt.Fprintf(mac, "%d|%s|", query.AudioID.Uint64(), query.Fingerprint.Hash().String())
+	fmt.Fprintf(mac, "%d|", query.Fingerprint.AudioID().Uint64())
 	mac.Write(payload)
 	return mac.Sum(nil), nil
 }
@@ -709,19 +898,31 @@ func (r *catalogRepository) catalogCursor(query app.Query, revision domain.Catal
 }
 
 func (r *catalogRepository) catalogCursorAfter(query app.Query, revision domain.CatalogRevision, snapshot [32]byte) (string, error) {
+	keyBytes := 30
+	if query.Kind == app.FindVersionsByPair || query.Kind == app.FindVersionsByAudioID {
+		keyBytes = 60
+	}
+	payloadBytes := 1 + keyBytes + 32
 	raw, err := base64.RawURLEncoding.DecodeString(query.Page.Cursor)
-	if err != nil || len(raw) != 95 || raw[0] != 1 || base64.RawURLEncoding.EncodeToString(raw) != query.Page.Cursor {
+	if err != nil || len(raw) != payloadBytes+32 || raw[0] != 1 || base64.RawURLEncoding.EncodeToString(raw) != query.Page.Cursor {
 		return "", app.ErrStaleCursor
 	}
-	mac, err := r.catalogCursorMAC(query, revision, raw[:63])
+	mac, err := r.catalogCursorMAC(query, revision, raw[:payloadBytes])
 	if err != nil {
 		return "", err
 	}
-	if !hmac.Equal(mac, raw[63:]) || !hmac.Equal(snapshot[:], raw[31:63]) {
+	if !hmac.Equal(mac, raw[payloadBytes:]) || !hmac.Equal(snapshot[:], raw[1+keyBytes:payloadBytes]) {
 		return "", app.ErrStaleCursor
 	}
-	after := string(raw[1:31])
-	if _, err := identity.ParseContentVersionID(after); err != nil {
+	after := string(raw[1 : 1+keyBytes])
+	version := after
+	if keyBytes == 60 {
+		if _, err := identity.ParseContentID(after[:30]); err != nil {
+			return "", app.ErrStaleCursor
+		}
+		version = after[30:]
+	}
+	if _, err := identity.ParseContentVersionID(version); err != nil {
 		return "", app.ErrStaleCursor
 	}
 	return after, nil
