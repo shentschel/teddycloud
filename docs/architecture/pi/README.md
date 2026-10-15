@@ -31,6 +31,7 @@ Current execution artifacts:
 - [PI-08/A1.2b effective-order checkpoint](pi-08-a1-order-checkpoint.md)
 - [PI-08/A1.3a catalog application service checkpoint](pi-08-a1-service-checkpoint.md)
 - [PI-08/A1.3b query contract checkpoint](pi-08-a1-query-contract-checkpoint.md)
+- [PI-08/A1.3c persistence rehydration checkpoint](pi-08-a1-persistence-rehydration-checkpoint.md)
 - [PI-08/A2.1 durable catalog schema checkpoint](pi-08-a2-schema-checkpoint.md)
 - [PI-08/A2.2 managed Save guard checkpoint](pi-08-a2-managed-save-checkpoint.md)
 - [PI-08/A2.3 read-only catalog query checkpoint](pi-08-a2-query-checkpoint.md)
