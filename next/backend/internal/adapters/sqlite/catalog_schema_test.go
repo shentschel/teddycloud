@@ -17,7 +17,7 @@ import (
 )
 
 func TestCatalogSchemaV4Upgrade(t *testing.T) {
-	migrations := SchemaMigrations()
+	migrations := SchemaMigrations()[:5]
 	if len(migrations) != 5 || migrations[4].Version != 5 || migrations[4].ID != "0005-catalog-provenance" {
 		t.Fatal("unexpected catalog migration identity")
 	}
@@ -344,8 +344,12 @@ func TestCatalogCorruptSchemaRelations(t *testing.T) {
 }
 
 func catalogSchemaFixture(t *testing.T) *Database {
+	return catalogSchemaFixtureMigrations(t, SchemaMigrations())
+}
+
+func catalogSchemaFixtureMigrations(t *testing.T, migrations []Migration) *Database {
 	t.Helper()
-	db, err := Open(t.Context(), Config{Path: filepath.Join(t.TempDir(), "catalog.sqlite")}, SchemaMigrations())
+	db, err := Open(t.Context(), Config{Path: filepath.Join(t.TempDir(), "catalog.sqlite")}, migrations)
 	if err != nil {
 		t.Fatal(err)
 	}

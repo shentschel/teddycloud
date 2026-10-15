@@ -280,6 +280,77 @@ var schemaMigrations = []Migration{
  BEGIN SELECT RAISE(ABORT,'retained catalog subject'); END`,
 		},
 	},
+	// Bounded persistence envelopes, not capabilities. The future adapter must
+	// verify SHA-256, decode with A1.3c and cross-check normalized evidence and
+	// the complete version manifest in the same transaction before using state.
+	{
+		Version: 6,
+		ID:      "0006-catalog-aggregate-state",
+		Statements: []string{
+			`CREATE TABLE tc_catalog_review_states (
+ subject_id TEXT NOT NULL,
+ content_id TEXT NOT NULL,
+ aggregate_revision INTEGER NOT NULL CHECK(aggregate_revision>0),
+ review_revision INTEGER NOT NULL CHECK(review_revision BETWEEN 1 AND 1025),
+ encoding INTEGER NOT NULL CHECK(encoding=1),
+ state BLOB NOT NULL CHECK(length(state) BETWEEN 112 AND 8388608),
+ state_bytes INTEGER NOT NULL CHECK(state_bytes=length(state)),
+ state_sha256 BLOB NOT NULL CHECK(length(state_sha256)=32 AND state_sha256<>zeroblob(32)),
+ CHECK(hex(substr(state,1,64))='0000000000000013706930382D7265766965772D73746174652F31000000000000001E'||hex(CAST(content_id AS BLOB))),
+ CHECK(hex(substr(state,65,8))=CASE WHEN subject_id=content_id THEN '0000000000000000' ELSE '000000000000001E' END),
+ CHECK(subject_id=content_id OR substr(state,73,30)=CAST(subject_id AS BLOB)),
+ CHECK(hex(substr(state,CASE WHEN subject_id=content_id THEN 73 ELSE 103 END,8))=printf('%016X',review_revision)),
+ PRIMARY KEY(subject_id,review_revision),
+ UNIQUE(subject_id,aggregate_revision),
+ FOREIGN KEY(subject_id,content_id) REFERENCES tc_catalog_subjects(subject_id,content_id) ON DELETE RESTRICT
+) STRICT`,
+			`CREATE TRIGGER tc_catalog_review_state_append BEFORE INSERT ON tc_catalog_review_states
+ WHEN NOT EXISTS(SELECT 1 FROM tc_catalog_managed m JOIN tc_catalog_subjects s ON s.content_id=m.content_id WHERE s.subject_id=NEW.subject_id AND m.content_id=NEW.content_id AND m.aggregate_revision=NEW.aggregate_revision AND s.review_revision=NEW.review_revision)
+ OR EXISTS(SELECT 1 FROM tc_catalog_review_states WHERE subject_id=NEW.subject_id AND (review_revision>=NEW.review_revision OR aggregate_revision>=NEW.aggregate_revision))
+ BEGIN SELECT RAISE(ABORT,'catalog review state revision or binding'); END`,
+			`CREATE TABLE tc_catalog_order_states (
+ content_id TEXT NOT NULL REFERENCES tc_catalog_managed(content_id) ON DELETE RESTRICT,
+ aggregate_revision INTEGER NOT NULL CHECK(aggregate_revision>0),
+ order_revision INTEGER NOT NULL CHECK(order_revision BETWEEN 1 AND 1025),
+ encoding INTEGER NOT NULL CHECK(encoding=1),
+ state BLOB NOT NULL CHECK(length(state) BETWEEN 103 AND 8388608),
+ state_bytes INTEGER NOT NULL CHECK(state_bytes=length(state)),
+ state_sha256 BLOB NOT NULL CHECK(length(state_sha256)=32 AND state_sha256<>zeroblob(32)),
+ CHECK(hex(substr(state,1,63))='0000000000000012706930382D6F726465722D73746174652F31000000000000001E'||hex(CAST(content_id AS BLOB))),
+ CHECK(hex(substr(state,64,8))=printf('%016X',order_revision)),
+ PRIMARY KEY(content_id,order_revision),
+ UNIQUE(content_id,aggregate_revision)
+) STRICT`,
+			`CREATE TRIGGER tc_catalog_order_state_append BEFORE INSERT ON tc_catalog_order_states
+ WHEN NOT EXISTS(SELECT 1 FROM tc_catalog_managed WHERE content_id=NEW.content_id AND aggregate_revision=NEW.aggregate_revision)
+ OR EXISTS(SELECT 1 FROM tc_catalog_order_states WHERE content_id=NEW.content_id AND (order_revision>=NEW.order_revision OR aggregate_revision>=NEW.aggregate_revision))
+ BEGIN SELECT RAISE(ABORT,'catalog order state revision or binding'); END`,
+			`CREATE TABLE tc_catalog_order_state_versions (
+ content_id TEXT NOT NULL,
+ order_revision INTEGER NOT NULL,
+ version_id TEXT NOT NULL,
+ PRIMARY KEY(content_id,order_revision,version_id),
+ FOREIGN KEY(content_id,order_revision) REFERENCES tc_catalog_order_states(content_id,order_revision) ON DELETE RESTRICT,
+ FOREIGN KEY(content_id,version_id) REFERENCES tc_content_versions(content_id,version_id) ON DELETE RESTRICT
+) STRICT`,
+			`CREATE TRIGGER tc_catalog_order_state_version_bounds BEFORE INSERT ON tc_catalog_order_state_versions
+ WHEN (SELECT count(*) FROM tc_catalog_order_state_versions WHERE content_id=NEW.content_id AND order_revision=NEW.order_revision)>=1024
+ OR EXISTS(SELECT 1 FROM tc_catalog_order_state_versions WHERE content_id=NEW.content_id AND order_revision=NEW.order_revision AND version_id=NEW.version_id)
+ BEGIN SELECT RAISE(ABORT,'catalog order state version bounds'); END`,
+			`CREATE TRIGGER tc_catalog_review_states_no_update BEFORE UPDATE ON tc_catalog_review_states
+ BEGIN SELECT RAISE(ABORT,'immutable catalog state'); END`,
+			`CREATE TRIGGER tc_catalog_review_states_no_delete BEFORE DELETE ON tc_catalog_review_states
+ BEGIN SELECT RAISE(ABORT,'immutable catalog state'); END`,
+			`CREATE TRIGGER tc_catalog_order_states_no_update BEFORE UPDATE ON tc_catalog_order_states
+ BEGIN SELECT RAISE(ABORT,'immutable catalog state'); END`,
+			`CREATE TRIGGER tc_catalog_order_states_no_delete BEFORE DELETE ON tc_catalog_order_states
+ BEGIN SELECT RAISE(ABORT,'immutable catalog state'); END`,
+			`CREATE TRIGGER tc_catalog_order_state_versions_no_update BEFORE UPDATE ON tc_catalog_order_state_versions
+ BEGIN SELECT RAISE(ABORT,'immutable catalog state'); END`,
+			`CREATE TRIGGER tc_catalog_order_state_versions_no_delete BEFORE DELETE ON tc_catalog_order_state_versions
+ BEGIN SELECT RAISE(ABORT,'immutable catalog state'); END`,
+		},
+	},
 }
 
 // SchemaMigrations returns a copy of the ordered, forward-only application
