@@ -561,6 +561,14 @@ func (r *catalogRepository) catalogFields(ctx context.Context, record *app.Catal
 	if !managed && (decisions != 0 || observations != 0 || links != 0) {
 		return app.ErrRepositoryUnavailable
 	}
+	if managed && r.schemaVersion == 6 {
+		// Order commits share the aggregate revision with review decisions. Validate
+		// their combined contiguous history and bounded order envelopes before
+		// allowing gaps between the review decisions projected below.
+		if _, _, err := r.readStates(ctx, record.Content, domain.CatalogSubject{}, true, domain.CatalogPersistenceBindings{AllowUnbound: true}); err != nil {
+			return err
+		}
+	}
 	rows, err := r.transaction.QueryContext(ctx, `SELECT d.command_id,d.subject_id,d.kind,d.claim_key,
  d.expected_aggregate_revision,d.result_aggregate_revision,d.expected_review_revision,d.result_review_revision,
  u.review_revision,d.policy_revision,
@@ -592,7 +600,7 @@ func (r *catalogRepository) catalogFields(ctx context.Context, record *app.Catal
 		if previous == 0 {
 			previous = 1
 		}
-		if !catalogHexID(d.command) || !current.Valid || policy != domain.CatalogDecisionPolicy || !reason.Valid || !evidence.ValidText(reason.String, 4096) || d.expected != aggregate || d.result != aggregate+1 || before != previous || after != before+1 || after > uint64(current.Int64) || d.kind < 1 || d.kind > 3 || d.kind == 1 && d.key != 0 || d.kind != 1 && (d.key < 1 || d.key > 5) || d.kind == 3 && d.key > 3 {
+		if !catalogHexID(d.command) || !current.Valid || policy != domain.CatalogDecisionPolicy || !reason.Valid || !evidence.ValidText(reason.String, 4096) || d.expected < aggregate || r.schemaVersion != 6 && d.expected != aggregate || d.result != d.expected+1 || before != previous || after != before+1 || after > uint64(current.Int64) || d.kind < 1 || d.kind > 3 || d.kind == 1 && d.key != 0 || d.kind != 1 && (d.key < 1 || d.key > 5) || d.kind == 3 && d.key > 3 {
 			rows.Close()
 			return app.ErrRepositoryUnavailable
 		}
@@ -604,7 +612,7 @@ func (r *catalogRepository) catalogFields(ctx context.Context, record *app.Catal
 		return repositoryError(ctx, err)
 	}
 	rows.Close()
-	if managed && aggregate != revision.Uint64() {
+	if managed && r.schemaVersion != 6 && aggregate != revision.Uint64() {
 		return app.ErrRepositoryUnavailable
 	}
 	for subject, last := range reviews {

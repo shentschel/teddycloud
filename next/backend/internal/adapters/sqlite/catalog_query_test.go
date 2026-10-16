@@ -63,6 +63,134 @@ func catalogSeedVersions(t *testing.T, owner *LifecycleOwner, count int) {
 	}
 }
 
+func TestCatalogQueryAfterCommitOrder(t *testing.T) {
+	f, _, op, next, result := orderWriteFixture(t)
+	query := app.Query{Kind: app.ListVersions, Content: f.subject.ContentID(), Page: app.PageRequest{Limit: 1}}
+	before, err := catalogRead(t, f.owner, query)
+	if err != nil || before.Next == "" {
+		t.Fatal("initial page", before, err)
+	}
+	for n := uint64(2); n <= 3; n++ {
+		if err := commitOrderFixture(t, f, op, next, result); err != nil {
+			t.Fatal(err)
+		}
+		for _, kind := range []app.QueryKind{app.GetContent, app.GetVersion, app.ListVersions} {
+			q := query
+			q.Kind = kind
+			if kind == app.GetVersion {
+				q.Version = f.versions[0].Version.ID()
+			}
+			got, err := catalogRead(t, f.owner, q)
+			wantKind := app.Found
+			if kind == app.ListVersions {
+				wantKind = app.Incomplete
+			}
+			if err != nil || got.Kind != wantKind || got.Revision.Uint64() != n || len(got.Entries) != 1 || got.EncodedBytes == 0 {
+				t.Fatalf("revision %d kind %d: %+v %v", n, kind, got, err)
+			}
+			if kind == app.ListVersions {
+				if got.Complete || got.Next == "" || got.Entries[0].Version.ID() != f.versions[0].Version.ID() {
+					t.Fatal("bounded first page", got)
+				}
+				q.Page.Cursor, q.Page.ExpectedRevision = got.Next, got.Revision
+				last, err := catalogRead(t, f.owner, q)
+				if err != nil || !last.Complete || last.Revision != got.Revision || len(last.Entries) != 1 || last.Entries[0].Version.ID() != f.versions[1].Version.ID() {
+					t.Fatal("second page", last, err)
+				}
+			}
+		}
+		stale := query
+		stale.Page.Cursor, stale.Page.ExpectedRevision = before.Next, before.Revision
+		if _, err := catalogRead(t, f.owner, stale); !errors.Is(err, app.ErrStaleCursor) {
+			t.Fatal("stale cursor", err)
+		}
+		if err := commitOrderFixture(t, f, op, next, result); err != nil {
+			t.Fatal("exact replay", err)
+		}
+		op.Command.ID, _ = domain.NewCatalogCommandID()
+		op.ExpectedAggregate, op.Command.Expected = result.AggregateRevision, next.Revision()
+		op.Command.Evidence = nil
+		var decision domain.CatalogOrderResult
+		next, decision, err = next.Apply(f.order, op.Command)
+		if err != nil {
+			t.Fatal(err)
+		}
+		result.AggregateRevision, _ = domain.NewCatalogRevision(n + 1)
+		result.Decision = decision
+	}
+}
+
+func TestCatalogQueryAfterCommitOrderMixedHistory(t *testing.T) {
+	f := catalogRecoveryCurrent(t)
+	query := app.Query{Kind: app.ListVersions, Content: f.subject.ContentID(), Page: app.PageRequest{Limit: 2}}
+	assertQuery := func(revision uint64) {
+		t.Helper()
+		got, err := catalogRead(t, f.owner, query)
+		if err != nil || got.Kind != app.Found || !got.Complete || got.Revision.Uint64() != revision || len(got.Entries) != 2 {
+			t.Fatal("mixed history", got, err)
+		}
+		for _, entry := range got.Entries {
+			title, ok := entry.Title.Value()
+			if !ok || title.Text() != "written title" {
+				t.Fatal("review projection changed", entry)
+			}
+		}
+	}
+	assertQuery(5)
+	catalogRecoveryReplays(t, f)
+	err := f.owner.WithinCatalogTransaction(t.Context(), func(r app.CatalogRepository) error {
+		stored, found, err := r.LoadReview(t.Context(), f.subject)
+		if err != nil || !found {
+			t.Fatal(found, err)
+		}
+		op := f.reviewOp
+		op.Command.ID, _ = domain.NewCatalogCommandID()
+		op.ExpectedAggregate, op.Command.Expected = stored.AggregateRevision, stored.State.Revision()
+		op.Command.Kind, op.Command.Key = domain.AcceptSupport, domain.TitleClaimKey
+		op.Command.Support = []evidence.ID{op.Command.Observations[0].ID()}
+		op.Command.Observations = nil
+		raw, err := stored.State.PersistenceEncoding()
+		if err != nil {
+			return err
+		}
+		live, err := domain.RehydrateCatalogReviewState(raw, domain.CatalogPersistenceBindings{AllowUnbound: true, Sources: []domain.SourceRegistration{f.source}, Reviewers: []domain.IssuerPrincipal{f.review.Reviewer()}})
+		if err != nil {
+			return err
+		}
+		next, decision, err := live.Apply(f.review, op.Command)
+		if err != nil {
+			return err
+		}
+		revision, _ := domain.NewCatalogRevision(6)
+		return r.CommitReview(t.Context(), op, next, app.ReviewResult{AggregateRevision: revision, Decision: decision})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertQuery(6)
+}
+
+func TestCatalogQueryAfterCommitOrderCorruptHistory(t *testing.T) {
+	for _, failure := range []string{"gap", "duplicate", "digest"} {
+		t.Run(failure, func(t *testing.T) {
+			f := catalogRecoveryCurrent(t)
+			catalogSchemaExec(t, f.owner.database.db, "DROP TRIGGER tc_catalog_order_states_no_update")
+			switch failure {
+			case "gap":
+				catalogSchemaExec(t, f.owner.database.db, "UPDATE tc_catalog_order_states SET aggregate_revision=6 WHERE order_revision=3")
+			case "duplicate":
+				catalogSchemaExec(t, f.owner.database.db, "UPDATE tc_catalog_order_states SET aggregate_revision=2 WHERE order_revision=3")
+			case "digest":
+				catalogSchemaExec(t, f.owner.database.db, "UPDATE tc_catalog_order_states SET state_sha256=randomblob(32) WHERE order_revision=3")
+			}
+			_, err := catalogRead(t, f.owner, app.Query{Kind: app.ListVersions, Content: f.subject.ContentID(), Page: app.PageRequest{Limit: 2}})
+			if !errors.Is(err, app.ErrRepositoryUnavailable) {
+				t.Fatal("corruption accepted", err)
+			}
+		})
+	}
+}
+
 func TestCatalogOnlyVersionQuery(t *testing.T) {
 	owner := catalogQueryOwner(t)
 	catalogSeedVersions(t, owner, 3)
