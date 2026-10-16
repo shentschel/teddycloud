@@ -2,36 +2,181 @@ package sqlite
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/binary"
 	"errors"
 	"path/filepath"
 	"reflect"
 	"testing"
+
+	app "github.com/shentschel/teddycloud/next/backend/internal/application/catalog"
+	"github.com/shentschel/teddycloud/next/backend/internal/domain/catalog"
+	"github.com/shentschel/teddycloud/next/backend/internal/domain/identity"
 )
 
 // These tests exercise storage envelopes only. Semantic replay and digest
 // comparison belong to the future adapter and the accepted domain decoder.
-func catalogStateBytes(kind, content, version string, revision uint64) []byte {
-	var b bytes.Buffer
-	number := func(n uint64) { _ = binary.Write(&b, binary.BigEndian, n) }
-	text := func(s string) { number(uint64(len(s))); b.WriteString(s) }
-	text("pi08-" + kind + "-state/1")
-	text(content)
+func catalogStateBytes(t *testing.T, kind, content, version string, revision uint64) []byte {
+	t.Helper()
+	cid, err := identity.ParseContentID(content)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var raw []byte
+	var revisionOffset int
 	if kind == "review" {
-		text(version)
+		subject, err := catalog.ContentSubject(cid)
+		if version != "" {
+			vid, parseErr := identity.ParseContentVersionID(version)
+			if parseErr != nil {
+				t.Fatal(parseErr)
+			}
+			subject, err = catalog.VersionSubject(cid, vid)
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		state, err := catalog.NewCatalogReviewState(subject, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, err = state.PersistenceEncoding()
+		if err != nil {
+			t.Fatal(err)
+		}
+		revisionOffset = 8 + len("pi08-review-state/1") + 8 + len(content) + 8 + len(version)
+	} else {
+		state, err := catalog.NewCatalogOrderState(cid, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, err = state.PersistenceEncoding()
+		if err != nil {
+			t.Fatal(err)
+		}
+		revisionOffset = 8 + len("pi08-order-state/1") + 8 + len(content)
 	}
-	number(revision)
-	for range 4 {
-		number(0)
+	// Revision 1 is the exact accepted domain encoding. Later revisions are
+	// envelope-only mutations for storage-fence tests, not valid semantic replay.
+	if revision != 1 {
+		binary.BigEndian.PutUint64(raw[revisionOffset:revisionOffset+8], revision)
 	}
-	return b.Bytes()
+	return raw
+}
+
+func TestCatalogStateDomainEnvelopeOffsets(t *testing.T) {
+	for _, tc := range []struct {
+		name, kind, version string
+	}{
+		{name: "content review", kind: "review"},
+		{name: "version review", kind: "review", version: catalogSchemaID("ver", 1)},
+		{name: "order", kind: "order"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db := catalogSchemaFixture(t)
+			cid := catalogSchemaID("cnt", 1)
+			raw := catalogStateBytes(t, tc.kind, cid, tc.version, 1)
+			bindings := catalog.CatalogPersistenceBindings{AllowUnbound: true}
+			if tc.kind == "review" {
+				if _, err := catalog.RehydrateCatalogReviewState(raw, bindings); err != nil {
+					t.Fatal("domain encoder/decoder disagree", err)
+				}
+			} else if _, err := catalog.RehydrateCatalogOrderState(raw, bindings); err != nil {
+				t.Fatal("domain encoder/decoder disagree", err)
+			}
+			insert := func(state, digest []byte) error {
+				if tc.kind == "review" {
+					subject := cid
+					if tc.version != "" {
+						subject = tc.version
+					}
+					_, err := db.db.ExecContext(t.Context(), "INSERT INTO tc_catalog_review_states VALUES (?,?,1,1,1,?,?,?)", subject, cid, state, len(state), digest)
+					return err
+				}
+				_, err := db.db.ExecContext(t.Context(), "INSERT INTO tc_catalog_order_states VALUES (?,1,1,1,?,?,?)", cid, state, len(state), digest)
+				return err
+			}
+			contentOffset := 8 + len("pi08-"+tc.kind+"-state/1") + 8
+			revisionOffset := contentOffset + len(cid)
+			offsets := []int{7, 8, contentOffset + len(cid) - 1}
+			if tc.kind == "review" {
+				offsets = append(offsets, revisionOffset+7)
+				revisionOffset += 8 + len(tc.version)
+				if tc.version != "" {
+					offsets = append(offsets, revisionOffset-1)
+				}
+			}
+			offsets = append(offsets, revisionOffset+7)
+			for _, offset := range offsets {
+				changed := bytes.Clone(raw)
+				changed[offset] ^= 1
+				digest := sha256.Sum256(changed)
+				if err := insert(changed, digest[:]); err == nil {
+					t.Fatalf("wrong envelope byte %d accepted", offset)
+				}
+			}
+			digest := sha256.Sum256(raw)
+			// SQLite enforces digest shape, not SHA-256 content. Adapter reads
+			// must compare it before decoding or trusting any retained state.
+			digest[0] ^= 1
+			if err := insert(raw, digest[:]); err != nil {
+				t.Fatal("accepted domain envelope rejected", err)
+			}
+		})
+	}
+}
+
+func TestCatalogStateQuerySchemaCompatibility(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		version  int
+		mutation string
+		accepted bool
+	}{
+		{name: "v4", version: 4},
+		{name: "v5", version: 5, accepted: true},
+		{name: "v6", version: 6, accepted: true},
+		{name: "dirty v6", version: 6, mutation: "UPDATE tc_schema_migrations SET dirty=1 WHERE version=6"},
+		{name: "future v7", version: 6, mutation: "INSERT INTO tc_schema_migrations(version,migration_id,checksum,dirty) VALUES (7,'future','unknown',0)"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			owner, err := OpenLifecycleOwner(t.Context(), Config{Path: filepath.Join(t.TempDir(), "compat.sqlite")}, SchemaMigrations()[:tc.version])
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer owner.Close(context.Background())
+			catalogSeedVersions(t, owner, 1)
+			if tc.mutation != "" {
+				catalogSchemaExec(t, owner.database.db, tc.mutation)
+			}
+			result, err := catalogRead(t, owner, app.Query{Kind: app.GetContent, Content: catalogQueryContent(t, 1), Page: app.PageRequest{Limit: 128}})
+			if tc.accepted {
+				if err != nil || result.Kind != app.Found || len(result.Entries) != 1 {
+					t.Fatalf("accepted query regressed: %#v %v", result, err)
+				}
+				// Advancing the schema does not enable state restoration ports.
+				err = owner.WithinCatalogTransaction(t.Context(), func(r app.CatalogRepository) error {
+					subject, _ := catalog.ContentSubject(catalogQueryContent(t, 1))
+					_, _, reviewErr := r.LoadReview(t.Context(), subject)
+					_, _, orderErr := r.LoadOrder(t.Context(), catalogQueryContent(t, 1))
+					if !errors.Is(reviewErr, app.ErrUnsupported) || !errors.Is(orderErr, app.ErrUnsupported) {
+						t.Fatal("state restoration unexpectedly enabled")
+					}
+					return app.ErrUnsupported
+				})
+			}
+			if !errors.Is(err, app.ErrUnsupported) {
+				t.Fatalf("unsupported boundary changed: %v", err)
+			}
+		})
+	}
 }
 
 func catalogStateInsert(t *testing.T, db *Database, kind string, aggregate, revision int) {
 	t.Helper()
 	cid := catalogSchemaID("cnt", 1)
-	raw := catalogStateBytes(kind, cid, "", uint64(revision))
+	raw := catalogStateBytes(t, kind, cid, "", uint64(revision))
 	digest := sha256.Sum256(raw)
 	if kind == "review" {
 		catalogSchemaExec(t, db.db, "INSERT INTO tc_catalog_review_states VALUES (?,?,?,?,1,?,?,?)",
@@ -50,14 +195,14 @@ func TestCatalogStateMigrationIdentity(t *testing.T) {
 		"104ff5813e462d75c6f0359c32030336d1397f8f16184e99e016762a25dfd571",
 		"cd838271e3a1890210571d6b3634ca8067bcff6f3cd3b40937a0c2330b0c88ed",
 		"c65137b653d80e54301a14fd7f8be52bdb7e246ec32245623cbf47d7bfa66fc7",
-		"c16317bf9ac4dc90be9ba74e3887beea393526a9c99c7b85224061e34dac65d9",
+		"f3bd874bbb9d8ae2228ba91c3d2b5d5077d0110d69d13551a24c87e54558fcd1",
 	}
 	if len(migrations) != 6 || migrations[5].Version != 6 || migrations[5].ID != "0006-catalog-aggregate-state" {
 		t.Fatal("migration identity changed")
 	}
 	for i, sum := range want {
-		if migrationChecksum(migrations[i]) != sum {
-			t.Fatalf("v%d checksum changed", i+1)
+		if got := migrationChecksum(migrations[i]); got != sum {
+			t.Fatalf("v%d checksum changed: %s", i+1, got)
 		}
 	}
 	db := catalogSchemaFixture(t)
@@ -173,7 +318,7 @@ func TestCatalogStateEnvelopeConstraints(t *testing.T) {
 				{"future aggregate", "aggregate_revision", "3"},
 			} {
 				t.Run(tc.name, func(t *testing.T) {
-					raw := catalogStateBytes(kind, catalogSchemaID("cnt", 1), "", 2)
+					raw := catalogStateBytes(t, kind, catalogSchemaID("cnt", 1), "", 2)
 					digest := sha256.Sum256(raw)
 					args := []any{}
 					query := "INSERT INTO " + table + " VALUES ("

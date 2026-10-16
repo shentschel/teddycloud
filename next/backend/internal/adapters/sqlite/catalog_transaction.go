@@ -73,7 +73,8 @@ func (owner *LifecycleOwner) readCatalogTransaction(ctx context.Context, operati
 	if err := tx.QueryRowContext(ctx, "SELECT COALESCE(MAX(version),0),COALESCE(MAX(dirty),0) FROM tc_schema_migrations").Scan(&version, &dirty); err != nil {
 		return repositoryError(ctx, err)
 	}
-	if version != 5 || dirty != 0 {
+	// v6 adds state envelopes without changing the accepted v5 query tables.
+	if (version != 5 && version != 6) || dirty != 0 {
 		return app.ErrUnsupported
 	}
 	repository := &catalogRepository{transaction: tx, ctx: ctx, owner: owner, database: owner.database, generation: owner.generation.Load()}
