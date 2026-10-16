@@ -39,6 +39,7 @@ Current execution artifacts:
 - [PI-08/A2.5a catalog-state schema checkpoint](pi-08-a2-state-schema-checkpoint.md)
 - [PI-08/A2.5b catalog-state read checkpoint](pi-08-a2-state-read-checkpoint.md)
 - [PI-08/A2.5c Review-state write checkpoint](pi-08-a2-review-write-checkpoint.md)
+- [PI-08/A2.5d Order-state write checkpoint](pi-08-a2-order-write-checkpoint.md)
 - PI-08/R's bounded decisions are complete; acceptance requires the plan's
   commit-linked documentation/remote verification evidence on issue #25.
   A/B/T and the versioned-catalog-query milestone remain undelivered.
