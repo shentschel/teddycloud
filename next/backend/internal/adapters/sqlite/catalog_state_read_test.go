@@ -639,9 +639,6 @@ func TestCatalogStateReadFences(t *testing.T) {
 	var escaped app.CatalogRepository
 	err := f.owner.WithinCatalogTransaction(t.Context(), func(r app.CatalogRepository) error {
 		escaped = r
-		if err := r.CommitOrder(t.Context(), app.OrderOperation{}, domain.CatalogOrderState{}, app.OrderResult{}); !errors.Is(err, app.ErrUnsupported) {
-			t.Fatal(err)
-		}
 		if _, err := r.(*catalogRepository).transaction.ExecContext(t.Context(), "DELETE FROM tc_catalog_review_states"); err == nil {
 			t.Fatal("write escaped query_only")
 		}

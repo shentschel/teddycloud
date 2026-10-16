@@ -301,7 +301,7 @@ func TestCatalogCommitReviewNewSourceAndFailureStages(t *testing.T) {
 	}
 }
 
-func TestCatalogCommitReviewV5AndOrderUnsupported(t *testing.T) {
+func TestCatalogCommitReviewV5AndQueryFence(t *testing.T) {
 	owner, err := OpenLifecycleOwner(t.Context(), Config{Path: filepath.Join(t.TempDir(), "v5.sqlite")}, SchemaMigrations()[:5])
 	if err != nil {
 		t.Fatal(err)
@@ -317,9 +317,6 @@ func TestCatalogCommitReviewV5AndOrderUnsupported(t *testing.T) {
 	err = f.owner.WithinCatalogTransaction(t.Context(), func(r app.CatalogRepository) error {
 		if err := r.CommitReview(t.Context(), op, next, result); err != nil {
 			return err
-		}
-		if err := r.CommitOrder(t.Context(), app.OrderOperation{}, domain.CatalogOrderState{}, app.OrderResult{}); !errors.Is(err, app.ErrUnsupported) {
-			t.Fatal(err)
 		}
 		var queryOnly int
 		if err := r.(*catalogRepository).transaction.QueryRowContext(t.Context(), "PRAGMA query_only").Scan(&queryOnly); err != nil || queryOnly != 1 {
