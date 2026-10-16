@@ -6,6 +6,7 @@ import (
 
 	app "github.com/shentschel/teddycloud/next/backend/internal/application/catalog"
 	domain "github.com/shentschel/teddycloud/next/backend/internal/domain/catalog"
+	"github.com/shentschel/teddycloud/next/backend/internal/domain/evidence"
 	"reflect"
 	"testing"
 	"time"
@@ -104,6 +105,29 @@ func TestCatalogBaselineAdoption(t *testing.T) {
 	reviewCommand := app.ReviewCommand{ID: op.Command.ID, Subject: op.Command.Subject, ExpectedAggregate: op.ExpectedAggregate, ExpectedReview: op.Command.Expected, Observations: op.Command.Observations, Reason: op.Command.Reason}
 	if _, err = writer.RecordObservations(t.Context(), reviewCommand); err != nil {
 		t.Fatal("post-adoption review", err)
+	}
+	accept := reviewCommand
+	accept.ID, _ = domain.NewCatalogCommandID()
+	accept.ExpectedAggregate, _ = domain.NewCatalogRevision(2)
+	accept.ExpectedReview = accept.ExpectedAggregate
+	accept.Observations = nil
+	accept.Key = domain.TitleClaimKey
+	accept.Support = []evidence.ID{op.Command.Observations[0].ID()}
+	if _, err = writer.AcceptSupport(t.Context(), accept); err != nil {
+		t.Fatal("post-adoption acceptance", err)
+	}
+	page, err = catalogRead(t, f.owner, app.Query{Kind: app.GetContent, Content: command.Content, Page: app.PageRequest{Limit: 1}})
+	if err != nil || len(page.Entries) != 1 || page.Entries[0].Title.Status != domain.CatalogFactAccepted {
+		t.Fatal("explicit acceptance missing", page, err)
+	}
+	orderFixture, _, orderOp, _, _ := orderWriteFixture(t)
+	orderWriter, e := app.NewService(f.owner, orderFixture.source, orderFixture.review, orderFixture.namespace)
+	if e != nil {
+		t.Fatal(e)
+	}
+	aggregate, _ := domain.NewCatalogRevision(3)
+	if _, err = orderWriter.DecideOrder(t.Context(), app.OrderCommand{ID: orderOp.Command.ID, Content: command.Content, ExpectedAggregate: aggregate, ExpectedOrder: orderOp.Command.Expected, Entries: orderOp.Command.Entries, Evidence: orderOp.Command.Evidence, Reason: orderOp.Command.Reason}); err != nil {
+		t.Fatal("post-adoption order", err)
 	}
 	// The original result remains exact after aggregate revision advances.
 	if replay, e := service.AdoptBaseline(t.Context(), command); e != nil || replay != result {

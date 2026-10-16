@@ -129,6 +129,17 @@ func (s Service) mutateReview(ctx context.Context, kind domaincatalog.CatalogDec
 		if snapshot.AggregateRevision != command.ExpectedAggregate {
 			return ErrRevisionConflict
 		}
+		// Storage reads return detached provenance. Bind only the exact current
+		// trusted source/reviewer before applying a new command; bytes grant no
+		// authority and mismatched source metadata still fails closed.
+		raw, err := snapshot.State.PersistenceEncoding()
+		if err != nil {
+			return err
+		}
+		snapshot.State, err = domaincatalog.RehydrateCatalogReviewState(raw, domaincatalog.CatalogPersistenceBindings{AllowUnbound: true, Sources: []domaincatalog.SourceRegistration{s.source}, Reviewers: []domaincatalog.IssuerPrincipal{s.review.Reviewer()}})
+		if err != nil {
+			return err
+		}
 		next, decision, err := snapshot.State.Apply(s.review, operation.Command)
 		if err != nil {
 			return err
@@ -215,6 +226,14 @@ func (s Service) DecideOrder(ctx context.Context, command OrderCommand) (OrderRe
 		}
 		if snapshot.AggregateRevision != command.ExpectedAggregate {
 			return ErrRevisionConflict
+		}
+		raw, err := snapshot.State.PersistenceEncoding()
+		if err != nil {
+			return err
+		}
+		snapshot.State, err = domaincatalog.RehydrateCatalogOrderState(raw, domaincatalog.CatalogPersistenceBindings{AllowUnbound: true, Sources: []domaincatalog.SourceRegistration{s.source}, Namespaces: []domaincatalog.CatalogOrderNamespace{s.namespace}, Reviewers: []domaincatalog.IssuerPrincipal{s.review.Reviewer()}})
+		if err != nil {
+			return err
 		}
 		next, decision, err := snapshot.State.Apply(operation.Capability, operation.Command)
 		if err != nil {
