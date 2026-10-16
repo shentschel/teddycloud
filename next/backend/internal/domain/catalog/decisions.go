@@ -128,7 +128,8 @@ type CatalogReviewState struct {
 }
 
 // NewCatalogReviewState seeds existing identity at revision 1 with no accepted
-// facts. Registration/adoption and immutable version creation are later commands.
+// facts. Guarded baseline adoption installs this initial state atomically;
+// immutable version registration remains a separate command.
 func NewCatalogReviewState(subject CatalogSubject, protectedCustom bool) (CatalogReviewState, error) {
 	if subject.content.IsZero() {
 		return CatalogReviewState{}, ErrInvalidCatalog

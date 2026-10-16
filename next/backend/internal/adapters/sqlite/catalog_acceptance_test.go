@@ -13,8 +13,8 @@ import (
 	domain "github.com/shentschel/teddycloud/next/backend/internal/domain/catalog"
 )
 
-// This records the missing adoption boundary, not successful adoption. All
-// existing writer fixtures seed managed state with SQL; the public port cannot.
+// Ordinary review commands cannot implicitly adopt unmanaged baseline rows.
+// Explicit adoption has its own capability and snapshot/revision contract.
 func TestCatalogBaselineAdoptionRequiresRegistration(t *testing.T) {
 	f, op, next, result := reviewWriteFixture(t, false)
 	// Keep the valid core capabilities/command, but target a separate database
