@@ -45,6 +45,7 @@ Current execution artifacts:
 - [PI-08/A2 query-after-Order finding closeout](pi-08-a2-query-order-fix.md)
 - [PI-08/A2.6c helper-process recovery checkpoint](pi-08-a2-helper-recovery-checkpoint.md)
 - [PI-08/A2 guarded baseline-adoption checkpoint](pi-08-a2-baseline-adoption-checkpoint.md)
+- [PI-08/A2 acceptance audit](pi-08-a2-acceptance-audit.md)
 - PI-08/R's bounded decisions are complete; acceptance requires the plan's
   commit-linked documentation/remote verification evidence on issue #25.
   A/B/T and the versioned-catalog-query milestone remain undelivered.
