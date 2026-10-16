@@ -132,6 +132,10 @@ type restartHelper struct {
 }
 
 func startRestartHelper(t *testing.T, path string) *restartHelper {
+	return startRestartHelperFor(t, path, "TestSQLiteRestartCrashHelper")
+}
+
+func startRestartHelperFor(t *testing.T, path, testName string, environment ...string) *restartHelper {
 	t.Helper()
 	executable, err := os.Executable()
 	if err != nil {
@@ -148,7 +152,7 @@ func startRestartHelper(t *testing.T, path string) *restartHelper {
 	}
 	helper.command = exec.Command(
 		executable,
-		"-test.run=^TestSQLiteRestartCrashHelper$",
+		"-test.run=^"+testName+"$",
 		"-test.timeout=30s",
 	)
 	helper.command.Env = append(
@@ -156,6 +160,7 @@ func startRestartHelper(t *testing.T, path string) *restartHelper {
 		restartHelperEnvironment+"=1",
 		"TEDDYCLOUD_SQLITE_RESTART_PATH="+path,
 	)
+	helper.command.Env = append(helper.command.Env, environment...)
 	helper.command.ExtraFiles = []*os.File{readyWriter}
 	helper.command.Stdout = &helper.stdout
 	helper.command.Stderr = &helper.stderr
