@@ -252,7 +252,7 @@ func TestCatalogQueryReadOnlyTransaction(t *testing.T) {
 		if _, err := repository.(*catalogRepository).transaction.ExecContext(t.Context(), "UPDATE tc_catalog_content SET title='Mutation'"); err == nil {
 			t.Fatal("read-only transaction allowed a write")
 		}
-		if err := repository.CommitReview(t.Context(), app.ReviewOperation{}, domain.CatalogReviewState{}, app.ReviewResult{}); !errors.Is(err, app.ErrUnsupported) {
+		if err := repository.CommitReview(t.Context(), app.ReviewOperation{}, domain.CatalogReviewState{}, app.ReviewResult{}); !errors.Is(err, app.ErrInvalidInput) {
 			t.Fatalf("write port: %v", err)
 		}
 		return callbackError

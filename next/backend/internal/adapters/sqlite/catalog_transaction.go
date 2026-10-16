@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
+	"reflect"
 	"sync"
 	"time"
 
@@ -19,9 +20,8 @@ import (
 var _ app.CatalogTransactor = (*LifecycleOwner)(nil)
 var _ app.CatalogRepository = (*catalogRepository)(nil)
 
-// WithinCatalogTransaction exposes the read-only PI-08 query checkpoint through
-// the existing restore fence. Even successful callbacks roll back their SQL
-// snapshot; query_only also prevents accidental writes on the leased connection.
+// WithinCatalogTransaction retains the restore fence and starts query-only.
+// Only a validated v6 CommitReview enables writes on the leased connection.
 func (owner *LifecycleOwner) WithinCatalogTransaction(ctx context.Context, operation func(app.CatalogRepository) error) error {
 	if ctx == nil || operation == nil {
 		return app.ErrInvalidInput
@@ -41,10 +41,10 @@ func (owner *LifecycleOwner) WithinCatalogTransaction(ctx context.Context, opera
 	if owner.database == nil {
 		return app.ErrRepositoryUnavailable
 	}
-	return owner.readCatalogTransaction(ctx, operation)
+	return owner.catalogTransaction(ctx, operation)
 }
 
-func (owner *LifecycleOwner) readCatalogTransaction(ctx context.Context, operation func(app.CatalogRepository) error) (result error) {
+func (owner *LifecycleOwner) catalogTransaction(ctx context.Context, operation func(app.CatalogRepository) error) (result error) {
 	connection, err := owner.database.db.Conn(ctx)
 	if err != nil {
 		return repositoryError(ctx, err)
@@ -91,6 +91,19 @@ func (owner *LifecycleOwner) readCatalogTransaction(ctx context.Context, operati
 	if result == nil {
 		result = repository.failure
 	}
+	if result == nil && repository.wrote {
+		for _, authorize := range repository.authorize {
+			if result = authorize(); result != nil {
+				break
+			}
+		}
+		if result == nil {
+			result = ctx.Err()
+		}
+		if result == nil {
+			return repositoryError(ctx, tx.Commit())
+		}
+	}
 	if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
 		return errors.Join(result, repositoryError(ctx, err))
 	}
@@ -106,6 +119,8 @@ type catalogRepository struct {
 	generation    uint64
 	failure       error
 	schemaVersion int
+	wrote         bool
+	authorize     []func() error
 }
 
 func (r *catalogRepository) revoke() {
@@ -504,14 +519,26 @@ func (r *catalogRepository) readStates(ctx context.Context, content identity.Con
 // semantic decoder replays them. It never deserializes authority. Every
 // length/count is independently fenced so format drift also fails closed.
 type catalogStateReader struct {
-	raw              []byte
-	offset           int
-	err              error
-	repository       *catalogRepository
-	ctx              context.Context
-	content, subject string
-	order            bool
-	sources          map[string]domain.SourceRegistration
+	raw               []byte
+	offset            int
+	err               error
+	repository        *catalogRepository
+	ctx               context.Context
+	content, subject  string
+	order             bool
+	sources           map[string]domain.SourceRegistration
+	write             bool
+	writeCommand      string
+	expectedAggregate uint64
+}
+
+func (d *catalogStateReader) insert(query string, args ...any) {
+	if !d.write || d.err != nil {
+		return
+	}
+	if _, err := d.repository.transaction.ExecContext(d.ctx, query, args...); err != nil {
+		d.err = repositoryError(d.ctx, err)
+	}
 }
 
 func (d *catalogStateReader) take(n uint64) []byte {
@@ -573,6 +600,18 @@ func (d *catalogStateReader) source() catalogStoredSource {
 	for i := range claims {
 		claims[i] = d.number()
 	}
+	if d.write && d.err == nil {
+		var exists bool
+		if err := d.repository.transaction.QueryRowContext(d.ctx, "SELECT EXISTS(SELECT 1 FROM tc_catalog_sources WHERE source_id=? AND registration_revision=?)", s.id, s.revision).Scan(&exists); err != nil {
+			d.err = repositoryError(d.ctx, err)
+		}
+		if !exists {
+			d.insert("INSERT INTO tc_catalog_sources VALUES (?,?,?,?,?,?,?,0)", s.id, s.revision, issuer, adapter, version, scope, acquisition)
+			for _, key := range claims {
+				d.insert("INSERT INTO tc_catalog_source_claims VALUES (?,?,?,?)", s.id, s.revision, acquisition, key)
+			}
+		}
+	}
 	d.match(`SELECT EXISTS(SELECT 1 FROM tc_catalog_sources WHERE source_id=? AND registration_revision=?
  AND issuer_principal=? AND adapter=? AND adapter_version=? AND scope=? AND acquisition=? AND revoked IN (0,1))`, s.id, s.revision, issuer, adapter, version, scope, acquisition)
 	d.match("SELECT count(*)=? FROM tc_catalog_source_claims WHERE source_id=? AND registration_revision=?", n, s.id, s.revision)
@@ -613,6 +652,8 @@ func (d *catalogStateReader) coordinate(source catalogStoredSource, binaryBatch 
 	size, count := d.number(), d.number()
 	parser, revision := d.text(), d.text()
 	index, locator, snapshot := d.number(), d.text(), []byte(d.text())
+	d.insert("INSERT INTO tc_catalog_batches VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(batch_id) DO NOTHING", batch, source.id, source.revision, digest, size, count, parser, revision)
+	d.insert("INSERT INTO tc_catalog_records VALUES (?,?,?,?) ON CONFLICT(batch_id,record_index) DO NOTHING", batch, index, locator, snapshot)
 	d.match(`SELECT EXISTS(SELECT 1 FROM tc_catalog_batches b JOIN tc_catalog_records r USING(batch_id)
  WHERE b.batch_id=? AND b.source_id=? AND b.registration_revision=? AND b.artifact_sha256=? AND b.byte_length=? AND b.record_count=?
  AND b.parser_revision=? AND b.source_revision=? AND r.record_index=? AND r.locator=? AND r.snapshot=?)`, batch, source.id, source.revision, digest, size, count, parser, revision, index, locator, snapshot)
@@ -650,6 +691,7 @@ func (d *catalogStateReader) observation() {
 	if version != "" {
 		subject = version
 	}
+	d.insert("INSERT INTO tc_catalog_observations VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(observation_id) DO NOTHING", id, subject, content, key, text, audio, hash, owner, batch, index, source.id, source.revision, origin, observed, confidence)
 	d.match(`SELECT EXISTS(SELECT 1 FROM tc_catalog_observations WHERE observation_id=? AND subject_id=? AND content_id=?
  AND claim_key=? AND text_value IS ? AND audio_id IS ? AND audio_sha1 IS ? AND owner_content_id IS ?
  AND source_id=? AND registration_revision=? AND batch_id=? AND record_index=? AND asserted_origin=? AND observed_at=? AND confidence=?)`, id, subject, content, key, text, audio, hash, owner, source.id, source.revision, batch, index, origin, observed, confidence)
@@ -720,6 +762,12 @@ func (d *catalogStateReader) reviewDecision() catalogStoredDecision {
 	subject := content
 	if version != "" {
 		subject = version
+	}
+	if id == d.writeCommand {
+		d.insert("INSERT INTO tc_catalog_decisions VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", id, subject, content, source.id, source.revision, reviewer, domain.CatalogDecisionPolicy, kind, key, d.expectedAggregate, d.expectedAggregate+1, expected, expected+1, reason, canonical, result)
+		for _, observation := range support {
+			d.insert("INSERT INTO tc_catalog_decision_support VALUES (?,?,?,?,?,?)", subject, source.id, source.revision, key, id, observation)
+		}
 	}
 	var aggregate uint64
 	if d.err == nil && d.repository != nil {
@@ -839,8 +887,124 @@ func (d *catalogStateReader) check(s *catalogStoredState, versions []catalogVers
 	return d.err
 }
 
-func (r *catalogRepository) CommitReview(context.Context, app.ReviewOperation, domain.CatalogReviewState, app.ReviewResult) error {
-	return r.unsupported()
+func (r *catalogRepository) CommitReview(ctx context.Context, operation app.ReviewOperation, next domain.CatalogReviewState, result app.ReviewResult) (err error) {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+	defer func() {
+		if err != nil {
+			r.failure = err
+		}
+	}()
+	call, done, err := r.stateCall(ctx)
+	if err != nil {
+		return err
+	}
+	defer done(&err)
+	command := operation.Command
+	if command.ID.IsZero() || command.Subject.ContentID().IsZero() || operation.ExpectedAggregate.Uint64() == 0 {
+		return app.ErrInvalidInput
+	}
+	bindings := domain.CatalogPersistenceBindings{AllowUnbound: true, Sources: []domain.SourceRegistration{command.Source}, Reviewers: []domain.IssuerPrincipal{operation.Capability.Reviewer()}}
+	states, aggregate, err := r.readStates(call, command.Subject.ContentID(), command.Subject, false, bindings)
+	if err != nil {
+		return err
+	}
+	if err = r.stateSourceActive(call, command.Source); err != nil {
+		return err
+	}
+	if len(states) == 0 {
+		return app.ErrSubjectNotFound
+	}
+	current := states[len(states)-1].review
+	decision, replay, err := current.LookupCommand(operation.Capability, command)
+	if err != nil {
+		return err
+	}
+	raw, err := next.PersistenceEncoding()
+	if err != nil {
+		return err
+	}
+	if replay {
+		for _, s := range states {
+			if s.revision == decision.Revision.Uint64() {
+				if s.aggregate != operation.ExpectedAggregate.Uint64()+1 {
+					return domain.ErrCatalogCommandConflict
+				}
+				if result.AggregateRevision.Uint64() != s.aggregate || !reflect.DeepEqual(result.Decision, decision) || !bytes.Equal(raw, s.raw) {
+					return app.ErrInvalidInput
+				}
+				return nil
+			}
+		}
+		return app.ErrRepositoryUnavailable
+	}
+	if aggregate != operation.ExpectedAggregate {
+		return domain.ErrCatalogRevisionConflict
+	}
+	expected, decision, err := current.Apply(operation.Capability, command)
+	if err != nil {
+		return err
+	}
+	expectedRaw, err := expected.PersistenceEncoding()
+	if err != nil {
+		return err
+	}
+	if result.AggregateRevision.Uint64() != aggregate.Uint64()+1 || !reflect.DeepEqual(result.Decision, decision) || !bytes.Equal(raw, expectedRaw) {
+		return app.ErrInvalidInput
+	}
+	// A command key is globally unique, including across review subjects.
+	var exists bool
+	if err = r.transaction.QueryRowContext(call, "SELECT EXISTS(SELECT 1 FROM tc_catalog_decisions WHERE command_id=?)", command.ID.String()).Scan(&exists); err != nil {
+		return repositoryError(call, err)
+	}
+	if exists {
+		return domain.ErrCatalogCommandConflict
+	}
+	if _, err = r.transaction.ExecContext(call, "PRAGMA query_only=OFF"); err != nil {
+		return repositoryError(call, err)
+	}
+	// Restore query-only before returning to callback code, even on failure.
+	defer func() {
+		if _, resetErr := r.transaction.ExecContext(r.ctx, "PRAGMA query_only=ON"); resetErr != nil && err == nil {
+			err = repositoryError(r.ctx, resetErr)
+		}
+	}()
+	updated, err := r.transaction.ExecContext(call, "UPDATE tc_catalog_managed SET aggregate_revision=?,protected_custom=? WHERE content_id=? AND aggregate_revision=?", result.AggregateRevision.Uint64(), next.ProtectedCustom(), command.Subject.ContentID().String(), aggregate.Uint64())
+	if err != nil {
+		return repositoryError(call, err)
+	}
+	if count, e := updated.RowsAffected(); e != nil || count != 1 {
+		return app.ErrRepositoryUnavailable
+	}
+	updated, err = r.transaction.ExecContext(call, "UPDATE tc_catalog_subjects SET review_revision=? WHERE subject_id=? AND review_revision=?", next.Revision().Uint64(), catalogSubjectKey(command.Subject), command.Expected.Uint64())
+	if err != nil {
+		return repositoryError(call, err)
+	}
+	if count, e := updated.RowsAffected(); e != nil || count != 1 {
+		return domain.ErrCatalogRevisionConflict
+	}
+	stored := catalogStoredState{raw: raw, aggregate: result.AggregateRevision.Uint64(), revision: next.Revision().Uint64()}
+	projection := catalogStateReader{raw: raw, repository: r, ctx: call, content: command.Subject.ContentID().String(), subject: catalogSubjectKey(command.Subject), write: true, writeCommand: command.ID.String(), expectedAggregate: aggregate.Uint64()}
+	if err = projection.check(&stored, nil, true); err != nil {
+		return err
+	}
+	sum := sha256.Sum256(raw)
+	if _, err = r.transaction.ExecContext(call, "INSERT INTO tc_catalog_review_states VALUES (?,?,?,?,1,?,?,?)", catalogSubjectKey(command.Subject), command.Subject.ContentID().String(), result.AggregateRevision.Uint64(), next.Revision().Uint64(), raw, len(raw), sum[:]); err != nil {
+		return repositoryError(call, err)
+	}
+	// Read back through exactly the existing corruption/binding checks.
+	if _, _, err = r.readStates(call, command.Subject.ContentID(), command.Subject, false, bindings); err != nil {
+		return err
+	}
+	r.wrote = true
+	r.authorize = append(r.authorize, func() error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		_, _, err := current.LookupCommand(operation.Capability, command)
+		return err
+	})
+	return call.Err()
 }
 
 func (r *catalogRepository) CommitOrder(context.Context, app.OrderOperation, domain.CatalogOrderState, app.OrderResult) error {

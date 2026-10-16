@@ -639,9 +639,6 @@ func TestCatalogStateReadFences(t *testing.T) {
 	var escaped app.CatalogRepository
 	err := f.owner.WithinCatalogTransaction(t.Context(), func(r app.CatalogRepository) error {
 		escaped = r
-		if err := r.CommitReview(t.Context(), operation, domain.CatalogReviewState{}, app.ReviewResult{}); !errors.Is(err, app.ErrUnsupported) {
-			t.Fatal(err)
-		}
 		if err := r.CommitOrder(t.Context(), app.OrderOperation{}, domain.CatalogOrderState{}, app.OrderResult{}); !errors.Is(err, app.ErrUnsupported) {
 			t.Fatal(err)
 		}
