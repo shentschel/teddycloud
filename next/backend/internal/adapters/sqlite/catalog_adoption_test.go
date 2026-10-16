@@ -1,8 +1,11 @@
 package sqlite
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 
 	app "github.com/shentschel/teddycloud/next/backend/internal/application/catalog"
 	domain "github.com/shentschel/teddycloud/next/backend/internal/domain/catalog"
@@ -296,8 +299,8 @@ func TestCatalogBaselineAdoptionRace(t *testing.T) {
 	}
 }
 
-// These relations are unique to adoption: the baseline batch must retain both
-// records and every adopted Version must retain its initial review envelope.
+// Exercise both adoption replay and verified restore: malformed relationships
+// must fail closed without repairing, replacing or discarding original data.
 func TestCatalogCorruptRelations(t *testing.T) {
 	for _, name := range []string{"missing-command", "changed-snapshot", "missing-version-state", "changed-source"} {
 		t.Run(name, func(t *testing.T) {
@@ -325,6 +328,94 @@ func TestCatalogCorruptRelations(t *testing.T) {
 			}
 			if !reflect.DeepEqual(before, catalogRecoveryRows(t, f.owner.database.db)) {
 				t.Fatal("corrupt replay changed rows")
+			}
+		})
+	}
+	for _, corruption := range []struct {
+		name, child, parent string
+	}{
+		{"broken-support", "tc_catalog_decision_support", "tc_catalog_observations"},
+		{"missing-binding", "tc_blob_imports", "tc_version_blobs"},
+		{"dangling-receipt", "tc_blob_imports", "tc_version_blobs"},
+	} {
+		t.Run("restore/"+corruption.name, func(t *testing.T) {
+			f := catalogRecoveryCurrent(t)
+			owner := f.owner
+			source := owner.config.Path
+			original := catalogRecoveryRows(t, owner.database.db)
+			for _, table := range []string{"tc_catalog_decision_support", "tc_content_versions", "tc_version_blobs", "tc_blob_imports", "tc_tags"} {
+				if len(original[table]) == 0 {
+					t.Fatal("empty corruption fixture", table)
+				}
+			}
+			dir := filepath.Dir(owner.config.Path)
+			snapshot, err := owner.database.CreateBackup(t.Context(), filepath.Join(dir, "corrupt-relations.sqlite"), SchemaMigrations())
+			if err != nil {
+				t.Fatal(err)
+			}
+			raw := openRawDatabase(t, snapshot.Path)
+			catalogSchemaExec(t, raw, "PRAGMA foreign_keys=OFF")
+			switch corruption.name {
+			case "broken-support":
+				catalogSchemaExec(t, raw, "DROP TRIGGER tc_catalog_decision_support_no_update")
+				catalogSchemaExec(t, raw, "UPDATE tc_catalog_decision_support SET observation_id=?", catalogSchemaID("obs", 99))
+			case "missing-binding":
+				catalogSchemaExec(t, raw, "DELETE FROM tc_version_blobs WHERE version_id=?", blobCommand(t, 81, true).Version().ID().String())
+			case "dangling-receipt":
+				catalogSchemaExec(t, raw, "UPDATE tc_blob_imports SET version_id=?", catalogSchemaID("ver", 98))
+			}
+			corrupt := catalogRecoveryRows(t, raw)
+			// A missing binding preserves the receipt; a dangling receipt leaves
+			// the binding intact. Neither may be treated as harmless unbound media.
+			if corruption.name == "missing-binding" && (len(corrupt["tc_version_blobs"]) != len(original["tc_version_blobs"])-1 || !reflect.DeepEqual(original["tc_blob_imports"], corrupt["tc_blob_imports"])) {
+				t.Fatal("missing-binding injection did not preserve original receipts")
+			}
+			if corruption.name == "dangling-receipt" && (!reflect.DeepEqual(original["tc_version_blobs"], corrupt["tc_version_blobs"]) || reflect.DeepEqual(original["tc_blob_imports"], corrupt["tc_blob_imports"])) {
+				t.Fatal("dangling-receipt injection did not preserve original bindings")
+			}
+			violations := catalogSchemaRows(t, raw, "PRAGMA foreign_key_check")
+			if len(violations) == 0 {
+				t.Fatal("corruption did not break referential integrity")
+			}
+			for _, violation := range violations {
+				if violation[0] != corruption.child || violation[2] != corruption.parent {
+					t.Fatal("unexpected broken relation", violation)
+				}
+			}
+			if err := raw.Close(); err != nil {
+				t.Fatal(err)
+			}
+			// Recompute the digest so rejection proves relation validation rather
+			// than merely detecting stale backup metadata.
+			snapshot.SHA256, err = fileDigest(snapshot.Path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			retainedBytes, err := os.ReadFile(snapshot.Path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			target := filepath.Join(dir, "must-not-publish.sqlite")
+			if err := owner.Restore(t.Context(), snapshot, target); !errors.Is(err, ErrBackupInvalid) {
+				t.Fatal("relationally corrupt snapshot accepted", err)
+			}
+			if !reflect.DeepEqual(original, catalogRecoveryRows(t, owner.database.db)) {
+				t.Fatal("rejected restore changed original rows or schema")
+			}
+			if owner.config.Path != source {
+				t.Fatal("restore selected another database")
+			}
+			if version, err := owner.CurrentVersion(t.Context()); err != nil || version != 6 {
+				t.Fatal("rejected restore closed original owner", version, err)
+			}
+			if err := verifyForeignKeys(t.Context(), owner.database.db); err != nil {
+				t.Fatal("original integrity changed", err)
+			}
+			if _, err := os.Stat(target); !errors.Is(err, os.ErrNotExist) {
+				t.Fatal("corrupt destination published", err)
+			}
+			if got, err := os.ReadFile(snapshot.Path); err != nil || !bytes.Equal(got, retainedBytes) {
+				t.Fatal("corrupt snapshot original was modified or removed", err)
 			}
 		})
 	}
