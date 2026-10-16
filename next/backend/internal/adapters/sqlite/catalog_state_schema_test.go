@@ -155,13 +155,17 @@ func TestCatalogStateQuerySchemaCompatibility(t *testing.T) {
 				if err != nil || result.Kind != app.Found || len(result.Entries) != 1 {
 					t.Fatalf("accepted query regressed: %#v %v", result, err)
 				}
-				// Advancing the schema does not enable state restoration ports.
+				// v5 retains query support; only v6 enables state reads.
 				err = owner.WithinCatalogTransaction(t.Context(), func(r app.CatalogRepository) error {
 					subject, _ := catalog.ContentSubject(catalogQueryContent(t, 1))
 					_, _, reviewErr := r.LoadReview(t.Context(), subject)
 					_, _, orderErr := r.LoadOrder(t.Context(), catalogQueryContent(t, 1))
-					if !errors.Is(reviewErr, app.ErrUnsupported) || !errors.Is(orderErr, app.ErrUnsupported) {
-						t.Fatal("state restoration unexpectedly enabled")
+					if tc.version == 6 {
+						if reviewErr != nil || orderErr != nil {
+							t.Fatal("v6 state reads unavailable", reviewErr, orderErr)
+						}
+					} else if !errors.Is(reviewErr, app.ErrUnsupported) || !errors.Is(orderErr, app.ErrUnsupported) {
+						t.Fatal("v5 state restoration unexpectedly enabled")
 					}
 					return app.ErrUnsupported
 				})
