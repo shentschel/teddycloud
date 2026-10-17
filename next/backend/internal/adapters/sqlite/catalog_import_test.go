@@ -118,6 +118,51 @@ func TestCatalogImportDispositions(t *testing.T) {
 		t.Fatal("restart replay", e)
 	}
 }
+
+func TestCatalogImportReportEncodingBounds(t *testing.T) {
+	// Exercise actual JSON escaping and every report field shape, including
+	// unsupported-field issue paths, nil/non-nil slices and uint64 candidates.
+	text := strings.Repeat("<>&\u2028\u2029\"\\é", 128)
+	records := make([]map[string]any, domain.BatchRecords.Maximum())
+	for i := range records {
+		records[i] = map[string]any{
+			"record": fmt.Sprintf("record-%d", i), "kind": "public",
+			"publisher": text, "title": text, "model": text, "article": text,
+			"pairs":            []map[string]any{{"audio_id": uint64(1<<64 - 1), "sha1": strings.Repeat("a", 40)}},
+			"legacy_audio_ids": []uint64{7}, "legacy_sha1s": []string{strings.Repeat("b", 40)},
+			"future-field": "safe",
+		}
+	}
+	raw, err := json.Marshal(map[string]any{"format": parser.EnvelopeFormat, "records": records})
+	if err != nil || uint64(len(raw)) > domain.BatchBytes.Maximum() {
+		t.Fatal("invalid boundary fixture", len(raw), err)
+	}
+	report := importReport(t, string(raw))
+	if len(report.Records) != len(records) || report.Records[0].Title != text || len(report.Records[0].Pairs) != 1 {
+		t.Fatal("fixture lost the fields exercising JSON expansion")
+	}
+	payload, err := report.CatalogImportPayload(t.Context())
+	if err != nil {
+		t.Fatal("encoding preflight disagrees with encoder", err)
+	}
+	want, err := json.Marshal(report.Records)
+	if err != nil || !bytes.Equal(payload.ReportBytes(), want) || uint64(len(want)) > domain.RetainedBytes.Maximum() {
+		t.Fatal("report encoding changed or exceeded bound", err)
+	}
+	owner, _, _, service := importFixture(t)
+	batch, _ := domain.NewBatchID()
+	if _, err = service.Import(t.Context(), batch, report); err != nil {
+		t.Fatal(err)
+	}
+	assertImportRows(t, owner, batch, report)
+	before := catalogRecoveryRows(t, owner.database.db)
+	// Public report fields are untrusted even when the original bytes were safe.
+	report.Records[0].Title = strings.Repeat("<", int(domain.RetainedBytes.Maximum()/6+1))
+	other, _ := domain.NewBatchID()
+	if _, err = service.Import(t.Context(), other, report); !errors.Is(err, app.ErrInvalidInput) || !reflect.DeepEqual(before, catalogRecoveryRows(t, owner.database.db)) {
+		t.Fatal("fabricated encoding reached persistence", err)
+	}
+}
 func TestCatalogImportArrayAmbiguity(t *testing.T) {
 	owner, _, _, service := importFixture(t)
 	for _, r := range []string{

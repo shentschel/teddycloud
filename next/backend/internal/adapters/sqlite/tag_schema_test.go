@@ -168,10 +168,10 @@ func TestTagSchemaFreshReopenAndConstraints(t *testing.T) {
 func TestTagSchemaMigrationsDefensiveCopy(t *testing.T) {
 	first := SchemaMigrations()
 	if len(first) != 7 {
-		t.Fatalf("migration count = %d, want 6", len(first))
+		t.Fatalf("migration count = %d, want 7", len(first))
 	}
-	// Keep the historical prefix exact while allowing the additive v6 schema.
-	wantIDs := []string{"0001-catalog-content", "0002-tag-identity", "0003-tag-metadata", "0004-content-blobs", "0005-catalog-provenance", "0006-catalog-aggregate-state"}
+	// Keep the historical prefix exact while allowing the additive v7 schema.
+	wantIDs := []string{"0001-catalog-content", "0002-tag-identity", "0003-tag-metadata", "0004-content-blobs", "0005-catalog-provenance", "0006-catalog-aggregate-state", "0007-catalog-offline-import"}
 	for i, migration := range first {
 		if migration.Version != i+1 || migration.ID != wantIDs[i] {
 			t.Fatalf("migration v%d identity changed: %s", i+1, migration.ID)

@@ -9,6 +9,7 @@ import (
 	domain "github.com/shentschel/teddycloud/next/backend/internal/domain/catalog"
 	"reflect"
 	"strconv"
+	"unicode/utf8"
 )
 
 // CatalogImportPayload rejects fabricated or mutated public report fields.
@@ -19,8 +20,18 @@ func (r Report) CatalogImportPayload(ctx context.Context) (domain.ImportPayload,
 	if err != nil || !reflect.DeepEqual(r, validated) {
 		return domain.ImportPayload{}, ErrEnvelope
 	}
+	// Admit the exact JSON size before Marshal allocates its complete buffer.
+	// Encoder.Encode also buffers a complete value, so a limited writer would
+	// check too late. This walks only our fixed report types, without copies.
+	var encodedBytes uint64
+	if err := reportJSONSize(ctx, reflect.ValueOf(validated.Records), &encodedBytes); err != nil {
+		return domain.ImportPayload{}, err
+	}
 	report, err := json.Marshal(validated.Records)
 	if err != nil {
+		return domain.ImportPayload{}, ErrEnvelope
+	}
+	if uint64(len(report)) != encodedBytes {
 		return domain.ImportPayload{}, ErrEnvelope
 	}
 	records := make([]domain.ImportRecord, len(validated.Records))
@@ -36,6 +47,109 @@ func (r Report) CatalogImportPayload(ctx context.Context) (domain.ImportPayload,
 		records[i] = domain.ImportRecord{Locator: "record:" + strconv.Itoa(i), Snapshot: snapshot}
 	}
 	return domain.NewImportPayload(r.ArtifactBytes(), report, records)
+}
+
+// reportJSONSize mirrors encoding/json for the report's exported, untagged
+// structs, slices, strings and integers. New field kinds fail closed until this
+// admission walk is extended alongside the encoder. No custom marshalers exist
+// in these fixed types.
+func reportJSONSize(ctx context.Context, v reflect.Value, size *uint64) error {
+	if ctx.Err() != nil {
+		return ErrCanceled
+	}
+	add := func(n uint64) error {
+		if err := domain.CheckLimit(domain.RetainedBytes, *size, n); err != nil {
+			return err
+		}
+		*size += n
+		return nil
+	}
+	switch v.Kind() {
+	case reflect.String:
+		s := v.String()
+		n := uint64(2) // quotes
+		for i := 0; i < len(s); {
+			b := s[i]
+			if b < utf8.RuneSelf {
+				switch b {
+				case '"', '\\', '\b', '\f', '\n', '\r', '\t':
+					n += 2
+				case '<', '>', '&':
+					n += 6
+				default:
+					if b < 0x20 {
+						n += 6
+					} else {
+						n++
+					}
+				}
+				i++
+			} else {
+				r, width := utf8.DecodeRuneInString(s[i:])
+				if r == utf8.RuneError && width == 1 || r == '\u2028' || r == '\u2029' {
+					n += 6
+				} else {
+					n += uint64(width)
+				}
+				i += width
+			}
+		}
+		return add(n)
+	case reflect.Int:
+		return add(uint64(len(strconv.FormatInt(v.Int(), 10))))
+	case reflect.Uint64:
+		return add(uint64(len(strconv.FormatUint(v.Uint(), 10))))
+	case reflect.Slice:
+		if v.IsNil() {
+			return add(4) // null
+		}
+		if err := add(2); err != nil {
+			return err
+		}
+		for i := 0; i < v.Len(); i++ {
+			if i > 0 {
+				if err := add(1); err != nil {
+					return err
+				}
+			}
+			if err := reportJSONSize(ctx, v.Index(i), size); err != nil {
+				return err
+			}
+		}
+		return nil
+	case reflect.Struct:
+		if err := add(2); err != nil {
+			return err
+		}
+		fields := 0
+		for i := 0; i < v.NumField(); i++ {
+			field := v.Type().Field(i)
+			if !field.IsExported() {
+				continue
+			}
+			if field.Tag.Get("json") != "" || field.Anonymous {
+				return ErrEnvelope
+			}
+			if fields > 0 {
+				if err := add(1); err != nil {
+					return err
+				}
+			}
+			fields++
+			if err := reportJSONSize(ctx, reflect.ValueOf(field.Name), size); err != nil {
+				return err
+			}
+			if err := add(1); err != nil { // colon
+				return err
+			}
+			if err := reportJSONSize(ctx, v.Field(i), size); err != nil {
+				return err
+			}
+		}
+		return nil
+	default:
+		return ErrEnvelope
+	}
 }
 
 type Disposition string

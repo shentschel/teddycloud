@@ -138,7 +138,7 @@ func TestCatalogStateQuerySchemaCompatibility(t *testing.T) {
 		{name: "v5", version: 5, accepted: true},
 		{name: "v6", version: 6, accepted: true},
 		{name: "dirty v6", version: 6, mutation: "UPDATE tc_schema_migrations SET dirty=1 WHERE version=6"},
-		{name: "future v7", version: 6, mutation: "INSERT INTO tc_schema_migrations(version,migration_id,checksum,dirty) VALUES (7,'future','unknown',0)"},
+		{name: "future v8", version: 7, mutation: "INSERT INTO tc_schema_migrations(version,migration_id,checksum,dirty) VALUES (8,'future','unknown',0)"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			owner, err := OpenLifecycleOwner(t.Context(), Config{Path: filepath.Join(t.TempDir(), "compat.sqlite")}, SchemaMigrations()[:tc.version])
