@@ -1,0 +1,9 @@
+{
+  "format": "catalog-offline-v1",
+  "records": [
+    {"record":"generated-multiple","kind":"public","title":"Generated title","pairs":[{"audio_id":7,"sha1":"1111111111111111111111111111111111111111"},{"audio_id":9,"sha1":"2222222222222222222222222222222222222222"}]},
+    {"record":"generated-invalid","kind":"public","pairs":[{"audio_id":0,"sha1":"1111111111111111111111111111111111111111"}]},
+    {"record":"generated-wide","kind":"public","pairs":[{"audio_id":18446744073709551615,"sha1":"3333333333333333333333333333333333333333"}],"series":"Generated extension"},
+    {"record":"generated-legacy","kind":"public","legacy_audio_ids":[7,9],"legacy_sha1s":["2222222222222222222222222222222222222222","1111111111111111111111111111111111111111"]}
+  ]
+}
