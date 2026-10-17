@@ -47,9 +47,9 @@ Current execution artifacts:
 - [PI-08/A2 guarded baseline-adoption checkpoint](pi-08-a2-baseline-adoption-checkpoint.md)
 - [PI-08/A2 acceptance audit](pi-08-a2-acceptance-audit.md)
 - [PI-08/B1.1 offline import parser checkpoint](pi-08-b1-offline-parser-checkpoint.md)
-- PI-08/R's bounded decisions are complete; acceptance requires the plan's
-  commit-linked documentation/remote verification evidence on issue #25.
-  A/B/T and the versioned-catalog-query milestone remain undelivered.
+- [PI-08/B1 acceptance audit](pi-08-b1-acceptance-audit.md)
+- PI-08/R, A and B1 are accepted software checkpoints. B2, independent T and
+  the versioned-catalog-query milestone remain undelivered.
 
 - [PI-07 plan checkpoint](pi-07-plan.md)
 - [PI-07 budget checkpoint](pi-07-budget.md)
