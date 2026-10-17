@@ -167,7 +167,7 @@ func TestTagSchemaFreshReopenAndConstraints(t *testing.T) {
 
 func TestTagSchemaMigrationsDefensiveCopy(t *testing.T) {
 	first := SchemaMigrations()
-	if len(first) != 6 {
+	if len(first) != 7 {
 		t.Fatalf("migration count = %d, want 6", len(first))
 	}
 	// Keep the historical prefix exact while allowing the additive v6 schema.
@@ -181,7 +181,7 @@ func TestTagSchemaMigrationsDefensiveCopy(t *testing.T) {
 	first[1].Statements[0] = "modified"
 	first = append(first, Migration{Version: 3, ID: "caller-only"})
 	second := SchemaMigrations()
-	if len(second) != 6 || second[1].ID != "0002-tag-identity" || !strings.Contains(second[1].Statements[0], "CREATE TABLE tc_tags") {
+	if len(second) != 7 || second[1].ID != "0002-tag-identity" || !strings.Contains(second[1].Statements[0], "CREATE TABLE tc_tags") {
 		t.Fatal("caller changed canonical tag migration")
 	}
 }

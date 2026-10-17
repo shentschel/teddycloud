@@ -78,7 +78,7 @@ func (owner *LifecycleOwner) catalogTransaction(ctx context.Context, operation f
 		return repositoryError(ctx, err)
 	}
 	// v6 adds state envelopes without changing the accepted v5 query tables.
-	if (version != 5 && version != 6) || dirty != 0 {
+	if (version < 5 || version > 7) || dirty != 0 {
 		return app.ErrUnsupported
 	}
 	repository := &catalogRepository{transaction: tx, ctx: ctx, owner: owner, database: owner.database, generation: owner.generation.Load(), schemaVersion: version}
@@ -288,7 +288,7 @@ func (r *catalogRepository) stateCall(ctx context.Context) (context.Context, fun
 	if err := ctx.Err(); err != nil {
 		return nil, nil, err
 	}
-	if r.schemaVersion != 6 {
+	if r.schemaVersion < 6 {
 		return nil, nil, app.ErrUnsupported
 	}
 	call, cancel := context.WithCancel(r.ctx)

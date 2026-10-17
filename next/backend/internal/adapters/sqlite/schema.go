@@ -353,6 +353,19 @@ var schemaMigrations = []Migration{
 	},
 }
 
+func init() {
+	schemaMigrations = append(schemaMigrations, Migration{Version: 7, ID: "0007-catalog-offline-import", Statements: []string{
+		`CREATE TABLE tc_catalog_imports (
+ batch_id TEXT PRIMARY KEY NOT NULL REFERENCES tc_catalog_batches(batch_id) ON DELETE RESTRICT,
+ artifact BLOB NOT NULL CHECK(length(artifact) BETWEEN 1 AND 1048576),
+ report BLOB NOT NULL CHECK(length(report) BETWEEN 1 AND 8388608),
+ retained_bytes INTEGER NOT NULL CHECK(retained_bytes BETWEEN 1 AND 67108864)
+ ) STRICT`,
+		`CREATE TRIGGER tc_catalog_imports_no_update BEFORE UPDATE ON tc_catalog_imports BEGIN SELECT RAISE(ABORT,'immutable catalog import'); END`,
+		`CREATE TRIGGER tc_catalog_imports_no_delete BEFORE DELETE ON tc_catalog_imports BEGIN SELECT RAISE(ABORT,'immutable catalog import'); END`,
+	}})
+}
+
 // SchemaMigrations returns a copy of the ordered, forward-only application
 // schema. Applied migration checksums make later mutation fail closed.
 func SchemaMigrations() []Migration {

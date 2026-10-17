@@ -2,7 +2,41 @@
 // candidates. It performs no persistence, identity allocation or external I/O.
 package catalogimport
 
-import "crypto/sha256"
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/json"
+	domain "github.com/shentschel/teddycloud/next/backend/internal/domain/catalog"
+	"reflect"
+	"strconv"
+)
+
+// CatalogImportPayload rejects fabricated or mutated public report fields.
+// Invalid representations remain in the complete safe artifact; the record
+// snapshot is then a value-free rejection marker, never accepted evidence.
+func (r Report) CatalogImportPayload(ctx context.Context) (domain.ImportPayload, error) {
+	validated, err := Parse(ctx, r.ArtifactBytes())
+	if err != nil || !reflect.DeepEqual(r, validated) {
+		return domain.ImportPayload{}, ErrEnvelope
+	}
+	report, err := json.Marshal(validated.Records)
+	if err != nil {
+		return domain.ImportPayload{}, ErrEnvelope
+	}
+	records := make([]domain.ImportRecord, len(validated.Records))
+	for i, record := range validated.Records {
+		raw := record.SnapshotBytes()
+		if len(raw) == 0 {
+			raw = []byte(`{"disposition":"rejected","record_index":` + strconv.Itoa(i) + `}`)
+		}
+		snapshot, err := domain.NewRecordSnapshot(raw)
+		if err != nil {
+			return domain.ImportPayload{}, ErrEnvelope
+		}
+		records[i] = domain.ImportRecord{Locator: "record:" + strconv.Itoa(i), Snapshot: snapshot}
+	}
+	return domain.NewImportPayload(r.ArtifactBytes(), report, records)
+}
 
 type Disposition string
 

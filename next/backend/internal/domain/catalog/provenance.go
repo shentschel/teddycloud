@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"encoding/hex"
 	"errors"
 	"sort"
 	"time"
@@ -10,6 +11,8 @@ import (
 )
 
 type BatchID struct{ value [16]byte }
+
+func (id BatchID) String() string { return hex.EncodeToString(id.value[:]) }
 
 func NewBatchID() (BatchID, error) {
 	value, err := newCatalogOpaqueID()

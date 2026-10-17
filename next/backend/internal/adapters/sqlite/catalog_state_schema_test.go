@@ -201,7 +201,7 @@ func TestCatalogStateMigrationIdentity(t *testing.T) {
 		"c65137b653d80e54301a14fd7f8be52bdb7e246ec32245623cbf47d7bfa66fc7",
 		"f3bd874bbb9d8ae2228ba91c3d2b5d5077d0110d69d13551a24c87e54558fcd1",
 	}
-	if len(migrations) != 6 || migrations[5].Version != 6 || migrations[5].ID != "0006-catalog-aggregate-state" {
+	if len(migrations) != 7 || migrations[5].Version != 6 || migrations[5].ID != "0006-catalog-aggregate-state" {
 		t.Fatal("migration identity changed")
 	}
 	for i, sum := range want {
@@ -256,7 +256,7 @@ func TestCatalogStateV5Upgrade(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer upgraded.Close()
-	if version, err := upgraded.CurrentVersion(t.Context()); err != nil || version != 6 {
+	if version, err := upgraded.CurrentVersion(t.Context()); err != nil || version != 7 {
 		t.Fatal("v6 upgrade failed", err)
 	}
 	for table, rows := range before {
