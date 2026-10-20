@@ -225,10 +225,13 @@ func (r *blobRepository) RecordImport(ctx context.Context, key content.ImportKey
 	// Validate existing references before inserting anything: re-import repairs
 	// media in B2, never silently repairs corrupt relational rows here.
 	if versionFound {
-		if version.Version != command.Version() || version.BlobID != command.BlobID() {
+		if version.Version != command.Version() {
 			return result, contentstore.ErrConflict
 		}
-		if version.CompleteBytes != command.CompleteBytes() || version.Profile != command.Profile() {
+		if !version.BlobID.IsZero() && version.BlobID != command.BlobID() {
+			return result, contentstore.ErrConflict
+		}
+		if !version.BlobID.IsZero() && (version.CompleteBytes != command.CompleteBytes() || version.Profile != command.Profile()) {
 			return result, contentstore.ErrCorrupt
 		}
 	}
@@ -257,7 +260,9 @@ func (r *blobRepository) RecordImport(ctx context.Context, key content.ImportKey
 		if e = r.exec(callContext, `INSERT INTO tc_content_versions(version_id,content_id,audio_id,audio_sha1,order_known,order_namespace,order_position) VALUES(?,?,?,?,?,?,?)`, v.ID().String(), v.ContentID().String(), int64(v.Fingerprint().AudioID().Uint64()), hash, known, namespace, position); e != nil {
 			return result, e
 		}
-		if e = r.exec(callContext, `INSERT INTO tc_version_blobs(version_id,digest) VALUES(?,?)`, v.ID().String(), digest[:]); e != nil {
+	}
+	if !versionFound || version.BlobID.IsZero() {
+		if e = r.exec(callContext, `INSERT INTO tc_version_blobs(version_id,digest) VALUES(?,?)`, command.Version().ID().String(), digest[:]); e != nil {
 			return result, e
 		}
 	}
@@ -341,7 +346,7 @@ func (r *blobRepository) loadVersion(ctx context.Context, id identity.ContentVer
 	var contentText, namespace sql.NullString
 	var audio, known, size, algorithm, profile sql.NullInt64
 	var hash, position, digest []byte
-	var contentExists, namespaceNull, positionNull bool
+	var contentExists, namespaceNull, positionNull, bound, receipt bool
 	err := r.transaction.QueryRowContext(ctx, `SELECT
  CASE WHEN typeof(v.content_id)='text' AND length(CAST(v.content_id AS BLOB))=30 THEN v.content_id END,
  CASE WHEN typeof(v.audio_id)='integer' THEN v.audio_id END,
@@ -354,8 +359,10 @@ func (r *blobRepository) loadVersion(ctx context.Context, id identity.ContentVer
  CASE WHEN typeof(b.algorithm)='integer' THEN b.algorithm END,
  CASE WHEN typeof(b.profile)='integer' THEN b.profile END,
  EXISTS(SELECT 1 FROM tc_catalog_content c WHERE c.content_id=v.content_id),
- (v.order_namespace IS NULL), (v.order_position IS NULL)
- FROM tc_content_versions v LEFT JOIN tc_version_blobs vb ON vb.version_id=v.version_id LEFT JOIN tc_blobs b ON b.digest=vb.digest WHERE v.version_id=?`, id.String()).Scan(&contentText, &audio, &hash, &known, &namespace, &position, &digest, &size, &algorithm, &profile, &contentExists, &namespaceNull, &positionNull)
+ (v.order_namespace IS NULL), (v.order_position IS NULL),
+ vb.version_id IS NOT NULL,
+ EXISTS(SELECT 1 FROM tc_blob_imports i WHERE i.version_id=v.version_id)
+ FROM tc_content_versions v LEFT JOIN tc_version_blobs vb ON vb.version_id=v.version_id LEFT JOIN tc_blobs b ON b.digest=vb.digest WHERE v.version_id=?`, id.String()).Scan(&contentText, &audio, &hash, &known, &namespace, &position, &digest, &size, &algorithm, &profile, &contentExists, &namespaceNull, &positionNull, &bound, &receipt)
 	if errors.Is(err, sql.ErrNoRows) {
 		var dangling bool
 		if err := r.transaction.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM tc_version_blobs WHERE version_id=?) OR EXISTS(SELECT 1 FROM tc_blob_imports WHERE version_id=?)`, id.String(), id.String()).Scan(&dangling); err != nil {
@@ -369,7 +376,7 @@ func (r *blobRepository) loadVersion(ctx context.Context, id identity.ContentVer
 	if err != nil {
 		return contentstore.ImportResult{}, false, contentBoundaryError(ctx, err)
 	}
-	if !contentText.Valid || !audio.Valid || audio.Int64 < 1 || audio.Int64 > 4294967295 || len(hash) != 20 || !known.Valid || known.Int64 < 0 || known.Int64 > 1 || !size.Valid || size.Int64 < int64(content.MinTAFBytes) || size.Int64 > int64(content.HardTAFBytes) || !algorithm.Valid || algorithm.Int64 != 1 || !profile.Valid || profile.Int64 != 1 || len(digest) != 32 || !contentExists {
+	if !contentText.Valid || !audio.Valid || audio.Int64 < 1 || audio.Int64 > 4294967295 || len(hash) != 20 || !known.Valid || known.Int64 < 0 || known.Int64 > 1 || !contentExists {
 		return contentstore.ImportResult{}, false, contentstore.ErrCorrupt
 	}
 	contentID, err := identity.ParseContentID(contentText.String)
@@ -404,6 +411,17 @@ func (r *blobRepository) loadVersion(ctx context.Context, id identity.ContentVer
 	}
 	version, err := catalog.NewContentVersion(id, contentID, fingerprint, order)
 	if err != nil {
+		return contentstore.ImportResult{}, false, contentstore.ErrCorrupt
+	}
+	// A valid catalog-only tuple is attachable, but a receipt without its
+	// binding remains corruption. Never repair broken relational references.
+	if !bound {
+		if receipt {
+			return contentstore.ImportResult{}, false, contentstore.ErrCorrupt
+		}
+		return contentstore.ImportResult{Version: version}, true, nil
+	}
+	if !size.Valid || size.Int64 < int64(content.MinTAFBytes) || size.Int64 > int64(content.HardTAFBytes) || !algorithm.Valid || algorithm.Int64 != 1 || !profile.Valid || profile.Int64 != 1 || len(digest) != 32 {
 		return contentstore.ImportResult{}, false, contentstore.ErrCorrupt
 	}
 	var blobDigest [32]byte
