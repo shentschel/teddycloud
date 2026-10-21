@@ -94,21 +94,50 @@ func TestCatalogMilestoneQueryable(t *testing.T) {
 	f := catalogRecoveryCurrent(t)
 	before := catalogRecoveryRows(t, f.owner.database.db)
 	query := catalogFindQuery(t, app.FindVersionsByPair, 1)
-	// The recovery fixture also intentionally contains malformed legacy text;
-	// select this valid aggregate rather than claim global malformed rows work.
+	// Content scopes the matches, not the validated global search snapshot.
+	// The recovery fixture deliberately retains a NUL-bearing legacy title and
+	// an empty, non-NULL model on another content. Both are invalid domain text;
+	// even that nonmatching row must fail closed.
 	query.Content = f.subject.ContentID()
+	legacyID := catalogSchemaID("cnt", 2)
+	legacyQuery := app.Query{Kind: app.GetContent, Content: catalogQueryContent(t, 2), Page: app.PageRequest{Limit: 1}}
+	var legacyTitle, legacyModel string
+	if err := f.owner.database.db.QueryRowContext(t.Context(), "SELECT title,model_number FROM tc_catalog_content WHERE content_id=?", legacyID).Scan(&legacyTitle, &legacyModel); err != nil || legacyTitle != "Baseline\x00bytes" || legacyModel != "" {
+		t.Fatalf("malformed legacy text fixture: %q %q %v", legacyTitle, legacyModel, err)
+	}
+	for _, q := range []app.Query{legacyQuery, query} {
+		if _, err := catalogRead(t, f.owner, q); !errors.Is(err, app.ErrRepositoryUnavailable) {
+			t.Fatalf("malformed legacy title accepted by query %d: %v", q.Kind, err)
+		}
+	}
+	if !reflect.DeepEqual(before, catalogRecoveryRows(t, f.owner.database.db)) {
+		t.Fatal("rejected query mutated recovery fixture")
+	}
+	// Repair the title first to isolate the independent invalid model. An absent
+	// model must be NULL, not an empty product identifier.
+	catalogSchemaExec(t, f.owner.database.db, "UPDATE tc_catalog_content SET title=? WHERE content_id=?", "Baseline bytes", legacyID)
+	if _, err := catalogRead(t, f.owner, legacyQuery); !errors.Is(err, app.ErrRepositoryUnavailable) {
+		t.Fatalf("empty non-NULL model accepted: %v", err)
+	}
+	// Repair only this test's baseline text. Keep every version, receipt and
+	// review/order decision, and preserve the shared malformed recovery fixture.
+	catalogSchemaExec(t, f.owner.database.db, "UPDATE tc_catalog_content SET model_number=NULL WHERE content_id=?", legacyID)
+	if result, err := catalogRead(t, f.owner, legacyQuery); err != nil || result.Kind != app.Found || len(result.Entries) != 1 {
+		t.Fatalf("repaired legacy baseline remains unreadable: %+v %v", result, err)
+	}
+	before = catalogRecoveryRows(t, f.owner.database.db)
 	first, err := catalogRead(t, f.owner, query)
 	if err != nil || first.Kind != app.Incomplete || first.Complete || first.Next == "" {
 		t.Fatal("partial candidates presented as unique", first, err)
 	}
 	query.Page.Limit = 128
 	full, err := catalogRead(t, f.owner, query)
-	if err != nil || full.Kind != app.Ambiguous || !full.Complete || len(full.Entries) < 2 {
+	if err != nil || full.Kind != app.Ambiguous || !full.Complete || len(full.Entries) != 2 {
 		t.Fatal("equal fingerprints merged", full, err)
 	}
-	for _, entry := range full.Entries {
-		if entry.Media != app.CatalogOnly {
-			t.Fatal("catalog-only row invented media")
+	for i, entry := range full.Entries {
+		if entry.Media != app.CatalogOnly || entry.Content != f.subject.ContentID() || entry.Version.ID() != f.versions[i].Version.ID() || entry.Version.Fingerprint() != query.Fingerprint {
+			t.Fatal("catalog-only identity, fingerprint or media changed", entry)
 		}
 	}
 	config := f.owner.config
