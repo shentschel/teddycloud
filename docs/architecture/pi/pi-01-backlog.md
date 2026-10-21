@@ -1,9 +1,9 @@
 # PI execution backlog and deferred findings
 
-Status: GitHub Issues enabled; seven open tasks published
+Status: GitHub Issues enabled; nine open tasks published
 
 Stable IDs below are task IDs, not GitHub issue numbers. Search by exact ID
-before creating further issues. Seven open tasks are linked below; completed
+before creating further issues. Nine open tasks are linked below; completed
 sprints and F-04 were not copied into the issue tracker. Do not publish personal
 usage measurements.
 Every task is documentation-only unless a future PI explicitly admits implementation.
@@ -199,3 +199,30 @@ Issue: [#4](https://github.com/shentschel/teddycloud/issues/4).
   reboot and rollback without referenced partial bytes or false success.
 - Blocks: storage/assignment implementation acceptance and production cutover;
   does not block documenting the chosen protocol.
+
+## PI08-T-F01 — Guard catalog content and version registration
+
+Issue: [#27](https://github.com/shentschel/teddycloud/issues/27).
+
+- Priority: P1; owner: PI-08 follow-up; state: open; model: `gpt-6-astra`
+  for contract refinement, `gpt-6.1-sol` for bounded implementation slices.
+- Evidence: the independent PI-08/T audit found no guarded
+  `RegisterContent` or `RegisterCatalogVersion` application/repository path;
+  milestone fixtures currently seed catalog-only versions directly with SQL.
+- Done: independently identified catalog-only content and immutable versions can
+  be registered through guarded, replay-safe commands with provenance,
+  conflict, cancellation, rollback, restart and uncertain-commit evidence.
+- Blocks: PI-08/T and PI-08 milestone acceptance.
+
+## PI08-T-F02 — Add immutable catalog version supersession
+
+Issue: [#28](https://github.com/shentschel/teddycloud/issues/28).
+
+- Priority: P1; owner: PI-08 follow-up; state: open; model: `gpt-6-astra`
+  for contract refinement, `gpt-6.1-sol` for bounded implementation slices.
+- Evidence: no `SupersedeVersion` command or immutable version-supersession
+  state exists; order-command `Supersedes` refers to decision IDs instead.
+- Done: retained immutable history with guarded, replay-safe supersession;
+  cycles, self-links, cross-content replacement and identity conflicts fail
+  closed, with restart/query and rollback evidence.
+- Blocks: PI-08/T and PI-08 milestone acceptance.
