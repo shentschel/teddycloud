@@ -48,8 +48,10 @@ Current execution artifacts:
 - [PI-08/A2 acceptance audit](pi-08-a2-acceptance-audit.md)
 - [PI-08/B1.1 offline import parser checkpoint](pi-08-b1-offline-parser-checkpoint.md)
 - [PI-08/B1 acceptance audit](pi-08-b1-acceptance-audit.md)
-- PI-08/R, A and B1 are accepted software checkpoints. B2, independent T and
-  the versioned-catalog-query milestone remain undelivered.
+- [PI-08/B2 media compatibility checkpoint](pi-08-b2-media-checkpoint.md)
+- PI-08/R, A, B1 and the bounded B2 media/receipt slice are accepted software
+  checkpoints. B2 lifecycle/recovery, independent T and the
+  versioned-catalog-query milestone remain undelivered.
 
 - [PI-07 plan checkpoint](pi-07-plan.md)
 - [PI-07 budget checkpoint](pi-07-budget.md)
