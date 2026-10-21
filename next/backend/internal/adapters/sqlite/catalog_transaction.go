@@ -65,7 +65,9 @@ func (owner *LifecycleOwner) catalogTransaction(ctx context.Context, operation f
 			setting = "PRAGMA query_only=ON"
 		}
 		if _, err := connection.ExecContext(cleanup, setting); err != nil {
-			result = errors.Join(result, app.ErrRepositoryUnavailable)
+			// Cleanup can fail after a durable write. Only command readback can
+			// establish the outcome; never promise that storage had no effect.
+			result = errors.Join(result, app.ErrIndeterminate)
 		}
 	}()
 	tx, err := connection.BeginTx(ctx, nil)
@@ -101,7 +103,12 @@ func (owner *LifecycleOwner) catalogTransaction(ctx context.Context, operation f
 			result = ctx.Err()
 		}
 		if result == nil {
-			return repositoryError(ctx, tx.Commit())
+			if err := tx.Commit(); err != nil {
+				// The driver may have committed before losing its response. Do not
+				// retry the callback or expose the raw cause (including cancellation).
+				return app.ErrIndeterminate
+			}
+			return nil
 		}
 	}
 	if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {

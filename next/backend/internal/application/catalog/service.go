@@ -105,6 +105,11 @@ func sanitizeError(ctx context.Context, err error) error {
 	if err == nil {
 		return nil
 	}
+	// A caller cancellation after commit cannot prove rollback. Preserve the
+	// owner's uncertain outcome so recovery uses authorized command readback.
+	if errors.Is(err, ErrIndeterminate) {
+		return ErrIndeterminate
+	}
 	if errors.Is(err, context.Canceled) {
 		return context.Canceled
 	}
