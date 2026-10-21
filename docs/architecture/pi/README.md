@@ -51,7 +51,9 @@ Current execution artifacts:
 - [PI-08/B2 media compatibility checkpoint](pi-08-b2-media-checkpoint.md)
 - [PI-08/B2 lifecycle and restart checkpoint](pi-08-b2-lifecycle-restart-checkpoint.md)
 - [PI-08/B2 acceptance audit](pi-08-b2-acceptance-audit.md)
-- PI-08/R, A, B1 and B2 are accepted software checkpoints. Independent T and the
+- [PI-08/T independent audit checkpoint](pi-08-t-audit-checkpoint.md)
+- PI-08/R, A, B1 and B2 are accepted software checkpoints. Independent T found
+  and published PI08-T-F01/F02; the fixture-only F03 is resolved. T and the
   versioned-catalog-query milestone remain undelivered.
 
 - [PI-07 plan checkpoint](pi-07-plan.md)
