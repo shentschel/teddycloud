@@ -57,6 +57,7 @@ func (owner *LifecycleOwner) catalogTransaction(ctx context.Context, operation f
 	if _, err := connection.ExecContext(ctx, "PRAGMA query_only=ON"); err != nil {
 		return repositoryError(ctx, err)
 	}
+	commitAttempted := false
 	defer func() {
 		cleanup, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
@@ -65,9 +66,13 @@ func (owner *LifecycleOwner) catalogTransaction(ctx context.Context, operation f
 			setting = "PRAGMA query_only=ON"
 		}
 		if _, err := connection.ExecContext(cleanup, setting); err != nil {
-			// Cleanup can fail after a durable write. Only command readback can
-			// establish the outcome; never promise that storage had no effect.
-			result = errors.Join(result, app.ErrIndeterminate)
+			failure := app.ErrRepositoryUnavailable
+			if commitAttempted {
+				// A commit may already be durable when connection cleanup fails.
+				// Read-only and rolled-back operations have no uncertain commit.
+				failure = app.ErrIndeterminate
+			}
+			result = errors.Join(result, failure)
 		}
 	}()
 	tx, err := connection.BeginTx(ctx, nil)
@@ -103,6 +108,7 @@ func (owner *LifecycleOwner) catalogTransaction(ctx context.Context, operation f
 			result = ctx.Err()
 		}
 		if result == nil {
+			commitAttempted = true
 			if err := tx.Commit(); err != nil {
 				// The driver may have committed before losing its response. Do not
 				// retry the callback or expose the raw cause (including cancellation).

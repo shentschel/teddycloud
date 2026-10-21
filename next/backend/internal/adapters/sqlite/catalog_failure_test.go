@@ -56,7 +56,7 @@ func (c *catalogFaultConn) BeginTx(ctx context.Context, options driver.TxOptions
 }
 
 func (c *catalogFaultConn) ExecContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
-	if query == "PRAGMA query_only=OFF" && c.fault.cleanup.CompareAndSwap(true, false) {
+	if (query == "PRAGMA query_only=OFF" || query == "PRAGMA query_only=ON") && c.fault.cleanup.CompareAndSwap(true, false) {
 		return nil, catalogPrivateFailure
 	}
 	return c.Conn.(driver.ExecerContext).ExecContext(ctx, query, args)
@@ -88,6 +88,14 @@ func (tx *catalogFaultTx) Commit() error {
 		tx.fault.cancel()
 	}
 	return catalogPrivateFailure
+}
+
+func (tx *catalogFaultTx) Rollback() error {
+	err := tx.Tx.Rollback()
+	if err == nil && tx.fault.mode == "rollback-cleanup" {
+		tx.fault.cleanup.Store(true)
+	}
+	return err
 }
 
 func catalogInstallFault(t *testing.T, owner *LifecycleOwner, fault *catalogCommitFault) {
@@ -342,6 +350,49 @@ func TestCatalogSanitizedErrors(t *testing.T) {
 			}
 			if !reflect.DeepEqual(catalogRecoveryRows(t, f.owner.database.db), before) {
 				t.Fatal("rejected mutation retained partial state")
+			}
+		})
+	}
+}
+
+func TestCatalogCleanupWithoutCommit(t *testing.T) {
+	for _, mode := range []string{"read-only", "callback-failure", "write-rolled-back"} {
+		t.Run(mode, func(t *testing.T) {
+			f, _, op, next, result := orderWriteFixture(t)
+			before := catalogRecoveryRows(t, f.owner.database.db)
+			fault := &catalogCommitFault{mode: "rollback-cleanup"}
+			catalogInstallFault(t, f.owner, fault)
+			calls := 0
+			err := f.owner.WithinCatalogTransaction(t.Context(), func(r app.CatalogRepository) error {
+				calls++
+				if mode == "write-rolled-back" {
+					if err := r.CommitOrder(t.Context(), op, next, result); err != nil {
+						return err
+					}
+				}
+				if mode != "read-only" {
+					return app.ErrInvalidInput
+				}
+				_, _, err := r.LoadOrder(t.Context(), f.subject.ContentID())
+				return err
+			})
+			if !errors.Is(err, app.ErrRepositoryUnavailable) || errors.Is(err, app.ErrIndeterminate) || fault.commits.Load() != 0 || calls != 1 || fault.cleanup.Load() {
+				t.Fatal("non-commit cleanup misclassified or injection not consumed", err, fault.commits.Load(), calls)
+			}
+			if mode != "read-only" && !errors.Is(err, app.ErrInvalidInput) {
+				t.Fatal("callback error lost", err)
+			}
+			if !reflect.DeepEqual(catalogRecoveryRows(t, f.owner.database.db), before) {
+				t.Fatal("read/rollback cleanup changed persisted facts")
+			}
+			// Exercise the application's real read-only transaction as well.
+			service, err := app.NewService(f.owner, f.source, f.review, f.namespace)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, found, err := service.LookupOrder(t.Context(), catalogOrderCommand(op))
+			if err != app.ErrRepositoryUnavailable || found || !reflect.DeepEqual(got, app.OrderResult{}) {
+				t.Fatal("read-only application cleanup error", got, found, err)
 			}
 		})
 	}
