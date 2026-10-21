@@ -264,6 +264,11 @@ Names below fix semantic responsibilities, not Go signatures or public routes.
 Ingest and review capabilities are separate handles installed by the trusted
 composition root; import payloads cannot construct either privilege.
 
+The missing registration implementation is tracked in the
+[F01 refinement checkpoint](pi-08-f01-registration-contract.md). Its unresolved
+bootstrap, authority and persistence decisions are not implementation approval;
+version supersession remains the separate F02 finding.
+
 | Command/query | Preconditions and result |
 | --- | --- |
 | StageCatalogBatch | Allowed active source/adapter binding; bounded sanitized bytes. Atomically retain batch, candidates and dispositions. Exact batch/bytes replay returns original report; changed identity conflicts. No accepted facts. |
