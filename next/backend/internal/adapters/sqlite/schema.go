@@ -364,6 +364,165 @@ func init() {
 		`CREATE TRIGGER tc_catalog_imports_no_update BEFORE UPDATE ON tc_catalog_imports BEGIN SELECT RAISE(ABORT,'immutable catalog import'); END`,
 		`CREATE TRIGGER tc_catalog_imports_no_delete BEFORE DELETE ON tc_catalog_imports BEGIN SELECT RAISE(ABORT,'immutable catalog import'); END`,
 	}})
+	schemaMigrations = append(schemaMigrations, catalogRegistrationMigration())
+}
+
+// Migration 8 only supplies storage fences. C2 must still validate complete
+// canonical commands/results, SHA-256, semantic replay, the exactly-one-operator
+// requirement, retained-byte accounting and order keys embedded in state bytes.
+// The existing catalog port deliberately remains unavailable on v8 until C2.
+func catalogRegistrationMigration() Migration {
+	m := Migration{Version: 8, ID: "0008-catalog-registration", Statements: []string{
+		`CREATE TABLE tc_catalog_registrations (
+ command_id TEXT PRIMARY KEY NOT NULL CHECK(length(CAST(command_id AS BLOB))=32 AND instr(command_id,char(0))=0 AND command_id NOT GLOB '*[^0123456789abcdef]*' AND command_id<>'00000000000000000000000000000000'),
+ kind INTEGER NOT NULL CHECK(kind IN (1,2)),
+ subject_id TEXT NOT NULL,
+ content_id TEXT NOT NULL,
+ expected_kind INTEGER NOT NULL,
+ expected_revision INTEGER NOT NULL,
+ result_revision INTEGER NOT NULL,
+ review_revision INTEGER NOT NULL CHECK(review_revision=1),
+ order_revision INTEGER NOT NULL CHECK(order_revision BETWEEN 1 AND 1025),
+ protected_custom INTEGER NOT NULL CHECK(protected_custom IN (0,1)),
+ canonical_command BLOB NOT NULL CHECK(length(canonical_command) BETWEEN 1 AND 8388608),
+ canonical_result BLOB NOT NULL CHECK(length(canonical_result) BETWEEN 1 AND 8388608),
+ CHECK((kind=1 AND subject_id=content_id AND expected_kind=0 AND expected_revision=0 AND result_revision=1 AND order_revision=1) OR
+ (kind=2 AND subject_id<>content_id AND expected_kind=1 AND expected_revision BETWEEN 1 AND 9223372036854775806 AND result_revision=expected_revision+1 AND order_revision>=2)),
+ UNIQUE(subject_id),
+ UNIQUE(content_id,result_revision),
+ FOREIGN KEY(subject_id,content_id) REFERENCES tc_catalog_subjects(subject_id,content_id) ON DELETE RESTRICT ON UPDATE RESTRICT
+) STRICT`,
+		`CREATE TRIGGER tc_catalog_registration_binding BEFORE INSERT ON tc_catalog_registrations
+ WHEN NOT EXISTS(SELECT 1 FROM tc_catalog_subjects s JOIN tc_catalog_managed m ON m.content_id=s.content_id
+ WHERE s.subject_id=NEW.subject_id AND s.content_id=NEW.content_id AND s.review_revision=1
+ AND m.aggregate_revision=NEW.result_revision AND m.protected_custom=NEW.protected_custom
+ AND ((NEW.kind=1 AND s.version_id IS NULL) OR (NEW.kind=2 AND s.version_id=NEW.subject_id
+ AND EXISTS(SELECT 1 FROM tc_content_versions v WHERE v.version_id=s.version_id AND v.content_id=s.content_id AND v.order_known=0))))
+ OR EXISTS(SELECT 1 FROM tc_catalog_registrations WHERE command_id=NEW.command_id OR subject_id=NEW.subject_id OR (content_id=NEW.content_id AND result_revision=NEW.result_revision))
+ OR EXISTS(SELECT 1 FROM tc_catalog_review_states WHERE subject_id=NEW.subject_id)
+ OR EXISTS(SELECT 1 FROM tc_catalog_decisions WHERE command_id=NEW.command_id)
+ OR EXISTS(SELECT 1 FROM tc_catalog_batches WHERE batch_id=NEW.command_id)
+ OR EXISTS(SELECT 1 FROM tc_catalog_imports WHERE batch_id=NEW.command_id)
+ BEGIN SELECT RAISE(ABORT,'catalog registration binding or key'); END`,
+		`CREATE TABLE tc_catalog_registration_sources (
+ command_id TEXT NOT NULL REFERENCES tc_catalog_registrations(command_id) ON DELETE RESTRICT ON UPDATE RESTRICT,
+ source_id TEXT NOT NULL,
+ registration_revision TEXT NOT NULL,
+ reviewer_principal TEXT NOT NULL CHECK(length(CAST(reviewer_principal AS BLOB))=32 AND instr(reviewer_principal,char(0))=0 AND reviewer_principal NOT GLOB '*[^0123456789abcdef]*' AND reviewer_principal<>'00000000000000000000000000000000'),
+ is_operator INTEGER NOT NULL CHECK(is_operator IN (0,1)),
+ PRIMARY KEY(command_id,source_id,registration_revision),
+ FOREIGN KEY(source_id,registration_revision) REFERENCES tc_catalog_sources(source_id,registration_revision) ON DELETE RESTRICT ON UPDATE RESTRICT
+) STRICT`,
+		`CREATE UNIQUE INDEX tc_catalog_registration_one_operator ON tc_catalog_registration_sources(command_id) WHERE is_operator=1`,
+		`CREATE TRIGGER tc_catalog_registration_source_guard BEFORE INSERT ON tc_catalog_registration_sources
+ WHEN NOT EXISTS(SELECT 1 FROM tc_catalog_sources WHERE source_id=NEW.source_id AND registration_revision=NEW.registration_revision AND revoked=0 AND (NEW.is_operator=0 OR acquisition=3))
+ OR EXISTS(SELECT 1 FROM tc_catalog_registration_sources WHERE command_id=NEW.command_id AND
+ (reviewer_principal<>NEW.reviewer_principal OR (source_id=NEW.source_id AND registration_revision=NEW.registration_revision) OR (is_operator=1 AND NEW.is_operator=1)))
+ OR (SELECT count(*) FROM tc_catalog_registration_sources WHERE command_id=NEW.command_id)>=256
+ BEGIN SELECT RAISE(ABORT,'catalog registration source'); END`,
+		`CREATE TABLE tc_catalog_registration_support (
+ command_id TEXT NOT NULL REFERENCES tc_catalog_registrations(command_id) ON DELETE RESTRICT ON UPDATE RESTRICT,
+ observation_id TEXT NOT NULL,
+ subject_id TEXT NOT NULL,
+ source_id TEXT NOT NULL,
+ registration_revision TEXT NOT NULL,
+ claim_key INTEGER NOT NULL CHECK(claim_key BETWEEN 1 AND 5),
+ PRIMARY KEY(command_id,observation_id),
+ FOREIGN KEY(subject_id,source_id,registration_revision,claim_key,observation_id) REFERENCES tc_catalog_observations(subject_id,source_id,registration_revision,claim_key,observation_id) ON DELETE RESTRICT ON UPDATE RESTRICT,
+ FOREIGN KEY(command_id,source_id,registration_revision) REFERENCES tc_catalog_registration_sources(command_id,source_id,registration_revision) ON DELETE RESTRICT ON UPDATE RESTRICT
+) STRICT`,
+		`CREATE TRIGGER tc_catalog_registration_support_guard BEFORE INSERT ON tc_catalog_registration_support
+ WHEN NOT EXISTS(SELECT 1 FROM tc_catalog_registrations r JOIN tc_catalog_observations o ON o.observation_id=NEW.observation_id
+ JOIN tc_catalog_sources s ON s.source_id=o.source_id AND s.registration_revision=o.registration_revision
+ WHERE r.command_id=NEW.command_id AND r.subject_id=NEW.subject_id AND o.subject_id=r.subject_id AND o.content_id=r.content_id
+ AND o.source_id=NEW.source_id AND o.registration_revision=NEW.registration_revision AND o.claim_key=NEW.claim_key
+ AND s.revoked=0 AND (NEW.claim_key<>5 OR s.acquisition=3))
+ OR EXISTS(SELECT 1 FROM tc_catalog_registration_support WHERE command_id=NEW.command_id AND observation_id=NEW.observation_id)
+ OR (SELECT count(*) FROM tc_catalog_registration_support WHERE command_id=NEW.command_id)>=256
+ BEGIN SELECT RAISE(ABORT,'catalog registration support'); END`,
+		`CREATE TABLE tc_catalog_review_states_v2 (
+ subject_id TEXT NOT NULL,
+ content_id TEXT NOT NULL,
+ aggregate_revision INTEGER NOT NULL CHECK(aggregate_revision>0),
+ review_revision INTEGER NOT NULL CHECK(review_revision BETWEEN 1 AND 1025),
+ encoding INTEGER NOT NULL CHECK(encoding=2),
+ state BLOB NOT NULL CHECK(length(state) BETWEEN 1 AND 8388608),
+ state_bytes INTEGER NOT NULL CHECK(state_bytes=length(state)),
+ state_sha256 BLOB NOT NULL CHECK(length(state_sha256)=32 AND state_sha256<>zeroblob(32)),
+ bootstrap_command TEXT NOT NULL REFERENCES tc_catalog_registrations(command_id) ON DELETE RESTRICT ON UPDATE RESTRICT,
+ CHECK(hex(substr(state,1,27))='0000000000000013706930382D7265766965772D73746174652F32'),
+ PRIMARY KEY(subject_id,review_revision),
+ UNIQUE(subject_id,aggregate_revision),
+ FOREIGN KEY(subject_id,content_id) REFERENCES tc_catalog_subjects(subject_id,content_id) ON DELETE RESTRICT ON UPDATE RESTRICT
+) STRICT`,
+		`CREATE TRIGGER tc_catalog_review_state_v2_append BEFORE INSERT ON tc_catalog_review_states_v2
+ WHEN NOT EXISTS(SELECT 1 FROM tc_catalog_managed m JOIN tc_catalog_subjects s ON s.content_id=m.content_id
+ JOIN tc_catalog_registrations r ON r.command_id=NEW.bootstrap_command AND r.subject_id=s.subject_id AND r.content_id=s.content_id
+ WHERE s.subject_id=NEW.subject_id AND m.content_id=NEW.content_id AND m.aggregate_revision=NEW.aggregate_revision AND s.review_revision=NEW.review_revision
+ AND (NEW.review_revision<>1 OR NEW.aggregate_revision=r.result_revision))
+ OR NEW.review_revision<>(SELECT COALESCE(max(review_revision),0)+1 FROM tc_catalog_review_states_v2 WHERE subject_id=NEW.subject_id)
+ OR EXISTS(SELECT 1 FROM tc_catalog_review_states WHERE subject_id=NEW.subject_id)
+ OR EXISTS(SELECT 1 FROM tc_catalog_review_states_v2 WHERE subject_id=NEW.subject_id AND aggregate_revision>=NEW.aggregate_revision)
+ BEGIN SELECT RAISE(ABORT,'catalog review v2 revision or binding'); END`,
+		`CREATE TABLE tc_catalog_order_states_v2 (
+ content_id TEXT NOT NULL REFERENCES tc_catalog_managed(content_id) ON DELETE RESTRICT ON UPDATE RESTRICT,
+ aggregate_revision INTEGER NOT NULL CHECK(aggregate_revision>0),
+ order_revision INTEGER NOT NULL CHECK(order_revision BETWEEN 1 AND 1025),
+ encoding INTEGER NOT NULL CHECK(encoding=2),
+ state BLOB NOT NULL CHECK(length(state) BETWEEN 1 AND 8388608),
+ state_bytes INTEGER NOT NULL CHECK(state_bytes=length(state)),
+ state_sha256 BLOB NOT NULL CHECK(length(state_sha256)=32 AND state_sha256<>zeroblob(32)),
+ CHECK(hex(substr(state,1,26))='0000000000000012706930382D6F726465722D73746174652F32'),
+ PRIMARY KEY(content_id,order_revision),
+ UNIQUE(content_id,aggregate_revision)
+) STRICT`,
+		`CREATE TRIGGER tc_catalog_order_state_v2_append BEFORE INSERT ON tc_catalog_order_states_v2
+ WHEN NOT EXISTS(SELECT 1 FROM tc_catalog_managed WHERE content_id=NEW.content_id AND aggregate_revision=NEW.aggregate_revision)
+ OR NOT EXISTS(SELECT 1 FROM tc_catalog_order_states WHERE content_id=NEW.content_id)
+ OR NEW.order_revision<>(SELECT COALESCE(max(revision),0)+1 FROM
+ (SELECT order_revision AS revision FROM tc_catalog_order_states WHERE content_id=NEW.content_id
+ UNION ALL SELECT order_revision FROM tc_catalog_order_states_v2 WHERE content_id=NEW.content_id))
+ OR EXISTS(SELECT 1 FROM tc_catalog_order_states WHERE content_id=NEW.content_id AND aggregate_revision>=NEW.aggregate_revision)
+ OR EXISTS(SELECT 1 FROM tc_catalog_order_states_v2 WHERE content_id=NEW.content_id AND aggregate_revision>=NEW.aggregate_revision)
+ BEGIN SELECT RAISE(ABORT,'catalog order v2 revision or binding'); END`,
+		`CREATE TABLE tc_catalog_order_state_versions_v2 (
+ content_id TEXT NOT NULL,
+ order_revision INTEGER NOT NULL,
+ version_id TEXT NOT NULL,
+ PRIMARY KEY(content_id,order_revision,version_id),
+ FOREIGN KEY(content_id,order_revision) REFERENCES tc_catalog_order_states_v2(content_id,order_revision) ON DELETE RESTRICT ON UPDATE RESTRICT,
+ FOREIGN KEY(content_id,version_id) REFERENCES tc_content_versions(content_id,version_id) ON DELETE RESTRICT ON UPDATE RESTRICT
+) STRICT`,
+		`CREATE TRIGGER tc_catalog_order_state_version_v2_bounds BEFORE INSERT ON tc_catalog_order_state_versions_v2
+ WHEN (SELECT count(*) FROM tc_catalog_order_state_versions_v2 WHERE content_id=NEW.content_id AND order_revision=NEW.order_revision)>=1024
+ OR EXISTS(SELECT 1 FROM tc_catalog_order_state_versions_v2 WHERE content_id=NEW.content_id AND order_revision=NEW.order_revision AND version_id=NEW.version_id)
+ BEGIN SELECT RAISE(ABORT,'catalog order v2 version bounds'); END`,
+		`CREATE TRIGGER tc_catalog_review_state_generation BEFORE INSERT ON tc_catalog_review_states
+ WHEN EXISTS(SELECT 1 FROM tc_catalog_registrations WHERE subject_id=NEW.subject_id)
+ OR EXISTS(SELECT 1 FROM tc_catalog_review_states_v2 WHERE subject_id=NEW.subject_id)
+ BEGIN SELECT RAISE(ABORT,'catalog review generation regression'); END`,
+		`CREATE TRIGGER tc_catalog_order_state_generation BEFORE INSERT ON tc_catalog_order_states
+ WHEN EXISTS(SELECT 1 FROM tc_catalog_order_states_v2 WHERE content_id=NEW.content_id)
+ BEGIN SELECT RAISE(ABORT,'catalog order generation regression'); END`,
+		`CREATE TRIGGER tc_catalog_decision_registration_key BEFORE INSERT ON tc_catalog_decisions
+ WHEN EXISTS(SELECT 1 FROM tc_catalog_registrations WHERE command_id=NEW.command_id)
+ BEGIN SELECT RAISE(ABORT,'catalog registration key occupied'); END`,
+		`CREATE TRIGGER tc_catalog_batch_registration_key BEFORE INSERT ON tc_catalog_batches
+ WHEN EXISTS(SELECT 1 FROM tc_catalog_registrations WHERE command_id=NEW.batch_id)
+ BEGIN SELECT RAISE(ABORT,'catalog registration key occupied'); END`,
+		`CREATE TRIGGER tc_catalog_import_registration_key BEFORE INSERT ON tc_catalog_imports
+ WHEN EXISTS(SELECT 1 FROM tc_catalog_registrations WHERE command_id=NEW.batch_id)
+ BEGIN SELECT RAISE(ABORT,'catalog registration key occupied'); END`,
+	}}
+	for _, table := range []string{
+		"tc_catalog_registrations", "tc_catalog_registration_sources", "tc_catalog_registration_support",
+		"tc_catalog_review_states_v2", "tc_catalog_order_states_v2", "tc_catalog_order_state_versions_v2",
+	} {
+		for _, operation := range []struct{ suffix, sql string }{{"update", "UPDATE"}, {"delete", "DELETE"}} {
+			m.Statements = append(m.Statements, "CREATE TRIGGER "+table+"_no_"+operation.suffix+" BEFORE "+operation.sql+" ON "+table+" BEGIN SELECT RAISE(ABORT,'immutable catalog registration state'); END")
+		}
+	}
+	return m
 }
 
 // SchemaMigrations returns a copy of the ordered, forward-only application
