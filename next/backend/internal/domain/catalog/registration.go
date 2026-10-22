@@ -793,6 +793,9 @@ func rehydrateGrowthOrder(d *catalogPersistenceDecoder, raw []byte) (CatalogOrde
 			}
 			state, err = state.AppendRegisteredVersion(command, aggregate, version)
 		case 2:
+			if state.growthBase == "" {
+				return CatalogOrderState{}, ErrInvalidCatalog
+			}
 			commandRaw, resultRaw := d.text(RetainedBytes.Maximum()), d.text(RetainedBytes.Maximum())
 			cd := &catalogPersistenceDecoder{raw: []byte(commandRaw), context: d.context}
 			reviewer, command := cd.orderCommand()
@@ -808,8 +811,12 @@ func rehydrateGrowthOrder(d *catalogPersistenceDecoder, raw []byte) (CatalogOrde
 				return CatalogOrderState{}, ErrInvalidCatalog
 			}
 			capability := CatalogOrderCapability{namespace: command.Namespace, review: ReviewCapability{binding: command.Namespace.Source().binding, reviewer: reviewer}}
+			before := len(state.growthEvents)
 			state, _, err = state.Apply(capability, command)
 			if err == nil {
+				if len(state.growthEvents) != before+1 {
+					return CatalogOrderState{}, ErrInvalidCatalog
+				}
 				event := state.growthEvents[len(state.growthEvents)-1]
 				enc := catalogEncoder{data: make([]byte, 0)}
 				enc.orderResult(event.decision.result)

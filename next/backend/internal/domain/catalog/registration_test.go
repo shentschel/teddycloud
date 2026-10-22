@@ -606,6 +606,15 @@ func TestRegistrationManifestAndMedia(t *testing.T) {
 		t.Fatal("second growth inferred order")
 	}
 	bindings := CatalogPersistenceBindings{Sources: []SourceRegistration{namespace.Source()}, Namespaces: []CatalogOrderNamespace{namespace}, Reviewers: []IssuerPrincipal{capability.review.Reviewer()}}
+	// A v2 stream must begin with growth. A syntactically valid ordinary
+	// decision first must reject, rather than indexing an absent growth event.
+	ordinary := orderCommandFixture(t, state, namespace, a)
+	ordinaryState, _ := applyOrder(t, state, capability, ordinary)
+	bad := catalogEncoder{data: make([]byte, 0)}
+	state.encodeGrowthState(&bad, string(base), &catalogOrderGrowthEvent{decision: &ordinaryState.decisions[len(ordinaryState.decisions)-1]})
+	if _, err := RehydrateCatalogOrderState(bad.data, bindings); !errors.Is(err, ErrInvalidCatalog) {
+		t.Fatal("ordinary-first growth stream", err)
+	}
 	raw, err := grown.PersistenceEncoding()
 	if err != nil {
 		t.Fatal(err)
