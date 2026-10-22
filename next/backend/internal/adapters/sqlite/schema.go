@@ -476,9 +476,15 @@ func catalogRegistrationMigration() Migration {
  PRIMARY KEY(content_id,order_revision),
  UNIQUE(content_id,aggregate_revision)
 ) STRICT`,
+		// No predecessor means max revision 0 only for an explicit Content
+		// registration bootstrap. Growth keeps max(v1,v2)+1, including a v2
+		// bootstrap's later growth, without manufacturing a historical v1 row.
 		`CREATE TRIGGER tc_catalog_order_state_v2_append BEFORE INSERT ON tc_catalog_order_states_v2
  WHEN NOT EXISTS(SELECT 1 FROM tc_catalog_managed WHERE content_id=NEW.content_id AND aggregate_revision=NEW.aggregate_revision)
- OR NOT EXISTS(SELECT 1 FROM tc_catalog_order_states WHERE content_id=NEW.content_id)
+ OR (NOT EXISTS(SELECT 1 FROM tc_catalog_order_states WHERE content_id=NEW.content_id)
+ AND NOT EXISTS(SELECT 1 FROM tc_catalog_order_states_v2 WHERE content_id=NEW.content_id)
+ AND NOT EXISTS(SELECT 1 FROM tc_catalog_registrations WHERE content_id=NEW.content_id AND subject_id=NEW.content_id
+ AND kind=1 AND result_revision=1 AND order_revision=1 AND NEW.aggregate_revision=1 AND NEW.order_revision=1))
  OR NEW.order_revision<>(SELECT COALESCE(max(revision),0)+1 FROM
  (SELECT order_revision AS revision FROM tc_catalog_order_states WHERE content_id=NEW.content_id
  UNION ALL SELECT order_revision FROM tc_catalog_order_states_v2 WHERE content_id=NEW.content_id))

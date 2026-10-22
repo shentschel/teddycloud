@@ -462,6 +462,53 @@ func TestRegistrationSchemaRelations(t *testing.T) {
 
 func TestRegistrationSchemaAppend(t *testing.T) {
 	key, cid := strings.Repeat("6", 32), catalogSchemaID("cnt", 1)
+	t.Run("fresh content first v2 order snapshot", func(t *testing.T) {
+		db, err := Open(t.Context(), Config{Path: filepath.Join(t.TempDir(), "fresh-content.sqlite")}, SchemaMigrations())
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer db.Close()
+		catalogSchemaExec(t, db.db, "INSERT INTO tc_catalog_content VALUES (?,'Fresh',NULL,NULL)", cid)
+		catalogSchemaExec(t, db.db, "INSERT INTO tc_catalog_managed VALUES (?,1,0)", cid)
+		catalogSchemaExec(t, db.db, "INSERT INTO tc_catalog_subjects VALUES (?,?,NULL,1)", cid, cid)
+		raw := registrationEnvelope("order")
+		sum := sha256.Sum256(raw)
+		query := "INSERT INTO tc_catalog_order_states_v2 VALUES (?,1,1,2,?,?,?)"
+		// Absence of history alone does not authorize bootstrap.
+		registrationReject(t, db.db, query, cid, raw, len(raw), sum[:])
+		catalogSchemaExec(t, db.db, "INSERT INTO tc_catalog_registrations VALUES (?,1,?,?,0,0,1,1,1,0,x'01',x'02')", key, cid, cid)
+		registrationReject(t, db.db, "INSERT INTO tc_catalog_order_states_v2 VALUES (?,1,2,2,?,?,?)", cid, raw, len(raw), sum[:])
+		catalogSchemaExec(t, db.db, query, cid, raw, len(raw), sum[:])
+		if got := catalogSchemaRows(t, db.db, "SELECT order_revision,aggregate_revision FROM tc_catalog_order_states_v2"); !reflect.DeepEqual(got, [][]any{{int64(1), int64(1)}}) {
+			t.Fatal("missing initial order revision 1", got)
+		}
+		if got := catalogSchemaRows(t, db.db, "SELECT * FROM tc_catalog_order_states"); len(got) != 0 {
+			t.Fatal("bootstrap fabricated a v1 predecessor")
+		}
+		registrationReject(t, db.db, query, cid, raw, len(raw), sum[:])
+		// Manifest growth can continue from that v2 bootstrap without a
+		// fabricated v1 row; semantic growth-event validation remains C2.
+		catalogSchemaExec(t, db.db, "UPDATE tc_catalog_managed SET aggregate_revision=2 WHERE content_id=?", cid)
+		registrationSchemaState(t, db.db, "order", 2, 2, "")
+	})
+	t.Run("version growth follows latest v1 revision", func(t *testing.T) {
+		db := catalogSchemaFixture(t)
+		for revision := 1; revision <= 3; revision++ {
+			catalogSchemaExec(t, db.db, "UPDATE tc_catalog_managed SET aggregate_revision=? WHERE content_id=?", revision, cid)
+			catalogStateInsert(t, db, "order", revision, revision)
+		}
+		before := catalogSchemaRows(t, db.db, "SELECT * FROM tc_catalog_order_states ORDER BY order_revision")
+		catalogSchemaExec(t, db.db, "UPDATE tc_catalog_managed SET aggregate_revision=4 WHERE content_id=?", cid)
+		raw := registrationEnvelope("order")
+		sum := sha256.Sum256(raw)
+		for _, revision := range []int{1, 2, 3, 5} {
+			registrationReject(t, db.db, "INSERT INTO tc_catalog_order_states_v2 VALUES (?,4,?,2,?,?,?)", cid, revision, raw, len(raw), sum[:])
+		}
+		registrationSchemaState(t, db.db, "order", 4, 4, "")
+		if got := catalogSchemaRows(t, db.db, "SELECT * FROM tc_catalog_order_states ORDER BY order_revision"); !reflect.DeepEqual(got, before) {
+			t.Fatal("growth changed historical v1 snapshots")
+		}
+	})
 	t.Run("review bootstrap and generations", func(t *testing.T) {
 		db := registrationSchemaFixture(t)
 		catalogSchemaExec(t, db.db, "UPDATE tc_catalog_managed SET aggregate_revision=3 WHERE content_id=?", cid)
