@@ -142,12 +142,14 @@ type catalogOrderDecision struct {
 // This immutable view has its own revision and never writes ContentVersion.
 // A1.3/A2 must atomically fence this successor with the owning Content aggregate.
 type CatalogOrderState struct {
-	content   identity.ContentID
-	revision  CatalogRevision
-	versions  []ContentVersion
-	evidence  []CatalogSequenceEvidence
-	decisions []catalogOrderDecision
-	links     uint64
+	growthBase   string
+	growthEvents []catalogOrderGrowthEvent
+	content      identity.ContentID
+	revision     CatalogRevision
+	versions     []ContentVersion
+	evidence     []CatalogSequenceEvidence
+	decisions    []catalogOrderDecision
+	links        uint64
 }
 
 func NewCatalogOrderState(content identity.ContentID, versions []ContentVersion) (CatalogOrderState, error) {
@@ -426,6 +428,11 @@ func (s CatalogOrderState) Apply(capability CatalogOrderCapability, command Cata
 	if err != nil {
 		return fail(err)
 	}
+	for _, event := range s.growthEvents {
+		if event.decision == nil && event.command == command.ID {
+			return fail(ErrCatalogCommandConflict)
+		}
+	}
 	for _, old := range s.decisions {
 		if old.command.ID == command.ID {
 			if old.canonical != canonical {
@@ -441,7 +448,13 @@ func (s CatalogOrderState) Apply(capability CatalogOrderCapability, command Cata
 	if err != nil {
 		return fail(err)
 	}
-	if err := CheckLimit(RetainedDecisions, uint64(len(s.decisions)), 1); err != nil {
+	eventCount := uint64(len(s.decisions))
+	for _, event := range s.growthEvents {
+		if event.decision == nil {
+			eventCount++
+		}
+	}
+	if err := CheckLimit(RetainedDecisions, eventCount, 1); err != nil {
 		return fail(err)
 	}
 	for _, id := range command.Supersedes {
@@ -545,6 +558,9 @@ func (s CatalogOrderState) Apply(capability CatalogOrderCapability, command Cata
 	next.revision, next.links = revision, s.links+links
 	next.evidence = append(append([]CatalogSequenceEvidence(nil), s.evidence...), added...)
 	next.decisions = append(append([]catalogOrderDecision(nil), s.decisions...), decision)
+	if s.growthBase != "" {
+		next.growthEvents = append(append([]catalogOrderGrowthEvent(nil), s.growthEvents...), catalogOrderGrowthEvent{decision: &decision})
+	}
 	return next, cloneOrderResult(decision.result), nil
 }
 
@@ -567,6 +583,11 @@ func (s CatalogOrderState) LookupCommand(capability CatalogOrderCapability, comm
 	canonical, err := canonicalOrderCommand(capability.review.Reviewer(), command)
 	if err != nil {
 		return CatalogOrderResult{}, false, err
+	}
+	for _, event := range s.growthEvents {
+		if event.decision == nil && event.command == command.ID {
+			return CatalogOrderResult{}, false, ErrCatalogCommandConflict
+		}
 	}
 	for _, old := range s.decisions {
 		if old.command.ID == command.ID {
@@ -660,6 +681,14 @@ func (e *catalogEncoder) orderResult(result CatalogOrderResult) {
 }
 
 func (s CatalogOrderState) encodeOrderState(e *catalogEncoder, added []CatalogSequenceEvidence, next *catalogOrderDecision) {
+	if s.growthBase != "" {
+		var event *catalogOrderGrowthEvent
+		if next != nil {
+			event = &catalogOrderGrowthEvent{decision: next}
+		}
+		s.encodeGrowthState(e, s.growthBase, event)
+		return
+	}
 	e.text("pi08-order-state/1")
 	e.text(s.content.String())
 	revision := s.revision
@@ -832,9 +861,17 @@ func RehydrateCatalogOrderState(raw []byte, bindings CatalogPersistenceBindings)
 	if err != nil {
 		return CatalogOrderState{}, err
 	}
-	if d.text(32) != "pi08-order-state/1" {
+	tag := d.text(32)
+	if tag == "pi08-order-state/2" {
+		return rehydrateGrowthOrder(d, raw)
+	}
+	if tag != "pi08-order-state/1" {
 		d.reject(ErrInvalidCatalog)
 	}
+	return rehydrateOrderTail(d, raw, true)
+}
+
+func rehydrateOrderTail(d *catalogPersistenceDecoder, raw []byte, live bool) (CatalogOrderState, error) {
 	content, revision, links := d.contentID(), d.revision(), d.number()
 	var versions []ContentVersion
 	for count := d.count(RetainedVersions); count > 0; count-- {
@@ -883,6 +920,9 @@ func RehydrateCatalogOrderState(raw []byte, bindings CatalogPersistenceBindings)
 	}
 	if !bytes.Equal(encoded, raw) {
 		return CatalogOrderState{}, ErrInvalidCatalog
+	}
+	if !live {
+		return state, nil
 	}
 	for i := range state.evidence {
 		state.evidence[i] = d.context.liveSequence(state.evidence[i])

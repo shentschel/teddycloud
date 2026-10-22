@@ -119,6 +119,7 @@ type catalogDecision struct {
 // state; it does not synchronize concurrent storage writers. A1.3/A2 must commit
 // it atomically under the same expected-revision fence.
 type CatalogReviewState struct {
+	bootstrap    *catalogRegistrationBootstrap
 	subject      CatalogSubject
 	revision     CatalogRevision
 	protected    bool
@@ -152,6 +153,13 @@ func (s CatalogReviewState) Field(key ClaimKey) CatalogField {
 
 func (s CatalogReviewState) fieldWith(key ClaimKey, next *CatalogReviewCommand, added []CatalogObservation) CatalogField {
 	selected := make(map[evidence.ID]bool)
+	if s.bootstrap != nil {
+		for _, selection := range s.bootstrap.command.Selections {
+			if selection.Key == key {
+				selected[selection.Observation] = true
+			}
+		}
+	}
 	apply := func(command CatalogReviewCommand) {
 		if command.Key != key || command.Kind == RecordObservations {
 			return
@@ -220,6 +228,9 @@ func (s CatalogReviewState) Apply(capability ReviewCapability, command CatalogRe
 	if err != nil {
 		return fail(err)
 	}
+	if registrationKeyConflict(normalized.ID, s.bootstrap) {
+		return fail(ErrCatalogCommandConflict)
+	}
 	for _, decision := range s.decisions {
 		if decision.command.ID == normalized.ID {
 			if decision.canonical != canonical {
@@ -235,7 +246,11 @@ func (s CatalogReviewState) Apply(capability ReviewCapability, command CatalogRe
 	if err != nil {
 		return fail(err)
 	}
-	if err := CheckLimit(RetainedDecisions, uint64(len(s.decisions)), 1); err != nil {
+	count := uint64(len(s.decisions))
+	if s.bootstrap != nil {
+		count++
+	}
+	if err := CheckLimit(RetainedDecisions, count, 1); err != nil {
 		return fail(err)
 	}
 	if err := CheckLimit(RetainedSupportLinks, s.links, uint64(len(normalized.Support))); err != nil {
@@ -320,7 +335,9 @@ func (s CatalogReviewState) Apply(capability ReviewCapability, command CatalogRe
 	next.revision, next.protected = revision, protected
 	next.links += uint64(len(normalized.Support))
 	next.observations = append(append([]CatalogObservation(nil), s.observations...), added...)
-	sort.Slice(next.observations, func(i, j int) bool { return next.observations[i].ID().String() < next.observations[j].ID().String() })
+	if s.bootstrap == nil {
+		sort.Slice(next.observations, func(i, j int) bool { return next.observations[i].ID().String() < next.observations[j].ID().String() })
+	}
 	next.decisions = append(append([]catalogDecision(nil), s.decisions...), decision)
 	return next, cloneDecisionResult(result), nil
 }
@@ -412,6 +429,9 @@ func (s CatalogReviewState) LookupCommand(capability ReviewCapability, command C
 	canonical, err := canonicalReviewCommand(capability.Reviewer(), command)
 	if err != nil {
 		return CatalogDecisionResult{}, false, err
+	}
+	if registrationKeyConflict(command.ID, s.bootstrap) {
+		return CatalogDecisionResult{}, false, ErrCatalogCommandConflict
 	}
 	for _, decision := range s.decisions {
 		if decision.command.ID == command.ID {
@@ -561,7 +581,15 @@ func (e *catalogEncoder) result(result CatalogDecisionResult) {
 }
 
 func (s CatalogReviewState) encodeProspective(e *catalogEncoder, added []CatalogObservation, next *catalogDecision) {
-	e.text("pi08-review-state/1")
+	if s.bootstrap != nil {
+		s.encodeRegisteredReview(e, added, next)
+		return
+	}
+	s.encodeReviewBody(e, added, next, "pi08-review-state/1")
+}
+
+func (s CatalogReviewState) encodeReviewBody(e *catalogEncoder, added []CatalogObservation, next *catalogDecision, tag string) {
+	e.text(tag)
 	e.subject(s.subject)
 	revision, protected, links := s.revision, s.protected, s.links
 	if next != nil {
@@ -818,9 +846,17 @@ func RehydrateCatalogReviewState(raw []byte, bindings CatalogPersistenceBindings
 	if err != nil {
 		return CatalogReviewState{}, err
 	}
-	if d.text(32) != "pi08-review-state/1" {
+	tag := d.text(32)
+	if tag == "pi08-review-state/2" {
+		return rehydrateRegisteredReview(d, raw)
+	}
+	if tag != "pi08-review-state/1" {
 		d.reject(ErrInvalidCatalog)
 	}
+	return rehydrateReviewTail(d, raw, CatalogReviewState{})
+}
+
+func rehydrateReviewTail(d *catalogPersistenceDecoder, raw []byte, seed CatalogReviewState) (CatalogReviewState, error) {
 	subject, revision, protected, links := d.subject(), d.revision(), d.boolean(), d.number()
 	var observations []CatalogObservation
 	for count := d.count(RetainedObservations); count > 0; count-- {
@@ -836,7 +872,7 @@ func RehydrateCatalogReviewState(raw []byte, bindings CatalogPersistenceBindings
 	if d.err != nil {
 		return CatalogReviewState{}, d.err
 	}
-	if d.offset != len(raw) || revision.value != uint64(len(decisions))+1 {
+	if d.offset != len(d.raw) || revision.value != uint64(len(decisions))+1 {
 		return CatalogReviewState{}, ErrInvalidCatalog
 	}
 	if err := CheckLimit(RetainedSupportLinks, 0, links); err != nil {
@@ -851,6 +887,12 @@ func RehydrateCatalogReviewState(raw []byte, bindings CatalogPersistenceBindings
 		}
 	}
 	state, err := NewCatalogReviewState(subject, seedProtected)
+	if seed.bootstrap != nil {
+		state = seed
+		if seed.subject != subject {
+			return CatalogReviewState{}, ErrInvalidCatalog
+		}
+	}
 	if err != nil {
 		return CatalogReviewState{}, err
 	}
@@ -883,6 +925,9 @@ func RehydrateCatalogReviewState(raw []byte, bindings CatalogPersistenceBindings
 		for j := range command.Observations {
 			command.Observations[j] = d.context.liveObservation(command.Observations[j])
 		}
+	}
+	if state.bootstrap != nil {
+		state.bootstrap = state.bootstrap.live(d.context)
 	}
 	return state, nil
 }
