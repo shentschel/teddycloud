@@ -265,8 +265,8 @@ Ingest and review capabilities are separate handles installed by the trusted
 composition root; import payloads cannot construct either privilege.
 
 The missing registration implementation is tracked in the
-[F01 refinement checkpoint](pi-08-f01-registration-contract.md). Its unresolved
-bootstrap, authority and persistence decisions are not implementation approval;
+[F01 registration contract](pi-08-f01-registration-contract.md). Its R2 decision
+set is implementation-ready; individual implementation slices need fresh admission;
 version supersession remains the separate F02 finding.
 
 | Command/query | Preconditions and result |
