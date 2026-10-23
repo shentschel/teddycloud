@@ -12,7 +12,6 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-	"testing/synctest"
 	"time"
 
 	app "github.com/shentschel/teddycloud/next/backend/internal/application/catalog"
@@ -727,47 +726,45 @@ func TestRegistrationPersistenceSourcesAndProtection(t *testing.T) {
 
 func TestRegistrationPersistenceAccounting(t *testing.T) {
 	t.Run("historical snapshots charged", func(t *testing.T) {
-		// This checks retained bytes, rollback and replay, not wall-clock latency.
-		// Keep CPU-heavy history validation from spending the production deadline
-		// solely on race instrumentation; timers still run on the bubble clock.
-		synctest.Test(t, func(t *testing.T) {
-			f := newRegistrationFixture(t)
-			original, err := f.service.RegisterContent(t.Context(), f.command)
+		f := newRegistrationFixture(t)
+		original, err := f.service.RegisterContent(t.Context(), f.command)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// JSON whitespace is retained verbatim but adds no text fields. A small
+		// number of near-limit snapshots reaches the same aggregate byte fence
+		// without constructing dozens of increasingly large history states.
+		raw := []byte(`{"sanitized":` + strings.Repeat(" ", int(domain.RecordBytes.Maximum())-64) + `true}`)
+		claim, _ := domain.TitleClaim("pending dissent")
+		hitLimit := false
+		for revision := uint64(1); revision < 10; revision++ {
+			before := registrationSchemaRows(t, f.owner.database.db)
+			id, _ := domain.NewCatalogCommandID()
+			expected, _ := domain.NewCatalogRevision(revision)
+			observations := make([]domain.CatalogObservation, 12)
+			for i := range observations {
+				observations[i] = f.observationSnapshot(t, f.command.Subject, claim, raw)
+			}
+			command := app.ReviewCommand{ID: id, Subject: f.command.Subject, ExpectedAggregate: expected, ExpectedReview: expected, Observations: observations, Reason: "retain bounded pending evidence"}
+			_, err := f.base.RecordObservations(t.Context(), command)
+			if errors.Is(err, app.ErrLimitExceeded) {
+				hitLimit = true
+				if !reflect.DeepEqual(before, registrationSchemaRows(t, f.owner.database.db)) {
+					t.Fatal("retained byte overflow committed")
+				}
+				break
+			}
 			if err != nil {
-				t.Fatal(err)
+				t.Fatalf("record revision %d: %v", revision, err)
 			}
-			parts := make([]string, 8)
-			for i := range parts {
-				parts[i] = fmt.Sprintf(`"large%d":"%s"`, i, strings.Repeat("x", 4000))
-			}
-			raw := []byte(`{` + strings.Join(parts, ",") + `}`)
-			claim, _ := domain.TitleClaim("pending dissent")
-			hitLimit := false
-			for revision := uint64(1); revision < 40; revision++ {
-				before := registrationSchemaRows(t, f.owner.database.db)
-				id, _ := domain.NewCatalogCommandID()
-				expected, _ := domain.NewCatalogRevision(revision)
-				command := app.ReviewCommand{ID: id, Subject: f.command.Subject, ExpectedAggregate: expected, ExpectedReview: expected, Observations: []domain.CatalogObservation{f.observationSnapshot(t, f.command.Subject, claim, raw)}, Reason: "retain bounded pending evidence"}
-				_, err := f.base.RecordObservations(t.Context(), command)
-				if errors.Is(err, app.ErrLimitExceeded) {
-					hitLimit = true
-					if !reflect.DeepEqual(before, registrationSchemaRows(t, f.owner.database.db)) {
-						t.Fatal("retained byte overflow committed")
-					}
-					break
-				}
-				if err != nil {
-					t.Fatal(err)
-				}
-			}
-			if !hitLimit {
-				t.Fatal("combined immutable history was not charged")
-			}
-			got, err := f.service.RegisterContent(t.Context(), f.command)
-			if err != nil || !reflect.DeepEqual(got, original) {
-				t.Fatal("replay charged again", got, err)
-			}
-		})
+		}
+		if !hitLimit {
+			t.Fatal("combined immutable history was not charged")
+		}
+		got, err := f.service.RegisterContent(t.Context(), f.command)
+		if err != nil || !reflect.DeepEqual(got, original) {
+			t.Fatal("replay charged again", got, err)
+		}
 	})
 	t.Run("staging batch bound", func(t *testing.T) {
 		f := newRegistrationFixture(t)
