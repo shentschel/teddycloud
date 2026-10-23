@@ -12,6 +12,11 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
+
+	app "github.com/shentschel/teddycloud/next/backend/internal/application/catalog"
+	domain "github.com/shentschel/teddycloud/next/backend/internal/domain/catalog"
+	"github.com/shentschel/teddycloud/next/backend/internal/domain/evidence"
 )
 
 // C1 tests SQL storage fences using deliberate fixtures, not the C2 repository
@@ -22,6 +27,759 @@ import (
 var registrationSchemaTables = []string{
 	"tc_catalog_registrations", "tc_catalog_registration_sources", "tc_catalog_registration_support",
 	"tc_catalog_review_states_v2", "tc_catalog_order_states_v2", "tc_catalog_order_state_versions_v2",
+}
+
+type registrationFixture struct {
+	owner      *LifecycleOwner
+	source     domain.SourceRegistration
+	ingest     domain.IngestCapability
+	review     domain.ReviewCapability
+	namespace  domain.CatalogOrderNamespace
+	capability domain.CatalogRegistrationCapability
+	service    app.RegistrationService
+	base       app.Service
+	command    app.RegistrationCommand
+}
+
+func newRegistrationFixture(t *testing.T) registrationFixture {
+	t.Helper()
+	f := registrationFixture{owner: catalogQueryOwner(t)}
+	sid, _ := domain.NewSourceID()
+	principal, _ := domain.NewIssuerPrincipal()
+	var err error
+	f.source, f.ingest, err = domain.NewSourceRegistration(sid, principal, domain.SourceSpec{Adapter: "registration-test", AdapterVersion: "1", Scope: "core", Acquisition: domain.CoreOperator, AllowedClaims: []domain.ClaimKey{domain.TitleClaimKey, domain.ModelClaimKey, domain.ArticleClaimKey, domain.FingerprintClaimKey, domain.OwnershipClaimKey}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reviewer, _ := domain.NewIssuerPrincipal()
+	f.review, err = domain.NewReviewCapability(reviewer, f.source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.namespace, err = domain.NewCatalogOrderNamespace(f.source, "registration-test/1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.capability, err = domain.NewCatalogRegistrationCapability(f.review, []domain.ReviewCapability{f.review})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.bind(t)
+	subject, _ := domain.ContentSubject(catalogQueryContent(t, 100))
+	id, _ := domain.NewCatalogCommandID()
+	claim, _ := domain.TitleClaim("Registered title")
+	o := f.observation(t, subject, claim)
+	f.command = app.RegistrationCommand{ID: id, Subject: subject, ExpectedKind: domain.CatalogExpectedAbsent, Observations: []domain.CatalogObservation{o}, Selections: []domain.CatalogRegistrationSelection{{Key: domain.TitleClaimKey, Observation: o.ID()}}, Reason: "register reviewed content"}
+	return f
+}
+
+func (f *registrationFixture) bind(t *testing.T) {
+	t.Helper()
+	var err error
+	f.base, err = app.NewService(f.owner, f.source, f.review, f.namespace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.service, err = app.NewRegistrationService(f.base, f.capability)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func (f registrationFixture) observation(t *testing.T, subject domain.CatalogSubject, claim domain.CatalogClaim) domain.CatalogObservation {
+	return f.observationSnapshot(t, subject, claim, []byte(`{"sanitized":true}`))
+}
+
+func (f registrationFixture) observationSnapshot(t *testing.T, subject domain.CatalogSubject, claim domain.CatalogClaim, raw []byte) domain.CatalogObservation {
+	t.Helper()
+	batch, _ := domain.NewBatchID()
+	sum := sha256.Sum256(raw)
+	artifact, err := domain.NewArtifact(f.ingest, f.source, domain.ArtifactFacts{ID: batch, SHA256: sum, ByteLength: uint64(len(raw)), RecordCount: 1, ParserRevision: "1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := domain.NewRecordSnapshot(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	coordinate, err := domain.NewRecordCoordinate(artifact, 0, "0", snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	opaque, _ := domain.NewBatchID()
+	id, _ := evidence.ParseID("obs_" + opaque.String()[:26])
+	o, err := domain.NewCatalogObservation(f.ingest, f.source, domain.ObservationInput{ID: id, Subject: subject, Claim: claim, Coordinate: coordinate, ObservedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return o
+}
+
+func (f registrationFixture) version(t *testing.T, n int, revision uint64) app.RegistrationCommand {
+	t.Helper()
+	id, _ := domain.NewCatalogCommandID()
+	subject, _ := domain.VersionSubject(f.command.Subject.ContentID(), catalogQueryVersion(t, n))
+	audio, _ := domain.NewAudioID(123)
+	hash, _ := domain.ParseAudioHash(strings.Repeat("11", 20))
+	pair, _ := domain.NewAudioFingerprint(audio, hash)
+	fingerprint, _ := domain.FingerprintClaim(pair)
+	owner, _ := domain.OwnershipClaim(subject.ContentID())
+	a, b := f.observation(t, subject, fingerprint), f.observation(t, subject, owner)
+	expected, _ := domain.NewCatalogRevision(revision)
+	return app.RegistrationCommand{ID: id, Subject: subject, ExpectedKind: domain.CatalogExpectedRevision, Expected: expected, Observations: []domain.CatalogObservation{a, b}, Selections: []domain.CatalogRegistrationSelection{{Key: domain.FingerprintClaimKey, Observation: a.ID()}, {Key: domain.OwnershipClaimKey, Observation: b.ID()}}, Reason: "register unbound version"}
+}
+
+func TestRegistrationReplay(t *testing.T) {
+	f := newRegistrationFixture(t)
+	created, err := f.service.RegisterContent(t.Context(), f.command)
+	if err != nil {
+		t.Fatal("content registration", err)
+	}
+	first := f.version(t, 101, 1)
+	result, err := f.service.RegisterCatalogVersion(t.Context(), first)
+	if err != nil {
+		t.Fatal("version registration", err)
+	}
+	second := f.version(t, 102, 2)
+	if _, err := f.service.RegisterCatalogVersion(t.Context(), second); err != nil {
+		t.Fatal("second version", err)
+	}
+	before := registrationSchemaRows(t, f.owner.database.db)
+	for _, readOnly := range []bool{false, true} {
+		var got domain.CatalogRegistrationResult
+		if readOnly {
+			var found bool
+			got, found, err = f.service.ReadRegistration(t.Context(), domain.RegisterContent, f.command)
+			if !found {
+				t.Fatal("original content absent", err)
+			}
+		} else {
+			got, err = f.service.RegisterContent(t.Context(), f.command)
+		}
+		if err != nil || !reflect.DeepEqual(got, created) {
+			t.Fatal("original content replay", got, err)
+		}
+		got, err = f.service.RegisterCatalogVersion(t.Context(), first)
+		if err != nil || !reflect.DeepEqual(got, result) {
+			t.Fatal("original version replay", got, err)
+		}
+	}
+	if !reflect.DeepEqual(before, registrationSchemaRows(t, f.owner.database.db)) {
+		t.Fatal("replay wrote rows")
+	}
+	for _, test := range []struct {
+		name    string
+		command app.RegistrationCommand
+		want    error
+	}{
+		{"changed payload", func() app.RegistrationCommand { c := first; c.Reason = "changed"; return c }(), app.ErrCommandConflict},
+		{"changed expected", func() app.RegistrationCommand { c := first; c.Expected, _ = domain.NewCatalogRevision(2); return c }(), app.ErrCommandConflict},
+		{"existing version", func() app.RegistrationCommand { c := first; c.ID, _ = domain.NewCatalogCommandID(); return c }(), app.ErrCommandConflict},
+		{"stale aggregate", f.version(t, 103, 1), app.ErrRevisionConflict},
+		{"absent managed parent", func() app.RegistrationCommand {
+			c := f.version(t, 103, 3)
+			c.Subject, _ = domain.VersionSubject(catalogQueryContent(t, 999), c.Subject.VersionID())
+			return c
+		}(), app.ErrSubjectNotFound},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := f.service.RegisterCatalogVersion(t.Context(), test.command); !errors.Is(err, test.want) {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(before, registrationSchemaRows(t, f.owner.database.db)) {
+				t.Fatal("rejected mutation changed database")
+			}
+		})
+	}
+	t.Run("restart", func(t *testing.T) {
+		path := f.owner.config.Path
+		if err := f.owner.Close(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+		f.owner, err = OpenLifecycleOwner(t.Context(), Config{Path: path}, SchemaMigrations())
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.owner.Close(context.Background())
+		f.bind(t)
+		got, err := f.service.RegisterCatalogVersion(t.Context(), first)
+		if err != nil || !reflect.DeepEqual(got, result) {
+			t.Fatal("restart replay", got, err)
+		}
+	})
+}
+
+func TestRegistrationAuthority(t *testing.T) {
+	for _, mode := range []string{"persisted revocation", "live revocation", "before commit revoke", "leaked repository"} {
+		t.Run(mode, func(t *testing.T) {
+			f := newRegistrationFixture(t)
+			if _, err := f.service.RegisterContent(t.Context(), f.command); err != nil {
+				t.Fatal(err)
+			}
+			before := registrationSchemaRows(t, f.owner.database.db)
+			switch mode {
+			case "persisted revocation":
+				catalogSchemaExec(t, f.owner.database.db, "UPDATE tc_catalog_sources SET revoked=1")
+				before = registrationSchemaRows(t, f.owner.database.db)
+				if _, _, err := f.service.ReadRegistration(t.Context(), domain.RegisterContent, f.command); !errors.Is(err, app.ErrUnauthorized) {
+					t.Fatal(err)
+				}
+			case "live revocation":
+				f.source.Revoke()
+				if _, err := f.service.RegisterContent(t.Context(), f.command); !errors.Is(err, app.ErrUnauthorized) {
+					t.Fatal(err)
+				}
+			case "before commit revoke":
+				c := f.version(t, 101, 1)
+				err := f.owner.WithinCatalogTransaction(t.Context(), func(r app.CatalogRepository) error {
+					_, err := r.(app.RegistrationRepository).CommitRegistration(t.Context(), app.RegistrationOperation{Capability: f.capability, Command: domain.CatalogRegistrationCommand{ID: c.ID, Kind: domain.RegisterCatalogVersion, Subject: c.Subject, Source: f.source, ExpectedKind: c.ExpectedKind, Expected: c.Expected, Observations: c.Observations, Selections: c.Selections, Reason: c.Reason}})
+					if err == nil {
+						f.source.Revoke()
+					}
+					return err
+				})
+				if !errors.Is(err, domain.ErrCatalogUnauthorized) {
+					t.Fatal(err)
+				}
+			case "leaked repository":
+				var leaked app.RegistrationRepository
+				if err := f.owner.WithinCatalogTransaction(t.Context(), func(r app.CatalogRepository) error { leaked = r.(app.RegistrationRepository); return nil }); err != nil {
+					t.Fatal(err)
+				}
+				if _, _, err := leaked.LookupRegistration(t.Context(), app.RegistrationOperation{}); !errors.Is(err, app.ErrRepositoryUnavailable) {
+					t.Fatal(err)
+				}
+			}
+			if !reflect.DeepEqual(before, registrationSchemaRows(t, f.owner.database.db)) {
+				t.Fatal("rejection changed database")
+			}
+		})
+	}
+}
+
+func TestRegistrationAtomicRecovery(t *testing.T) {
+	for _, table := range []string{"tc_catalog_content", "tc_catalog_managed", "tc_catalog_subjects", "tc_catalog_sources", "tc_catalog_source_claims", "tc_catalog_batches", "tc_catalog_records", "tc_catalog_observations", "tc_catalog_registrations", "tc_catalog_registration_sources", "tc_catalog_registration_support", "tc_catalog_review_states_v2", "tc_catalog_order_states_v2"} {
+		t.Run("insert/"+table, func(t *testing.T) {
+			f := newRegistrationFixture(t)
+			before := registrationSchemaRows(t, f.owner.database.db)
+			catalogSchemaExec(t, f.owner.database.db, "CREATE TRIGGER registration_fail BEFORE INSERT ON "+table+" BEGIN SELECT RAISE(ABORT,'injected'); END")
+			if _, err := f.service.RegisterContent(t.Context(), f.command); !errors.Is(err, app.ErrRepositoryUnavailable) {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(before, registrationSchemaRows(t, f.owner.database.db)) {
+				t.Fatal("partial registration retained")
+			}
+		})
+	}
+	for _, mode := range []string{"before-commit", "after-commit", "cleanup"} {
+		t.Run(mode, func(t *testing.T) {
+			f := newRegistrationFixture(t)
+			before := registrationSchemaRows(t, f.owner.database.db)
+			fault := &catalogCommitFault{mode: mode}
+			catalogInstallFault(t, f.owner, fault)
+			if _, err := f.service.RegisterContent(t.Context(), f.command); !errors.Is(err, app.ErrIndeterminate) {
+				t.Fatal(err)
+			}
+			result, found, err := f.service.ReadRegistration(t.Context(), domain.RegisterContent, f.command)
+			if err != nil || found != (mode != "before-commit") {
+				t.Fatal("authorized recovery", result, found, err)
+			}
+			if mode == "before-commit" && !reflect.DeepEqual(before, registrationSchemaRows(t, f.owner.database.db)) {
+				t.Fatal("pre-commit failure persisted")
+			}
+		})
+	}
+	t.Run("cancellation", func(t *testing.T) {
+		f := newRegistrationFixture(t)
+		before := registrationSchemaRows(t, f.owner.database.db)
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+		if _, err := f.service.RegisterContent(ctx, f.command); !errors.Is(err, context.Canceled) {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(before, registrationSchemaRows(t, f.owner.database.db)) {
+			t.Fatal("cancellation wrote rows")
+		}
+	})
+}
+
+func TestRegistrationPersistenceQuery(t *testing.T) {
+	f := newRegistrationFixture(t)
+	if _, err := f.service.RegisterContent(t.Context(), f.command); err != nil {
+		t.Fatal(err)
+	}
+	for i := 101; i <= 103; i++ {
+		if _, err := f.service.RegisterCatalogVersion(t.Context(), f.version(t, i, uint64(i-100))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	query := app.Query{Kind: app.ListVersions, Content: f.command.Subject.ContentID(), Page: app.PageRequest{Limit: 1}}
+	page, err := catalogRead(t, f.owner, query)
+	if err != nil || page.Next == "" || len(page.Entries) != 1 || page.Entries[0].Title.Status != domain.CatalogFactAccepted || page.Entries[0].Media != app.CatalogOnly {
+		t.Fatal("query", page, err)
+	}
+	if _, err := f.service.RegisterCatalogVersion(t.Context(), f.version(t, 104, 4)); err != nil {
+		t.Fatal(err)
+	}
+	query.Page.Cursor = page.Next
+	query.Page.ExpectedRevision = page.Revision
+	if _, err := catalogRead(t, f.owner, query); !errors.Is(err, app.ErrStaleCursor) {
+		t.Fatal("stale cursor", err)
+	}
+	for _, table := range []string{"tc_blobs", "tc_version_blobs", "tc_blob_imports"} {
+		var n int
+		if err := f.owner.database.db.QueryRowContext(t.Context(), "SELECT count(*) FROM "+table).Scan(&n); err != nil || n != 0 {
+			t.Fatal("media write", table, n, err)
+		}
+	}
+}
+
+func TestRegistrationPersistenceDecisions(t *testing.T) {
+	f := newRegistrationFixture(t)
+	if _, err := f.service.RegisterContent(t.Context(), f.command); err != nil {
+		t.Fatal(err)
+	}
+	one, _ := domain.NewCatalogRevision(1)
+	id, _ := domain.NewCatalogCommandID()
+	claim, _ := domain.TitleClaim("Corrected title")
+	observation := f.observation(t, f.command.Subject, claim)
+	review := app.ReviewCommand{ID: id, Subject: f.command.Subject, ExpectedAggregate: one, ExpectedReview: one, Key: domain.TitleClaimKey, Observations: []domain.CatalogObservation{observation}, Support: []evidence.ID{observation.ID()}, Reason: "explicit correction"}
+	record := review
+	record.Key = 0
+	record.Support = nil
+	if _, err := f.base.RecordObservations(t.Context(), record); err != nil {
+		t.Fatal("pending evidence", err)
+	}
+	review.ID, _ = domain.NewCatalogCommandID()
+	review.ExpectedAggregate, _ = domain.NewCatalogRevision(2)
+	review.ExpectedReview, _ = domain.NewCatalogRevision(2)
+	review.Observations = nil
+	if _, err := f.base.ResolveConflict(t.Context(), review); err != nil {
+		t.Fatal("review after registration", err)
+	}
+	version := f.version(t, 101, 3)
+	if _, err := f.service.RegisterCatalogVersion(t.Context(), version); err != nil {
+		t.Fatal("version after review", err)
+	}
+	three, _ := domain.NewCatalogRevision(4)
+	two, _ := domain.NewCatalogRevision(2)
+	orderID, _ := domain.NewCatalogCommandID()
+	order := app.OrderCommand{ID: orderID, Content: f.command.Subject.ContentID(), ExpectedAggregate: three, ExpectedOrder: two, Reason: "explicit unknown order"}
+	sequenceID, _ := evidence.ParseID(catalogSchemaID("obs", 200))
+	sequence, err := domain.NewCatalogSequenceEvidence(f.ingest, f.namespace, domain.CatalogSequenceInput{ID: sequenceID, Content: order.Content, Version: version.Subject.VersionID(), Position: 1, Coordinate: f.observation(t, f.command.Subject, claim).Input().Coordinate})
+	if err != nil {
+		t.Fatal(err)
+	}
+	order.Entries = []domain.CatalogOrderEntry{{Version: version.Subject.VersionID(), Position: 1, Support: []evidence.ID{sequenceID}}}
+	order.Evidence = []domain.CatalogSequenceEvidence{sequence}
+	orderResult, err := f.base.DecideOrder(t.Context(), order)
+	if err != nil {
+		t.Fatal("order after growth", err)
+	}
+	if _, err := f.service.RegisterCatalogVersion(t.Context(), f.version(t, 102, 5)); err != nil {
+		t.Fatal("growth after order", err)
+	}
+	if got, err := f.base.DecideOrder(t.Context(), order); err != nil || !reflect.DeepEqual(got, orderResult) {
+		t.Fatal("old order replay", got, err)
+	}
+	if _, err := f.base.ResolveConflict(t.Context(), review); err != nil {
+		t.Fatal("old review replay", err)
+	}
+	page, err := catalogRead(t, f.owner, app.Query{Kind: app.ListVersions, Content: f.command.Subject.ContentID(), Page: app.PageRequest{Limit: 128}})
+	if err != nil || len(page.Entries) != 2 || page.Entries[0].Title.Alternatives[0].Claim.Text() != "Corrected title" {
+		t.Fatal("reviewed query", page, err)
+	}
+	before := registrationSchemaRows(t, f.owner.database.db)
+	for _, kind := range []string{"registration key as review", "registration key as order", "order key as registration", "review key as registration", "artifact key as registration"} {
+		t.Run(kind, func(t *testing.T) {
+			var err error
+			switch kind {
+			case "registration key as review":
+				c := review
+				c.ID = f.command.ID
+				c.ExpectedAggregate, _ = domain.NewCatalogRevision(6)
+				c.ExpectedReview, _ = domain.NewCatalogRevision(3)
+				_, err = f.base.ResolveConflict(t.Context(), c)
+			case "registration key as order":
+				c := order
+				c.ID = f.command.ID
+				c.ExpectedAggregate, _ = domain.NewCatalogRevision(6)
+				c.ExpectedOrder, _ = domain.NewCatalogRevision(4)
+				_, err = f.base.DecideOrder(t.Context(), c)
+			default:
+				c := f.version(t, 103, 6)
+				c.ID = orderID
+				if kind == "review key as registration" {
+					c.ID = review.ID
+				}
+				if kind == "artifact key as registration" {
+					c.ID, _ = domain.NewCatalogCommandID()
+					facts := f.command.Observations[0].Input().Coordinate.Artifact().Facts()
+					catalogSchemaExec(t, f.owner.database.db, "INSERT INTO tc_catalog_batches VALUES (?,?,?,?,?,?,?,?)", c.ID.String(), f.source.ID().String(), f.source.Revision().String(), facts.SHA256[:], facts.ByteLength, facts.RecordCount, facts.ParserRevision, facts.SourceRevision)
+					before = registrationSchemaRows(t, f.owner.database.db)
+				}
+				_, err = f.service.RegisterCatalogVersion(t.Context(), c)
+			}
+			if !errors.Is(err, app.ErrCommandConflict) {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(before, registrationSchemaRows(t, f.owner.database.db)) {
+				t.Fatal("key collision wrote rows")
+			}
+		})
+	}
+}
+
+func TestRegistrationPersistenceCorruption(t *testing.T) {
+	for _, corruption := range []struct{ name, sql string }{
+		{"hash", "DROP TRIGGER tc_catalog_review_states_v2_no_update; UPDATE tc_catalog_review_states_v2 SET state_sha256=zeroblob(32)"},
+		{"length", "DROP TRIGGER tc_catalog_order_states_v2_no_update; UPDATE tc_catalog_order_states_v2 SET state_bytes=state_bytes+1"},
+		{"header", "DROP TRIGGER tc_catalog_order_states_v2_no_update; UPDATE tc_catalog_order_states_v2 SET state=zeroblob(length(state))"},
+		{"source link", "DROP TRIGGER tc_catalog_registration_sources_no_delete; DELETE FROM tc_catalog_registration_sources"},
+		{"support link", "DROP TRIGGER tc_catalog_registration_support_no_delete; DELETE FROM tc_catalog_registration_support"},
+		{"order manifest", "DROP TRIGGER tc_catalog_order_state_versions_v2_no_delete; DELETE FROM tc_catalog_order_state_versions_v2"},
+		{"missing order snapshots", "DROP TRIGGER tc_catalog_order_state_versions_v2_no_delete; DELETE FROM tc_catalog_order_state_versions_v2; DROP TRIGGER tc_catalog_order_states_v2_no_delete; DELETE FROM tc_catalog_order_states_v2"},
+		{"managed projection", "UPDATE tc_catalog_content SET title='tampered projection'"},
+		{"review gap", "DROP TRIGGER tc_catalog_review_states_v2_no_delete; DELETE FROM tc_catalog_review_states_v2 WHERE review_revision=1"},
+		{"registration result", "DROP TRIGGER tc_catalog_registrations_no_update; UPDATE tc_catalog_registrations SET canonical_result=x'01'"},
+	} {
+		t.Run(corruption.name, func(t *testing.T) {
+			f := newRegistrationFixture(t)
+			if _, err := f.service.RegisterContent(t.Context(), f.command); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := f.service.RegisterCatalogVersion(t.Context(), f.version(t, 101, 1)); err != nil {
+				t.Fatal(err)
+			}
+			catalogSchemaExec(t, f.owner.database.db, "PRAGMA foreign_keys=OFF")
+			catalogSchemaExec(t, f.owner.database.db, "PRAGMA ignore_check_constraints=ON")
+			catalogSchemaExec(t, f.owner.database.db, corruption.sql)
+			before := registrationSchemaRows(t, f.owner.database.db)
+			if _, _, err := f.service.ReadRegistration(t.Context(), domain.RegisterContent, f.command); !errors.Is(err, app.ErrRepositoryUnavailable) {
+				t.Fatal("readback", err)
+			}
+			if _, err := catalogRead(t, f.owner, app.Query{Kind: app.GetContent, Content: f.command.Subject.ContentID(), Page: app.PageRequest{Limit: 128}}); !errors.Is(err, app.ErrRepositoryUnavailable) {
+				t.Fatal("query", err)
+			}
+			if !reflect.DeepEqual(before, registrationSchemaRows(t, f.owner.database.db)) {
+				t.Fatal("corruption read mutated database")
+			}
+		})
+	}
+}
+
+func TestRegistrationEvidence(t *testing.T) {
+	for _, name := range []string{"changed record", "changed artifact", "cross subject", "missing support", "competing selected", "same fingerprint ambiguous"} {
+		t.Run(name, func(t *testing.T) {
+			f := newRegistrationFixture(t)
+			if _, err := f.service.RegisterContent(t.Context(), f.command); err != nil {
+				t.Fatal(err)
+			}
+			before := registrationSchemaRows(t, f.owner.database.db)
+			command := f.version(t, 101, 1)
+			want := app.ErrEvidenceConflict
+			switch name {
+			case "changed record", "changed artifact":
+				input := command.Observations[0].Input()
+				coordinate := input.Coordinate
+				facts := coordinate.Artifact().Facts()
+				digest := facts.SHA256[:]
+				raw := coordinate.Snapshot().Bytes()
+				if name == "changed record" {
+					raw = []byte(`{"different":true}`)
+				} else {
+					digest = bytes.Repeat([]byte{1}, 32)
+				}
+				catalogSchemaExec(t, f.owner.database.db, "INSERT INTO tc_catalog_batches VALUES (?,?,?,?,?,?,?,?)", facts.ID.String(), f.source.ID().String(), f.source.Revision().String(), digest, facts.ByteLength, facts.RecordCount, facts.ParserRevision, facts.SourceRevision)
+				catalogSchemaExec(t, f.owner.database.db, "INSERT INTO tc_catalog_records VALUES (?,?,?,?)", facts.ID.String(), coordinate.Index(), coordinate.Locator(), raw)
+				before = registrationSchemaRows(t, f.owner.database.db)
+			case "cross subject":
+				command.Observations[0] = f.command.Observations[0]
+				want = app.ErrSubjectMismatch
+			case "missing support":
+				command.Selections = command.Selections[:1]
+				want = app.ErrUnsupported
+			case "competing selected":
+				other, _ := domain.NewAudioID(999)
+				hash, _ := domain.ParseAudioHash(strings.Repeat("22", 20))
+				pair, _ := domain.NewAudioFingerprint(other, hash)
+				claim, _ := domain.FingerprintClaim(pair)
+				observation := f.observation(t, command.Subject, claim)
+				command.Observations = append(command.Observations, observation)
+				command.Selections = append(command.Selections, domain.CatalogRegistrationSelection{Key: domain.FingerprintClaimKey, Observation: observation.ID()})
+				want = app.ErrUnsupported
+			case "same fingerprint ambiguous":
+				if _, err := f.service.RegisterCatalogVersion(t.Context(), command); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := f.service.RegisterCatalogVersion(t.Context(), f.version(t, 102, 2)); err != nil {
+					t.Fatal(err)
+				}
+				query := app.Query{Kind: app.FindVersionsByPair, Fingerprint: command.Observations[0].Input().Claim.Fingerprint(), Page: app.PageRequest{Limit: 128}}
+				result, err := catalogRead(t, f.owner, query)
+				if err != nil || result.Kind != app.Ambiguous || len(result.Entries) != 2 {
+					t.Fatal(result, err)
+				}
+				return
+			}
+			if _, err := f.service.RegisterCatalogVersion(t.Context(), command); !errors.Is(err, want) {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(before, registrationSchemaRows(t, f.owner.database.db)) {
+				t.Fatal("invalid evidence mutated database")
+			}
+		})
+	}
+}
+
+func TestRegistrationPersistenceRestore(t *testing.T) {
+	f := newRegistrationFixture(t)
+	if _, err := f.service.RegisterContent(t.Context(), f.command); err != nil {
+		t.Fatal(err)
+	}
+	first := f.version(t, 101, 1)
+	result, err := f.service.RegisterCatalogVersion(t.Context(), first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := registrationSchemaRows(t, f.owner.database.db)
+	dir := t.TempDir()
+	snapshot, err := f.owner.database.CreateBackup(t.Context(), filepath.Join(dir, "v8.sqlite"), SchemaMigrations())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.service.RegisterCatalogVersion(t.Context(), f.version(t, 102, 2)); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.owner.Restore(t.Context(), snapshot, filepath.Join(dir, "restored-v8.sqlite")); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(before, registrationSchemaRows(t, f.owner.database.db)) {
+		t.Fatal("v8 restore changed retained rows")
+	}
+	got, found, err := f.service.ReadRegistration(t.Context(), domain.RegisterCatalogVersion, first)
+	if err != nil || !found || !reflect.DeepEqual(got, result) {
+		t.Fatal("v8 restored readback", got, found, err)
+	}
+	legacy, err := OpenLifecycleOwner(t.Context(), Config{Path: filepath.Join(dir, "legacy.sqlite")}, SchemaMigrations()[:7])
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalogSeedVersions(t, legacy, 1)
+	pre, err := legacy.database.CreateBackup(t.Context(), filepath.Join(dir, "v7.sqlite"), SchemaMigrations()[:7])
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy.Close(t.Context())
+	if err := f.owner.Restore(t.Context(), pre, filepath.Join(dir, "restored-v7.sqlite")); err != nil {
+		t.Fatal(err)
+	}
+	before = registrationSchemaRows(t, f.owner.database.db)
+	if _, err := f.service.RegisterContent(t.Context(), f.command); !errors.Is(err, app.ErrUnsupported) {
+		t.Fatal("v7 registration", err)
+	}
+	if _, err := catalogRead(t, f.owner, app.Query{Kind: app.GetContent, Content: catalogQueryContent(t, 1), Page: app.PageRequest{Limit: 1}}); err != nil {
+		t.Fatal("v7 query", err)
+	}
+	if v, err := f.owner.CurrentVersion(t.Context()); err != nil || v != 7 {
+		t.Fatal("implicit migration", v, err)
+	}
+	if !reflect.DeepEqual(before, registrationSchemaRows(t, f.owner.database.db)) {
+		t.Fatal("v7 operation changed snapshot")
+	}
+}
+
+func TestRegistrationPersistenceRace(t *testing.T) {
+	f := newRegistrationFixture(t)
+	if _, err := f.service.RegisterContent(t.Context(), f.command); err != nil {
+		t.Fatal(err)
+	}
+	other, err := OpenLifecycleOwner(t.Context(), f.owner.config, SchemaMigrations())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer other.Close(context.Background())
+	second := f
+	second.owner = other
+	second.bind(t)
+	a, b := f.version(t, 101, 1), f.version(t, 102, 1)
+	start := make(chan struct{})
+	results := make(chan error, 2)
+	go func() { <-start; _, err := f.service.RegisterCatalogVersion(t.Context(), a); results <- err }()
+	go func() { <-start; _, err := second.service.RegisterCatalogVersion(t.Context(), b); results <- err }()
+	close(start)
+	successes, losers := 0, 0
+	for i := 0; i < 2; i++ {
+		err := <-results
+		if err == nil {
+			successes++
+		} else if errors.Is(err, app.ErrRevisionConflict) || errors.Is(err, app.ErrRepositoryContention) {
+			losers++
+		} else {
+			t.Fatal(err)
+		}
+	}
+	if successes != 1 || losers != 1 {
+		t.Fatal("race disposition", successes, losers)
+	}
+	page, err := catalogRead(t, f.owner, app.Query{Kind: app.ListVersions, Content: f.command.Subject.ContentID(), Page: app.PageRequest{Limit: 128}})
+	if err != nil || len(page.Entries) != 1 || page.Revision.Uint64() != 2 {
+		t.Fatal("race retained partial loser", page, err)
+	}
+}
+
+func TestRegistrationPersistenceVersionRollback(t *testing.T) {
+	for _, stage := range []struct{ table, operation string }{{"tc_catalog_managed", "UPDATE"}, {"tc_content_versions", "INSERT"}, {"tc_catalog_subjects", "INSERT"}, {"tc_catalog_batches", "INSERT"}, {"tc_catalog_records", "INSERT"}, {"tc_catalog_observations", "INSERT"}, {"tc_catalog_registrations", "INSERT"}, {"tc_catalog_registration_sources", "INSERT"}, {"tc_catalog_registration_support", "INSERT"}, {"tc_catalog_review_states_v2", "INSERT"}, {"tc_catalog_order_states_v2", "INSERT"}, {"tc_catalog_order_state_versions_v2", "INSERT"}} {
+		t.Run(stage.table, func(t *testing.T) {
+			f := newRegistrationFixture(t)
+			if _, err := f.service.RegisterContent(t.Context(), f.command); err != nil {
+				t.Fatal(err)
+			}
+			before := registrationSchemaRows(t, f.owner.database.db)
+			catalogSchemaExec(t, f.owner.database.db, "CREATE TRIGGER registration_fail BEFORE "+stage.operation+" ON "+stage.table+" BEGIN SELECT RAISE(ABORT,'injected'); END")
+			if _, err := f.service.RegisterCatalogVersion(t.Context(), f.version(t, 101, 1)); !errors.Is(err, app.ErrRepositoryUnavailable) {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(before, registrationSchemaRows(t, f.owner.database.db)) {
+				t.Fatal("partial version or aggregate increment")
+			}
+		})
+	}
+	t.Run("cancellation before commit", func(t *testing.T) {
+		f := newRegistrationFixture(t)
+		before := registrationSchemaRows(t, f.owner.database.db)
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		err := f.owner.WithinCatalogTransaction(ctx, func(r app.CatalogRepository) error {
+			c := f.command
+			_, err := r.(app.RegistrationRepository).CommitRegistration(ctx, app.RegistrationOperation{Capability: f.capability, Command: domain.CatalogRegistrationCommand{ID: c.ID, Kind: domain.RegisterContent, Subject: c.Subject, Source: f.source, ExpectedKind: c.ExpectedKind, Observations: c.Observations, Selections: c.Selections, Reason: c.Reason}})
+			cancel()
+			return err
+		})
+		if !errors.Is(err, context.Canceled) {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(before, registrationSchemaRows(t, f.owner.database.db)) {
+			t.Fatal("canceled registration committed")
+		}
+	})
+}
+
+func TestRegistrationPersistenceSourcesAndProtection(t *testing.T) {
+	for _, bootstrap := range []bool{false, true} {
+		t.Run(fmt.Sprintf("custom bootstrap=%t", bootstrap), func(t *testing.T) {
+			f := newRegistrationFixture(t)
+			custom := f
+			sid, _ := domain.NewSourceID()
+			issuer, _ := domain.NewIssuerPrincipal()
+			var err error
+			custom.source, custom.ingest, err = domain.NewSourceRegistration(sid, issuer, domain.SourceSpec{Adapter: "custom", AdapterVersion: "1", Scope: "offline", Acquisition: domain.OfflineCustom, AllowedClaims: []domain.ClaimKey{domain.TitleClaimKey, domain.FingerprintClaimKey}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			custom.review, err = domain.NewReviewCapability(f.review.Reviewer(), custom.source)
+			if err != nil {
+				t.Fatal(err)
+			}
+			f.capability, err = domain.NewCatalogRegistrationCapability(f.review, []domain.ReviewCapability{f.review, custom.review})
+			if err != nil {
+				t.Fatal(err)
+			}
+			f.bind(t)
+			if bootstrap {
+				claim, _ := domain.TitleClaim("Custom title")
+				o := custom.observation(t, f.command.Subject, claim)
+				f.command.Observations = []domain.CatalogObservation{o}
+				f.command.Selections = []domain.CatalogRegistrationSelection{{Key: domain.TitleClaimKey, Observation: o.ID()}}
+			}
+			content, err := f.service.RegisterContent(t.Context(), f.command)
+			if err != nil || content.ProtectedCustom != bootstrap {
+				t.Fatal(content, err)
+			}
+			version := f.version(t, 101, 1)
+			if !bootstrap {
+				o := custom.observation(t, version.Subject, version.Observations[0].Input().Claim)
+				version.Observations[0] = o
+				version.Selections[0].Observation = o.ID()
+			}
+			result, err := f.service.RegisterCatalogVersion(t.Context(), version)
+			if err != nil || !result.ProtectedCustom {
+				t.Fatal("monotone protection", result, err)
+			}
+			query := app.Query{Kind: app.GetContent, Content: f.command.Subject.ContentID(), Page: app.PageRequest{Limit: 128}}
+			page, err := catalogRead(t, f.owner, query)
+			if err != nil || !page.Entries[0].ProtectedCustom {
+				t.Fatal("protected query", page, err)
+			}
+			if !bootstrap {
+				catalogSchemaExec(t, f.owner.database.db, "UPDATE tc_catalog_sources SET revoked=1 WHERE source_id=?", custom.source.ID().String())
+				if _, _, err := f.service.ReadRegistration(t.Context(), domain.RegisterCatalogVersion, version); !errors.Is(err, app.ErrUnauthorized) {
+					t.Fatal("revoked secondary authority", err)
+				}
+				if _, err := catalogRead(t, f.owner, query); err != nil {
+					t.Fatal("historical evidence after revoke", err)
+				}
+			}
+		})
+	}
+}
+
+func TestRegistrationPersistenceAccounting(t *testing.T) {
+	t.Run("historical snapshots charged", func(t *testing.T) {
+		f := newRegistrationFixture(t)
+		original, err := f.service.RegisterContent(t.Context(), f.command)
+		if err != nil {
+			t.Fatal(err)
+		}
+		parts := make([]string, 8)
+		for i := range parts {
+			parts[i] = fmt.Sprintf(`"large%d":"%s"`, i, strings.Repeat("x", 4000))
+		}
+		raw := []byte(`{` + strings.Join(parts, ",") + `}`)
+		claim, _ := domain.TitleClaim("pending dissent")
+		hitLimit := false
+		for revision := uint64(1); revision < 40; revision++ {
+			before := registrationSchemaRows(t, f.owner.database.db)
+			id, _ := domain.NewCatalogCommandID()
+			expected, _ := domain.NewCatalogRevision(revision)
+			command := app.ReviewCommand{ID: id, Subject: f.command.Subject, ExpectedAggregate: expected, ExpectedReview: expected, Observations: []domain.CatalogObservation{f.observationSnapshot(t, f.command.Subject, claim, raw)}, Reason: "retain bounded pending evidence"}
+			_, err := f.base.RecordObservations(t.Context(), command)
+			if errors.Is(err, app.ErrLimitExceeded) {
+				hitLimit = true
+				if !reflect.DeepEqual(before, registrationSchemaRows(t, f.owner.database.db)) {
+					t.Fatal("retained byte overflow committed")
+				}
+				break
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+		if !hitLimit {
+			t.Fatal("combined immutable history was not charged")
+		}
+		got, err := f.service.RegisterContent(t.Context(), f.command)
+		if err != nil || !reflect.DeepEqual(got, original) {
+			t.Fatal("replay charged again", got, err)
+		}
+	})
+	t.Run("staging batch bound", func(t *testing.T) {
+		f := newRegistrationFixture(t)
+		if _, err := f.service.RegisterContent(t.Context(), f.command); err != nil {
+			t.Fatal(err)
+		}
+		for n := 1; n < 256; n++ {
+			key := fmt.Sprintf("%032x", n)
+			catalogSchemaExec(t, f.owner.database.db, "INSERT INTO tc_catalog_batches VALUES (?,?,?,?,1,1,'1','')", key, f.source.ID().String(), f.source.Revision().String(), bytes.Repeat([]byte{1}, 32))
+		}
+		before := registrationSchemaRows(t, f.owner.database.db)
+		if _, err := f.service.RegisterCatalogVersion(t.Context(), f.version(t, 101, 1)); !errors.Is(err, app.ErrLimitExceeded) {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(before, registrationSchemaRows(t, f.owner.database.db)) {
+			t.Fatal("staging limit retained partial registration")
+		}
+	})
 }
 
 func registrationSchemaRows(t *testing.T, db *sql.DB) map[string][][]any {

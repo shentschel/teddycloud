@@ -137,8 +137,10 @@ func TestCatalogStateQuerySchemaCompatibility(t *testing.T) {
 		{name: "v4", version: 4},
 		{name: "v5", version: 5, accepted: true},
 		{name: "v6", version: 6, accepted: true},
+		{name: "v7", version: 7, accepted: true},
+		{name: "v8", version: 8, accepted: true},
 		{name: "dirty v6", version: 6, mutation: "UPDATE tc_schema_migrations SET dirty=1 WHERE version=6"},
-		{name: "future v8", version: 7, mutation: "INSERT INTO tc_schema_migrations(version,migration_id,checksum,dirty) VALUES (8,'future','unknown',0)"},
+		{name: "future v9", version: 8, mutation: "INSERT INTO tc_schema_migrations(version,migration_id,checksum,dirty) VALUES (9,'future','unknown',0)"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			owner, err := OpenLifecycleOwner(t.Context(), Config{Path: filepath.Join(t.TempDir(), "compat.sqlite")}, SchemaMigrations()[:tc.version])
@@ -155,12 +157,12 @@ func TestCatalogStateQuerySchemaCompatibility(t *testing.T) {
 				if err != nil || result.Kind != app.Found || len(result.Entries) != 1 {
 					t.Fatalf("accepted query regressed: %#v %v", result, err)
 				}
-				// v5 retains query support; only v6 enables state reads.
+				// v5 retains query support; v6 and later enable state reads.
 				err = owner.WithinCatalogTransaction(t.Context(), func(r app.CatalogRepository) error {
 					subject, _ := catalog.ContentSubject(catalogQueryContent(t, 1))
 					_, _, reviewErr := r.LoadReview(t.Context(), subject)
 					_, _, orderErr := r.LoadOrder(t.Context(), catalogQueryContent(t, 1))
-					if tc.version == 6 {
+					if tc.version >= 6 {
 						if reviewErr != nil || orderErr != nil {
 							t.Fatal("v6 state reads unavailable", reviewErr, orderErr)
 						}
@@ -201,7 +203,7 @@ func TestCatalogStateMigrationIdentity(t *testing.T) {
 		"c65137b653d80e54301a14fd7f8be52bdb7e246ec32245623cbf47d7bfa66fc7",
 		"f3bd874bbb9d8ae2228ba91c3d2b5d5077d0110d69d13551a24c87e54558fcd1",
 	}
-	if len(migrations) != 7 || migrations[5].Version != 6 || migrations[5].ID != "0006-catalog-aggregate-state" {
+	if len(migrations) != 8 || migrations[5].Version != 6 || migrations[5].ID != "0006-catalog-aggregate-state" {
 		t.Fatal("migration identity changed")
 	}
 	for i, sum := range want {
@@ -256,7 +258,7 @@ func TestCatalogStateV5Upgrade(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer upgraded.Close()
-	if version, err := upgraded.CurrentVersion(t.Context()); err != nil || version != 7 {
+	if version, err := upgraded.CurrentVersion(t.Context()); err != nil || version != 8 {
 		t.Fatal("v6 upgrade failed", err)
 	}
 	for table, rows := range before {

@@ -41,7 +41,7 @@ func TestCatalogMigrationAudit(t *testing.T) {
 		t.Fatal(err)
 	}
 	migrations := SchemaMigrations()
-	if len(ledger) != 7 {
+	if len(ledger) != 8 {
 		t.Fatal("unexpected migration count")
 	}
 	for i, row := range ledger {

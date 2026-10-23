@@ -46,6 +46,9 @@ func (r *catalogRepository) commitImport(ctx context.Context, op app.ImportOpera
 	if err = r.stateSourceActive(ctx, source); err != nil {
 		return result, err
 	}
+	if err = r.registrationKeyOnly(ctx, key); err != nil {
+		return result, err
+	}
 	sourceRaw, err := source.PersistenceEncoding()
 	if err != nil {
 		return result, err

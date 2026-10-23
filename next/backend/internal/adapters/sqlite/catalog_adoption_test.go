@@ -405,7 +405,7 @@ func TestCatalogCorruptRelations(t *testing.T) {
 			if owner.config.Path != source {
 				t.Fatal("restore selected another database")
 			}
-			if version, err := owner.CurrentVersion(t.Context()); err != nil || version != 7 {
+			if version, err := owner.CurrentVersion(t.Context()); err != nil || version != 8 {
 				t.Fatal("rejected restore closed original owner", version, err)
 			}
 			if err := verifyForeignKeys(t.Context(), owner.database.db); err != nil {

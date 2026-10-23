@@ -370,7 +370,7 @@ func init() {
 // Migration 8 only supplies storage fences. C2 must still validate complete
 // canonical commands/results, SHA-256, semantic replay, the exactly-one-operator
 // requirement, retained-byte accounting and order keys embedded in state bytes.
-// The existing catalog port deliberately remains unavailable on v8 until C2.
+// The callback-scoped registration repository validates these invariants on v8.
 func catalogRegistrationMigration() Migration {
 	m := Migration{Version: 8, ID: "0008-catalog-registration", Statements: []string{
 		`CREATE TABLE tc_catalog_registrations (

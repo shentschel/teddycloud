@@ -87,6 +87,9 @@ func (r *catalogRepository) Query(ctx context.Context, query app.Query) (result 
 		return app.QueryResult{}, err
 	}
 	snapshot.Write(base)
+	if err := r.registrationSnapshot(call, record.Content, snapshot); err != nil {
+		return app.QueryResult{}, err
+	}
 	// The single pooled connection has a stable total_changes counter; SQLite's
 	// data_version catches other connections. Together they also invalidate an
 	// ABA write whose final values happen to equal the old snapshot.
@@ -254,6 +257,9 @@ func (r *catalogRepository) catalogFind(ctx context.Context, query app.Query) (a
 	for _, id := range contents {
 		record, current, found, err := r.catalogContent(ctx, id)
 		if err != nil {
+			return app.QueryResult{}, err
+		}
+		if err := r.registrationSnapshot(ctx, id, snapshot); err != nil {
 			return app.QueryResult{}, err
 		}
 		if !found {
@@ -567,6 +573,18 @@ func (r *catalogRepository) catalogFields(ctx context.Context, record *app.Catal
 		// allowing gaps between the review decisions projected below.
 		if _, _, err := r.readStates(ctx, record.Content, domain.CatalogSubject{}, true, domain.CatalogPersistenceBindings{AllowUnbound: true}); err != nil {
 			return err
+		}
+	}
+	if managed && r.schemaVersion >= 8 {
+		if err := r.registrationAccounting(ctx, record.Content); err != nil {
+			return err
+		}
+		var registered bool
+		if err := r.transaction.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM tc_catalog_registrations WHERE content_id=?)", id).Scan(&registered); err != nil {
+			return repositoryError(ctx, err)
+		}
+		if registered {
+			return r.registeredFields(ctx, record)
 		}
 	}
 	rows, err := r.transaction.QueryContext(ctx, `SELECT d.command_id,d.subject_id,d.kind,d.claim_key,

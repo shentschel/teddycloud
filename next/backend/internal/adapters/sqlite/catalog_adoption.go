@@ -81,6 +81,9 @@ func (r *catalogRepository) AdoptBaseline(ctx context.Context, op app.AdoptionOp
 	if err = r.stateSourceActive(call, command.Source); err != nil {
 		return result, err
 	}
+	if err = r.registrationKeyOnly(call, command.ID.String()); err != nil {
+		return result, err
+	}
 	id := command.Subject.ContentID()
 	// A retained key is compared before revision rejection, even after later edits.
 	var parser, source, registration string

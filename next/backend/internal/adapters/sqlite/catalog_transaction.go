@@ -85,7 +85,7 @@ func (owner *LifecycleOwner) catalogTransaction(ctx context.Context, operation f
 		return repositoryError(ctx, err)
 	}
 	// v6 adds state envelopes without changing the accepted v5 query tables.
-	if (version < 5 || version > 7) || dirty != 0 {
+	if (version < 5 || version > 8) || dirty != 0 {
 		return app.ErrUnsupported
 	}
 	repository := &catalogRepository{transaction: tx, ctx: ctx, owner: owner, database: owner.database, generation: owner.generation.Load(), schemaVersion: version}
@@ -223,6 +223,9 @@ func (r *catalogRepository) LookupReview(ctx context.Context, operation app.Revi
 		return result, false, err
 	}
 	decision, found, err := state.LookupCommand(operation.Capability, command)
+	if err == nil && !found {
+		err = r.registrationKeyOnly(call, command.ID.String())
+	}
 	if err != nil || !found {
 		return result, false, err
 	}
@@ -271,6 +274,9 @@ func (r *catalogRepository) LookupOrder(ctx context.Context, operation app.Order
 		return result, false, err
 	}
 	decision, found, err := state.LookupCommand(operation.Capability, command)
+	if err == nil && !found {
+		err = r.registrationKeyOnly(call, command.ID.String())
+	}
 	if err != nil || !found {
 		return result, false, err
 	}
@@ -340,6 +346,7 @@ type catalogStoredDecision struct {
 }
 type catalogStoredState struct {
 	aggregate, revision uint64
+	encoding            uint64
 	raw                 []byte
 	review              domain.CatalogReviewState
 	order               domain.CatalogOrderState
@@ -376,6 +383,18 @@ func (r *catalogRepository) readStates(ctx context.Context, content identity.Con
 	if !managed {
 		aggregate = 1
 	}
+	registeredAggregate := false
+	if managed && r.schemaVersion >= 8 {
+		var expectedProtection bool
+		err = r.transaction.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM tc_catalog_registrations WHERE content_id=?1),
+ EXISTS(SELECT 1 FROM tc_catalog_registrations WHERE content_id=?1 AND protected_custom=1) OR EXISTS(SELECT 1 FROM tc_catalog_observations o JOIN tc_catalog_sources s USING(source_id,registration_revision) WHERE o.content_id=?1 AND s.acquisition=2)`, id).Scan(&registeredAggregate, &expectedProtection)
+		if err != nil {
+			return nil, domain.CatalogRevision{}, repositoryError(ctx, err)
+		}
+		if registeredAggregate && expectedProtection != (protected == 1) {
+			return nil, domain.CatalogRevision{}, app.ErrRepositoryUnavailable
+		}
+	}
 	revision, err := domain.NewCatalogRevision(aggregate)
 	if err != nil {
 		return nil, domain.CatalogRevision{}, app.ErrRepositoryUnavailable
@@ -383,9 +402,15 @@ func (r *catalogRepository) readStates(ctx context.Context, content identity.Con
 	// Every aggregate advance is backed by exactly one normalized review decision
 	// or order envelope. The latter carries its original result and full history.
 	var events, distinct, minimum, maximum uint64
-	err = r.transaction.QueryRowContext(ctx, `SELECT count(*),count(DISTINCT n),COALESCE(min(n),1),COALESCE(max(n),1) FROM (
+	eventSQL := `SELECT count(*),count(DISTINCT n),COALESCE(min(n),1),COALESCE(max(n),1) FROM (
  SELECT result_aggregate_revision n FROM tc_catalog_decisions WHERE content_id=?
- UNION ALL SELECT aggregate_revision FROM tc_catalog_order_states WHERE content_id=? AND order_revision>1)`, id, id).Scan(&events, &distinct, &minimum, &maximum)
+ UNION ALL SELECT aggregate_revision FROM tc_catalog_order_states WHERE content_id=? AND order_revision>1`
+	args := []any{id, id}
+	if r.schemaVersion >= 8 {
+		eventSQL += ` UNION ALL SELECT aggregate_revision FROM tc_catalog_order_states_v2 WHERE content_id=? AND order_revision>1`
+		args = append(args, id)
+	}
+	err = r.transaction.QueryRowContext(ctx, eventSQL+")", args...).Scan(&events, &distinct, &minimum, &maximum)
 	if err != nil {
 		return nil, revision, repositoryError(ctx, err)
 	}
@@ -395,6 +420,14 @@ func (r *catalogRepository) readStates(ctx context.Context, content identity.Con
 	table, column, wanted := "tc_catalog_review_states", "subject_id", key
 	if order {
 		table, column, wanted = "tc_catalog_order_states", "content_id", id
+	}
+	if r.schemaVersion >= 8 {
+		table = "(SELECT * FROM " + table + " UNION ALL SELECT "
+		if order {
+			table += "* FROM tc_catalog_order_states_v2)"
+		} else {
+			table += "subject_id,content_id,aggregate_revision,review_revision,encoding,state,state_bytes,state_sha256 FROM tc_catalog_review_states_v2)"
+		}
 	}
 	var count, size uint64
 	err = r.transaction.QueryRowContext(ctx, "SELECT count(*),COALESCE(sum(length(state)),0) FROM "+table+" WHERE "+column+"=?", wanted).Scan(&count, &size)
@@ -424,6 +457,9 @@ func (r *catalogRepository) readStates(ctx context.Context, content identity.Con
 		}
 	}
 	if count == 0 {
+		if order && registeredAggregate {
+			return nil, revision, app.ErrRepositoryUnavailable
+		}
 		return nil, revision, nil
 	}
 	if !managed {
@@ -463,7 +499,8 @@ func (r *catalogRepository) readStates(ctx context.Context, content identity.Con
 			return nil, revision, repositoryError(ctx, err)
 		}
 		sum := sha256.Sum256(s.raw)
-		if encoding != 1 || declared != uint64(len(s.raw)) || declared > domain.RetainedBytes.Maximum() || !bytes.Equal(digest, sum[:]) || owner != id || s.revision == 0 || s.revision > domain.RetainedDecisions.Maximum()+1 || order && s.revision != uint64(len(states))+1 || s.aggregate == 0 || s.aggregate > aggregate || len(states) > 0 && (s.aggregate <= states[len(states)-1].aggregate || s.revision <= states[len(states)-1].revision) {
+		s.encoding = encoding
+		if (encoding != 1 && encoding != 2) || declared != uint64(len(s.raw)) || declared > domain.RetainedBytes.Maximum() || !bytes.Equal(digest, sum[:]) || owner != id || s.revision == 0 || s.revision > domain.RetainedDecisions.Maximum()+1 || (order || encoding == 2) && s.revision != uint64(len(states))+1 || s.aggregate == 0 || s.aggregate > aggregate || len(states) > 0 && (s.aggregate <= states[len(states)-1].aggregate || s.revision <= states[len(states)-1].revision || encoding < states[len(states)-1].encoding) {
 			rows.Close()
 			return nil, revision, app.ErrRepositoryUnavailable
 		}
@@ -483,7 +520,7 @@ func (r *catalogRepository) readStates(ctx context.Context, content identity.Con
 		}
 		s := &states[i]
 		projection := catalogStateReader{raw: s.raw, repository: r, ctx: ctx, content: id, subject: key, order: order, sources: make(map[string]domain.SourceRegistration)}
-		if err := projection.check(s, versions, i == len(states)-1); err != nil {
+		if err := projection.checkEnvelope(s, versions, i == len(states)-1); err != nil {
 			return nil, revision, err
 		}
 		// Exact normalized source bindings are reconstructed as permanently
@@ -503,19 +540,48 @@ func (r *catalogRepository) readStates(ctx context.Context, content identity.Con
 			}
 		}
 		if order {
-			s.order, err = domain.RehydrateCatalogOrderState(s.raw, resolved)
+			s.order, err = rehydrateRegistrationOrder(s.raw, resolved)
 		} else {
 			s.review, err = domain.RehydrateCatalogReviewState(s.raw, resolved)
 		}
 		if err != nil {
 			return nil, revision, app.ErrRepositoryUnavailable
 		}
-		if !order && (s.review.Subject() != subject || s.review.Revision().Uint64() != s.revision || i == len(states)-1 && s.review.ProtectedCustom() != (protected == 1)) || order && s.order.Revision().Uint64() != s.revision {
+		if !order && (s.review.Subject() != subject || s.review.Revision().Uint64() != s.revision || i == len(states)-1 && (s.review.ProtectedCustom() && protected != 1 || !registeredAggregate && s.review.ProtectedCustom() != (protected == 1))) || order && s.order.Revision().Uint64() != s.revision {
 			return nil, revision, app.ErrRepositoryUnavailable
 		}
+		if !order && s.encoding == 2 && s.revision == 1 && !subject.VersionID().IsZero() {
+			field := s.review.Field(domain.FingerprintClaimKey)
+			matched := false
+			for _, v := range versions {
+				if v.Version.ID() == subject.VersionID() && len(field.Alternatives) == 1 && field.Alternatives[0].Claim.Fingerprint() == v.Version.Fingerprint() {
+					matched = true
+				}
+			}
+			if !matched {
+				return nil, revision, app.ErrRepositoryUnavailable
+			}
+		}
+		if !order && s.encoding == 2 && s.revision == 1 && subject.VersionID().IsZero() {
+			var values [3]sql.NullString
+			if err := r.transaction.QueryRowContext(ctx, "SELECT title,model_number,article_number FROM tc_catalog_content WHERE content_id=?", id).Scan(&values[0], &values[1], &values[2]); err != nil {
+				return nil, revision, app.ErrRepositoryUnavailable
+			}
+			for i, value := range values {
+				field := s.review.Field(domain.ClaimKey(i + 1))
+				if value.Valid != (len(field.Alternatives) == 1) || value.Valid && value.String != field.Alternatives[0].Claim.Text() {
+					return nil, revision, app.ErrRepositoryUnavailable
+				}
+			}
+		}
 		if i > 0 {
+			if order {
+				if err := registrationOrderTransition(states[i-1], *s); err != nil {
+					return nil, revision, err
+				}
+			}
 			previous := states[i-1].decisions
-			if len(s.decisions) <= len(previous) {
+			if len(s.decisions) < len(previous) || len(s.decisions) == len(previous) && !(order && s.encoding == 2) {
 				return nil, revision, app.ErrRepositoryUnavailable
 			}
 			for j, d := range previous {
@@ -543,6 +609,8 @@ type catalogStateReader struct {
 	write             bool
 	writeCommand      string
 	expectedAggregate uint64
+	skipManifest      bool
+	manifestTable     string
 }
 
 func (d *catalogStateReader) insert(query string, args ...any) {
@@ -665,6 +733,11 @@ func (d *catalogStateReader) coordinate(source catalogStoredSource, binaryBatch 
 	size, count := d.number(), d.number()
 	parser, revision := d.text(), d.text()
 	index, locator, snapshot := d.number(), d.text(), []byte(d.text())
+	if d.write && d.err == nil {
+		if err := d.repository.registrationKeyOnly(d.ctx, batch); err != nil {
+			d.err = err
+		}
+	}
 	d.insert("INSERT INTO tc_catalog_batches VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(batch_id) DO NOTHING", batch, source.id, source.revision, digest, size, count, parser, revision)
 	d.insert("INSERT INTO tc_catalog_records VALUES (?,?,?,?) ON CONFLICT(batch_id,record_index) DO NOTHING", batch, index, locator, snapshot)
 	d.match(`SELECT EXISTS(SELECT 1 FROM tc_catalog_batches b JOIN tc_catalog_records r USING(batch_id)
@@ -863,10 +936,22 @@ func (d *catalogStateReader) check(s *catalogStoredState, versions []catalogVers
 				d.err = app.ErrRepositoryUnavailable
 			}
 			seen[id] = true
-			d.insert("INSERT INTO tc_catalog_order_state_versions VALUES (?,?,?)", d.content, s.revision, id)
-			d.match("SELECT EXISTS(SELECT 1 FROM tc_catalog_order_state_versions WHERE content_id=? AND order_revision=? AND version_id=?)", d.content, s.revision, id)
+			if !d.skipManifest {
+				table := d.manifestTable
+				if table == "" {
+					table = "tc_catalog_order_state_versions"
+				}
+				d.insert("INSERT INTO "+table+" VALUES (?,?,?)", d.content, s.revision, id)
+				d.match("SELECT EXISTS(SELECT 1 FROM "+table+" WHERE content_id=? AND order_revision=? AND version_id=?)", d.content, s.revision, id)
+			}
 		}
-		d.match("SELECT count(*)=? FROM tc_catalog_order_state_versions WHERE content_id=? AND order_revision=?", n, d.content, s.revision)
+		if !d.skipManifest {
+			table := d.manifestTable
+			if table == "" {
+				table = "tc_catalog_order_state_versions"
+			}
+			d.match("SELECT count(*)=? FROM "+table+" WHERE content_id=? AND order_revision=?", n, d.content, s.revision)
+		}
 	}
 	n := d.count(domain.RetainedObservations.Maximum())
 	for i := 0; i < n; i++ {
@@ -952,6 +1037,9 @@ func (r *catalogRepository) CommitReview(ctx context.Context, operation app.Revi
 		}
 		return app.ErrRepositoryUnavailable
 	}
+	if err = r.registrationKeyOnly(call, command.ID.String()); err != nil {
+		return err
+	}
 	if aggregate != operation.ExpectedAggregate {
 		return domain.ErrCatalogRevisionConflict
 	}
@@ -983,7 +1071,7 @@ func (r *catalogRepository) CommitReview(ctx context.Context, operation app.Revi
 			err = repositoryError(r.ctx, resetErr)
 		}
 	}()
-	updated, err := r.transaction.ExecContext(call, "UPDATE tc_catalog_managed SET aggregate_revision=?,protected_custom=? WHERE content_id=? AND aggregate_revision=?", result.AggregateRevision.Uint64(), next.ProtectedCustom(), command.Subject.ContentID().String(), aggregate.Uint64())
+	updated, err := r.transaction.ExecContext(call, "UPDATE tc_catalog_managed SET aggregate_revision=?,protected_custom=max(protected_custom,?) WHERE content_id=? AND aggregate_revision=?", result.AggregateRevision.Uint64(), next.ProtectedCustom(), command.Subject.ContentID().String(), aggregate.Uint64())
 	if err != nil {
 		return repositoryError(call, err)
 	}
@@ -998,16 +1086,36 @@ func (r *catalogRepository) CommitReview(ctx context.Context, operation app.Revi
 		return domain.ErrCatalogRevisionConflict
 	}
 	stored := catalogStoredState{raw: raw, aggregate: result.AggregateRevision.Uint64(), revision: next.Revision().Uint64()}
+	var bootstrap string
+	if r.schemaVersion >= 8 {
+		e := r.transaction.QueryRowContext(call, "SELECT command_id FROM tc_catalog_registrations WHERE subject_id=?", catalogSubjectKey(command.Subject)).Scan(&bootstrap)
+		if e != nil && !errors.Is(e, sql.ErrNoRows) {
+			return repositoryError(call, e)
+		}
+	}
+	if bootstrap != "" {
+		stored.encoding = 2
+	} else {
+		stored.encoding = 1
+	}
 	projection := catalogStateReader{raw: raw, repository: r, ctx: call, content: command.Subject.ContentID().String(), subject: catalogSubjectKey(command.Subject), write: true, writeCommand: command.ID.String(), expectedAggregate: aggregate.Uint64()}
-	if err = projection.check(&stored, nil, true); err != nil {
+	if err = projection.checkEnvelope(&stored, nil, true); err != nil {
 		return err
 	}
 	sum := sha256.Sum256(raw)
-	if _, err = r.transaction.ExecContext(call, "INSERT INTO tc_catalog_review_states VALUES (?,?,?,?,1,?,?,?)", catalogSubjectKey(command.Subject), command.Subject.ContentID().String(), result.AggregateRevision.Uint64(), next.Revision().Uint64(), raw, len(raw), sum[:]); err != nil {
+	if bootstrap != "" {
+		_, err = r.transaction.ExecContext(call, "INSERT INTO tc_catalog_review_states_v2 VALUES (?,?,?,?,2,?,?,?,?)", catalogSubjectKey(command.Subject), command.Subject.ContentID().String(), result.AggregateRevision.Uint64(), next.Revision().Uint64(), raw, len(raw), sum[:], bootstrap)
+	} else {
+		_, err = r.transaction.ExecContext(call, "INSERT INTO tc_catalog_review_states VALUES (?,?,?,?,1,?,?,?)", catalogSubjectKey(command.Subject), command.Subject.ContentID().String(), result.AggregateRevision.Uint64(), next.Revision().Uint64(), raw, len(raw), sum[:])
+	}
+	if err != nil {
 		return repositoryError(call, err)
 	}
 	// Read back through exactly the existing corruption/binding checks.
 	if _, _, err = r.readStates(call, command.Subject.ContentID(), command.Subject, false, bindings); err != nil {
+		return err
+	}
+	if err = r.registrationAccounting(call, command.Subject.ContentID()); err != nil {
 		return err
 	}
 	r.wrote = true
@@ -1059,6 +1167,12 @@ func (r *catalogRepository) CommitOrder(ctx context.Context, operation app.Order
 	if err != nil {
 		return err
 	}
+	if states[len(states)-1].encoding == 2 {
+		probe := catalogStateReader{raw: raw}
+		if probe.text() == "pi08-order-state/1" {
+			raw = registrationOrderBootstrap(raw)
+		}
+	}
 	if replay {
 		for _, s := range states {
 			if s.revision == decision.View.Revision.Uint64() {
@@ -1073,6 +1187,9 @@ func (r *catalogRepository) CommitOrder(ctx context.Context, operation app.Order
 		}
 		return app.ErrRepositoryUnavailable
 	}
+	if err = r.registrationKeyOnly(call, command.ID.String()); err != nil {
+		return err
+	}
 	if aggregate != operation.ExpectedAggregate {
 		return domain.ErrCatalogRevisionConflict
 	}
@@ -1083,6 +1200,12 @@ func (r *catalogRepository) CommitOrder(ctx context.Context, operation app.Order
 	expectedRaw, err := expected.PersistenceEncoding()
 	if err != nil {
 		return err
+	}
+	if states[len(states)-1].encoding == 2 {
+		probe := catalogStateReader{raw: expectedRaw}
+		if probe.text() == "pi08-order-state/1" {
+			expectedRaw = registrationOrderBootstrap(expectedRaw)
+		}
 	}
 	if result.AggregateRevision.Uint64() != aggregate.Uint64()+1 || !reflect.DeepEqual(result.Decision, decision) || !bytes.Equal(raw, expectedRaw) {
 		return app.ErrInvalidInput
@@ -1107,15 +1230,25 @@ func (r *catalogRepository) CommitOrder(ctx context.Context, operation app.Order
 		return domain.ErrCatalogRevisionConflict
 	}
 	sum := sha256.Sum256(raw)
-	if _, err = r.transaction.ExecContext(call, "INSERT INTO tc_catalog_order_states VALUES (?,?,?,1,?,?,?)", command.Content.String(), result.AggregateRevision.Uint64(), next.Revision().Uint64(), raw, len(raw), sum[:]); err != nil {
+	encoding := uint64(1)
+	table := "tc_catalog_order_states"
+	probe := catalogStateReader{raw: raw}
+	if probe.text() == "pi08-order-state/2" {
+		encoding = 2
+		table = "tc_catalog_order_states_v2"
+	}
+	if _, err = r.transaction.ExecContext(call, "INSERT INTO "+table+" VALUES (?,?,?,?,?,?,?)", command.Content.String(), result.AggregateRevision.Uint64(), next.Revision().Uint64(), encoding, raw, len(raw), sum[:]); err != nil {
 		return repositoryError(call, err)
 	}
-	stored := catalogStoredState{raw: raw, aggregate: result.AggregateRevision.Uint64(), revision: next.Revision().Uint64()}
+	stored := catalogStoredState{raw: raw, aggregate: result.AggregateRevision.Uint64(), revision: next.Revision().Uint64(), encoding: encoding}
 	projection := catalogStateReader{raw: raw, repository: r, ctx: call, content: command.Content.String(), order: true, write: true}
-	if err = projection.check(&stored, versions, true); err != nil {
+	if err = projection.checkEnvelope(&stored, versions, true); err != nil {
 		return err
 	}
 	if _, _, err = r.readStates(call, command.Content, domain.CatalogSubject{}, true, bindings); err != nil {
+		return err
+	}
+	if err = r.registrationAccounting(call, command.Content); err != nil {
 		return err
 	}
 	r.wrote = true
