@@ -43,7 +43,13 @@ func (database *Database) WithinTransaction(
 // withinSQLTransaction is adapter-private plumbing shared by the distinct
 // application ports. It never retries the callback.
 func (database *Database) withinSQLTransaction(ctx context.Context, operation func(*sql.Tx) error) (resultErr error) {
-
+	// Run after rollback and connection cleanup: cancellation can arrive after
+	// the operation's error was mapped, and must dominate joined cleanup errors.
+	defer func() {
+		if resultErr != nil && ctx.Err() != nil {
+			resultErr = ctx.Err()
+		}
+	}()
 	connection, err := database.db.Conn(ctx)
 	if err != nil {
 		return fmt.Errorf("acquire transaction connection: %w", repositoryError(ctx, err))
@@ -153,6 +159,13 @@ func execWithContention(
 	query string,
 	arguments ...any,
 ) (resultErr error) {
+	// Error mapping and wait-budget restoration can both race cancellation.
+	// Keep cleanup independent of ctx, but classify the final error using ctx.
+	defer func() {
+		if resultErr != nil && ctx.Err() != nil {
+			resultErr = ctx.Err()
+		}
+	}()
 	var busyTimeoutMillis int
 	if err := transaction.QueryRowContext(ctx, `PRAGMA busy_timeout`).Scan(&busyTimeoutMillis); err != nil {
 		return mapError(ctx, err)

@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"path/filepath"
 	"testing"
@@ -116,6 +117,74 @@ func TestContentionHonorsContextCancellation(t *testing.T) {
 	}
 	if gotTimeout != 2000 {
 		t.Fatalf("busy timeout after cancellation = %d, want 2000", gotTimeout)
+	}
+}
+
+// Cancel at the two return boundaries instead of relying on a timer landing
+// between SQLite's BUSY response, error mapping and transaction rollback.
+func TestContentionCancellationDominatesReturnBoundaries(t *testing.T) {
+	for _, boundary := range []string{"error mapping", "callback return"} {
+		t.Run(boundary, func(t *testing.T) {
+			first, second := openContentionPair(t, 40*time.Millisecond)
+			content := testContent(t, "Canceled at return boundary", false)
+			holder, err := first.db.BeginTx(t.Context(), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = holder.Rollback() })
+			if _, err := holder.ExecContext(t.Context(), "UPDATE tc_catalog_content SET title = title"); err != nil {
+				t.Fatal(err)
+			}
+
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			calls := 0
+			var operationErr error
+			err = second.withinSQLTransaction(ctx, func(transaction *sql.Tx) error {
+				calls++
+				if boundary == "error mapping" {
+					operationErr = execWithContention(ctx, transaction, func(ctx context.Context, err error) error {
+						mapped := repositoryError(ctx, err)
+						if errors.Is(mapped, applicationcatalog.ErrRepositoryContention) {
+							cancel()
+						}
+						return mapped
+					}, "UPDATE tc_catalog_content SET title = title")
+				} else {
+					operationErr = (contentRepository{transaction: transaction}).Save(ctx, content)
+					if !errors.Is(operationErr, applicationcatalog.ErrRepositoryContention) {
+						t.Errorf("uncanceled save error = %v, want contention", operationErr)
+					}
+					cancel()
+				}
+				return operationErr
+			})
+			if boundary == "error mapping" && !errors.Is(operationErr, context.Canceled) {
+				t.Errorf("operation error = %v, want cancellation", operationErr)
+			}
+			if !errors.Is(err, context.Canceled) || errors.Is(err, applicationcatalog.ErrRepositoryContention) || errors.Is(err, applicationcatalog.ErrRepositoryUnavailable) {
+				t.Errorf("transaction error = %v, want cancellation without contention or cleanup classifications", err)
+			}
+			if calls != 1 {
+				t.Errorf("callback calls = %d, want 1", calls)
+			}
+			if err := holder.Rollback(); err != nil {
+				t.Fatal(err)
+			}
+			assertContentAbsent(t, second, content.ID())
+			var timeout int
+			if err := second.db.QueryRowContext(t.Context(), "PRAGMA busy_timeout").Scan(&timeout); err != nil {
+				t.Fatal(err)
+			}
+			if timeout != 40 {
+				t.Errorf("busy timeout = %d, want 40", timeout)
+			}
+			if err := second.WithinTransaction(t.Context(), func(repository applicationcatalog.ContentRepository) error {
+				return repository.Save(t.Context(), content)
+			}); err != nil {
+				t.Fatalf("save after canceled transaction: %v", err)
+			}
+		})
 	}
 }
 
