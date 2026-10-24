@@ -24,7 +24,7 @@ passed the full backend, vet, architecture and workspace checks. Exact-head
 completed all four jobs successfully, including SQLite repetition, race and
 qualified-filesystem evidence.
 
-Two substantive policy gaps remain open:
+At that audit checkpoint, two substantive policy gaps were open:
 
 - [PI08-T-F01 #27](https://github.com/shentschel/teddycloud/issues/27): guarded
   `RegisterContent` and `RegisterCatalogVersion` authoring is absent; SQL-seeded
@@ -34,5 +34,28 @@ Two substantive policy gaps remain open:
   is absent.
 
 Both stable IDs were searched before publication and are linked from the shared
-backlog. They block PI-08/T and milestone acceptance; accepted R/A/B evidence is
-unchanged.
+backlog. They blocked PI-08/T and milestone acceptance; accepted R/A/B evidence
+is unchanged.
+
+## F02 refinement checkpoint, 2026-10-24
+
+Status: **F02 refined/implementation-ready**. F02 implementation, independent
+acceptance, PI-08/T and the milestone remain open.
+
+The parent reports F01-D independently accepted at
+`abe0c956e8f38c20aaae966faafe4115feb409e4`, with exact-head
+[Next CI 40056183655](https://github.com/shentschel/teddycloud/actions/runs/40056183655)
+fully green. Local inspection confirms the registration implementation and
+migration 8 at that base; this documentation refinement does not repeat or
+replace the parent's F01 acceptance. The earlier absent-registration finding
+above is retained as historical audit evidence.
+
+The [F02 supersession contract](pi-08-f02-supersession-contract.md) fixes command,
+authority/revision fences, linear immutable chains, canonical bytes/bounds,
+retained support, query/reconstruction, unchanged assignments, migration 9,
+accounting/recovery and ordered implementation/test gates. Existing order-command
+`Supersedes` remains separate. No production code or GitHub issue was changed by
+request `pi08-t-f02-refinement-20261024`; #28 remains the existing delivery issue.
+Its proposed replacement body is included in the contract for parent review.
+F02 and final independent T acceptance still block the milestone; no hardware,
+deployment or production migration evidence is claimed.

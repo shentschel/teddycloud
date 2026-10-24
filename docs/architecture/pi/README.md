@@ -52,9 +52,14 @@ Current execution artifacts:
 - [PI-08/B2 lifecycle and restart checkpoint](pi-08-b2-lifecycle-restart-checkpoint.md)
 - [PI-08/B2 acceptance audit](pi-08-b2-acceptance-audit.md)
 - [PI-08/T independent audit checkpoint](pi-08-t-audit-checkpoint.md)
+- [PI08-T-F01 registration contract](pi-08-f01-registration-contract.md)
+- [PI08-T-F02 supersession contract: refined/implementation-ready](pi-08-f02-supersession-contract.md)
 - PI-08/R, A, B1 and B2 are accepted software checkpoints. Independent T found
-  and published PI08-T-F01/F02; the fixture-only F03 is resolved. T and the
-  versioned-catalog-query milestone remain undelivered.
+  and published PI08-T-F01/F02; the fixture-only F03 is resolved. The parent
+  reports F01-D accepted at `abe0c956e8f38c20aaae966faafe4115feb409e4` with
+  exact-head Next CI 40056183655 green. F02 is refined/implementation-ready;
+  implementation and independent acceptance remain open under existing #28.
+  T and the versioned-catalog-query milestone remain undelivered.
 
 - [PI-07 plan checkpoint](pi-07-plan.md)
 - [PI-07 budget checkpoint](pi-07-budget.md)
