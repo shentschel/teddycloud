@@ -531,6 +531,110 @@ func catalogRegistrationMigration() Migration {
 	return m
 }
 
+// catalogSupersessionMigration is the staged C1 storage foundation. C2 must
+// admit version 9 together with owner dispatch, all-writer accounting and graph
+// validation. Leaving it out of SchemaMigrations keeps existing F01 operational
+// until those atomicity prerequisites are implemented.
+func catalogSupersessionMigration() Migration {
+	m := Migration{Version: 9, ID: "0009-catalog-version-supersession", Statements: []string{
+		`CREATE TABLE tc_catalog_supersessions (
+ command_id TEXT PRIMARY KEY NOT NULL CHECK(length(CAST(command_id AS BLOB))=32 AND instr(command_id,char(0))=0 AND command_id NOT GLOB '*[^0123456789abcdef]*' AND command_id<>'00000000000000000000000000000000'),
+ content_id TEXT NOT NULL REFERENCES tc_catalog_managed(content_id) ON UPDATE RESTRICT ON DELETE RESTRICT CHECK(length(CAST(content_id AS BLOB))=30 AND instr(content_id,char(0))=0 AND substr(content_id,1,4)='cnt_' AND substr(content_id,5) NOT GLOB '*[^0123456789abcdefghjkmnpqrstvwxyz]*'),
+ old_version_id TEXT NOT NULL CHECK(length(CAST(old_version_id AS BLOB))=30 AND instr(old_version_id,char(0))=0 AND substr(old_version_id,1,4)='ver_' AND substr(old_version_id,5) NOT GLOB '*[^0123456789abcdefghjkmnpqrstvwxyz]*'),
+ new_version_id TEXT NOT NULL CHECK(length(CAST(new_version_id AS BLOB))=30 AND instr(new_version_id,char(0))=0 AND substr(new_version_id,1,4)='ver_' AND substr(new_version_id,5) NOT GLOB '*[^0123456789abcdefghjkmnpqrstvwxyz]*'),
+ source_id TEXT NOT NULL CHECK(length(CAST(source_id AS BLOB))=32 AND instr(source_id,char(0))=0 AND source_id NOT GLOB '*[^0123456789abcdef]*' AND source_id<>'00000000000000000000000000000000'),
+ registration_revision TEXT NOT NULL CHECK(length(CAST(registration_revision AS BLOB))=32 AND instr(registration_revision,char(0))=0 AND registration_revision NOT GLOB '*[^0123456789abcdef]*' AND registration_revision<>'00000000000000000000000000000000'),
+ reviewer_principal TEXT NOT NULL CHECK(length(CAST(reviewer_principal AS BLOB))=32 AND instr(reviewer_principal,char(0))=0 AND reviewer_principal NOT GLOB '*[^0123456789abcdef]*' AND reviewer_principal<>'00000000000000000000000000000000'),
+ expected_aggregate INTEGER NOT NULL CHECK(expected_aggregate BETWEEN 1 AND 9223372036854775806),
+ result_aggregate INTEGER NOT NULL CHECK(result_aggregate=expected_aggregate+1),
+ expected_supersession INTEGER NOT NULL CHECK(expected_supersession BETWEEN 1 AND 1023),
+ result_supersession INTEGER NOT NULL CHECK(result_supersession=expected_supersession+1 AND result_supersession<=1024),
+ old_review_revision INTEGER NOT NULL CHECK(old_review_revision>0),
+ new_review_revision INTEGER NOT NULL CHECK(new_review_revision>0),
+ order_revision INTEGER NOT NULL CHECK(order_revision>0),
+ protected_custom INTEGER NOT NULL CHECK(protected_custom IN (0,1)),
+ encoding INTEGER NOT NULL CHECK(encoding=1),
+ canonical_command BLOB NOT NULL CHECK(length(canonical_command) BETWEEN 1 AND 8388608),
+ canonical_result BLOB NOT NULL CHECK(length(canonical_result) BETWEEN 1 AND 8388608),
+ command_sha256 BLOB NOT NULL CHECK(length(command_sha256)=32),
+ result_sha256 BLOB NOT NULL CHECK(length(result_sha256)=32),
+ CHECK(old_version_id<>new_version_id),
+ UNIQUE(old_version_id), UNIQUE(new_version_id),
+ UNIQUE(content_id,result_aggregate), UNIQUE(content_id,result_supersession),
+ UNIQUE(command_id,content_id,old_version_id,new_version_id,source_id,registration_revision),
+ FOREIGN KEY(content_id,old_version_id) REFERENCES tc_content_versions(content_id,version_id) ON UPDATE RESTRICT ON DELETE RESTRICT,
+ FOREIGN KEY(content_id,new_version_id) REFERENCES tc_content_versions(content_id,version_id) ON UPDATE RESTRICT ON DELETE RESTRICT,
+ FOREIGN KEY(old_version_id,content_id) REFERENCES tc_catalog_subjects(subject_id,content_id) ON UPDATE RESTRICT ON DELETE RESTRICT,
+ FOREIGN KEY(new_version_id,content_id) REFERENCES tc_catalog_subjects(subject_id,content_id) ON UPDATE RESTRICT ON DELETE RESTRICT,
+ FOREIGN KEY(source_id,registration_revision) REFERENCES tc_catalog_sources(source_id,registration_revision) ON UPDATE RESTRICT ON DELETE RESTRICT
+) STRICT`,
+		`CREATE TABLE tc_catalog_supersession_evidence (
+ evidence_id TEXT PRIMARY KEY NOT NULL CHECK(length(CAST(evidence_id AS BLOB))=30 AND instr(evidence_id,char(0))=0 AND substr(evidence_id,1,4)='obs_' AND substr(evidence_id,5) NOT GLOB '*[^0123456789abcdefghjkmnpqrstvwxyz]*'),
+ command_id TEXT NOT NULL, content_id TEXT NOT NULL,
+ old_version_id TEXT NOT NULL, new_version_id TEXT NOT NULL,
+ source_id TEXT NOT NULL, registration_revision TEXT NOT NULL,
+ batch_id TEXT NOT NULL, record_index INTEGER NOT NULL,
+ asserted_origin TEXT NOT NULL CHECK(length(CAST(asserted_origin AS BLOB))<=128 AND instr(asserted_origin,char(0))=0),
+ observed_at TEXT NOT NULL CHECK(length(CAST(observed_at AS BLOB)) BETWEEN 1 AND 128 AND instr(observed_at,char(0))=0),
+ confidence INTEGER NOT NULL CHECK(confidence BETWEEN 0 AND 2),
+ UNIQUE(command_id,evidence_id),
+ FOREIGN KEY(command_id,content_id,old_version_id,new_version_id,source_id,registration_revision) REFERENCES tc_catalog_supersessions(command_id,content_id,old_version_id,new_version_id,source_id,registration_revision) ON UPDATE RESTRICT ON DELETE RESTRICT,
+ FOREIGN KEY(batch_id,record_index) REFERENCES tc_catalog_records(batch_id,record_index) ON UPDATE RESTRICT ON DELETE RESTRICT,
+ FOREIGN KEY(batch_id,source_id,registration_revision) REFERENCES tc_catalog_batches(batch_id,source_id,registration_revision) ON UPDATE RESTRICT ON DELETE RESTRICT
+) STRICT`,
+		`CREATE TABLE tc_catalog_supersession_support (
+ command_id TEXT NOT NULL, evidence_id TEXT NOT NULL,
+ PRIMARY KEY(command_id,evidence_id),
+ FOREIGN KEY(command_id,evidence_id) REFERENCES tc_catalog_supersession_evidence(command_id,evidence_id) ON UPDATE RESTRICT ON DELETE RESTRICT
+) STRICT`,
+		`CREATE INDEX tc_catalog_supersession_history ON tc_catalog_supersessions(content_id,result_supersession)`,
+		`CREATE INDEX tc_catalog_supersession_evidence_record ON tc_catalog_supersession_evidence(batch_id,record_index)`,
+		`CREATE TRIGGER tc_catalog_supersession_append BEFORE INSERT ON tc_catalog_supersessions
+ WHEN NOT EXISTS(SELECT 1 FROM tc_catalog_managed WHERE content_id=NEW.content_id AND aggregate_revision=NEW.result_aggregate)
+ OR NEW.expected_supersession<>(SELECT COALESCE(max(result_supersession),1) FROM tc_catalog_supersessions WHERE content_id=NEW.content_id)
+ OR EXISTS(SELECT 1 FROM tc_catalog_supersessions WHERE old_version_id=NEW.old_version_id OR old_version_id=NEW.new_version_id OR new_version_id=NEW.new_version_id)
+ OR NOT EXISTS(SELECT 1 FROM tc_catalog_sources s JOIN tc_catalog_source_claims c USING(source_id,registration_revision)
+ WHERE s.source_id=NEW.source_id AND s.registration_revision=NEW.registration_revision AND s.revoked=0 AND s.acquisition=3 AND c.claim_key=5)
+ OR NOT EXISTS(SELECT 1 FROM tc_catalog_subjects s JOIN tc_content_versions v ON v.version_id=s.version_id AND v.content_id=s.content_id WHERE s.subject_id=NEW.old_version_id AND s.content_id=NEW.content_id)
+ OR NOT EXISTS(SELECT 1 FROM tc_catalog_subjects s JOIN tc_content_versions v ON v.version_id=s.version_id AND v.content_id=s.content_id WHERE s.subject_id=NEW.new_version_id AND s.content_id=NEW.content_id)
+ OR EXISTS(WITH RECURSIVE reachable(version_id) AS (SELECT NEW.new_version_id UNION SELECT s.new_version_id FROM tc_catalog_supersessions s JOIN reachable r ON s.old_version_id=r.version_id) SELECT 1 FROM reachable WHERE version_id=NEW.old_version_id)
+ OR EXISTS(SELECT 1 FROM tc_catalog_decisions WHERE content_id=NEW.content_id AND result_aggregate_revision=NEW.result_aggregate)
+ OR EXISTS(SELECT 1 FROM tc_catalog_review_states WHERE content_id=NEW.content_id AND aggregate_revision=NEW.result_aggregate)
+ OR EXISTS(SELECT 1 FROM tc_catalog_review_states_v2 WHERE content_id=NEW.content_id AND aggregate_revision=NEW.result_aggregate)
+ OR EXISTS(SELECT 1 FROM tc_catalog_order_states WHERE content_id=NEW.content_id AND aggregate_revision=NEW.result_aggregate)
+ OR EXISTS(SELECT 1 FROM tc_catalog_order_states_v2 WHERE content_id=NEW.content_id AND aggregate_revision=NEW.result_aggregate)
+ OR EXISTS(SELECT 1 FROM tc_catalog_registrations WHERE content_id=NEW.content_id AND result_revision=NEW.result_aggregate)
+ OR EXISTS(SELECT 1 FROM tc_catalog_decisions WHERE command_id=NEW.command_id)
+ OR EXISTS(SELECT 1 FROM tc_catalog_registrations WHERE command_id=NEW.command_id)
+ OR EXISTS(SELECT 1 FROM tc_catalog_batches WHERE batch_id=NEW.command_id)
+ OR EXISTS(SELECT 1 FROM tc_catalog_imports WHERE batch_id=NEW.command_id)
+ BEGIN SELECT RAISE(ABORT,'catalog supersession binding, graph or key'); END`,
+		`CREATE TRIGGER tc_catalog_supersession_evidence_key BEFORE INSERT ON tc_catalog_supersession_evidence
+ WHEN NEW.batch_id=NEW.command_id BEGIN SELECT RAISE(ABORT,'catalog supersession key occupied'); END`,
+	}}
+	// Old normalized writers must respect the new event/key namespace too.
+	for _, event := range []struct{ table, revision string }{
+		{"tc_catalog_decisions", "result_aggregate_revision"},
+		{"tc_catalog_review_states", "aggregate_revision"}, {"tc_catalog_review_states_v2", "aggregate_revision"},
+		{"tc_catalog_order_states", "aggregate_revision"}, {"tc_catalog_order_states_v2", "aggregate_revision"},
+		{"tc_catalog_registrations", "result_revision"},
+	} {
+		m.Statements = append(m.Statements, "CREATE TRIGGER "+event.table+"_supersession_revision BEFORE INSERT ON "+event.table+" WHEN EXISTS(SELECT 1 FROM tc_catalog_supersessions WHERE content_id=NEW.content_id AND result_aggregate=NEW."+event.revision+") BEGIN SELECT RAISE(ABORT,'catalog supersession revision occupied'); END")
+	}
+	for _, keyed := range []struct{ table, key string }{
+		{"tc_catalog_decisions", "command_id"}, {"tc_catalog_registrations", "command_id"},
+		{"tc_catalog_batches", "batch_id"}, {"tc_catalog_imports", "batch_id"},
+	} {
+		m.Statements = append(m.Statements, "CREATE TRIGGER "+keyed.table+"_supersession_key BEFORE INSERT ON "+keyed.table+" WHEN EXISTS(SELECT 1 FROM tc_catalog_supersessions WHERE command_id=NEW."+keyed.key+") BEGIN SELECT RAISE(ABORT,'catalog supersession key occupied'); END")
+	}
+	for _, table := range []string{"tc_catalog_supersessions", "tc_catalog_supersession_evidence", "tc_catalog_supersession_support"} {
+		for _, op := range []struct{ suffix, sql string }{{"update", "UPDATE"}, {"delete", "DELETE"}} {
+			m.Statements = append(m.Statements, "CREATE TRIGGER "+table+"_no_"+op.suffix+" BEFORE "+op.sql+" ON "+table+" BEGIN SELECT RAISE(ABORT,'immutable catalog supersession'); END")
+		}
+	}
+	return m
+}
+
 // SchemaMigrations returns a copy of the ordered, forward-only application
 // schema. Applied migration checksums make later mutation fail closed.
 func SchemaMigrations() []Migration {
