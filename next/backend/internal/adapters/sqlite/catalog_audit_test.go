@@ -87,10 +87,13 @@ func TestCatalogMigrationAudit(t *testing.T) {
 	}
 }
 
-// This is query/recovery evidence for existing rows, NOT full milestone
-// acceptance. PI08-T-F01 blocks the required guarded creation scenario:
-// production has no RegisterContent/RegisterCatalogVersion operation.
 func TestCatalogMilestoneQueryable(t *testing.T) {
+	registrationIntegrationMilestone(t)
+}
+
+// Deliberate legacy/corruption fixture; the command-authored milestone above
+// independently starts from an empty, newly migrated database.
+func TestCatalogLegacyRecoveryQueryable(t *testing.T) {
 	f := catalogRecoveryCurrent(t)
 	before := catalogRecoveryRows(t, f.owner.database.db)
 	query := catalogFindQuery(t, app.FindVersionsByPair, 1)
@@ -168,5 +171,5 @@ func TestCatalogMilestoneQueryable(t *testing.T) {
 			}
 		}
 	}
-	t.Log("PI08-T-F01 remains open: SQL-seeded query fixture is not guarded catalog registration evidence")
+	t.Log("Legacy query/recovery evidence only; guarded registration is exercised separately")
 }
