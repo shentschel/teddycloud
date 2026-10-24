@@ -9,6 +9,7 @@ import (
 
 	domaincatalog "github.com/shentschel/teddycloud/next/backend/internal/domain/catalog"
 	"github.com/shentschel/teddycloud/next/backend/internal/domain/evidence"
+	"github.com/shentschel/teddycloud/next/backend/internal/domain/identity"
 )
 
 func baselineQueryFixture(t *testing.T) (fixture, Query, QueryResult) {
@@ -24,6 +25,81 @@ func baselineQueryFixture(t *testing.T) (fixture, Query, QueryResult) {
 		Media:    CatalogOnly,
 	}
 	return f, query, QueryResult{Kind: Found, Entries: []CatalogRecord{record}, Revision: revision, Complete: true, Inspected: 1, EncodedBytes: 1000}
+}
+
+func TestCatalogSupersessionAnnotations(t *testing.T) {
+	f, q, p := baselineQueryFixture(t)
+	q.Kind = ListCurrentVersions
+	q.Version = identity.ContentVersionID{}
+	p.Entries[0].Review = CatalogManagedUnreviewed
+	one, _ := domaincatalog.NewCatalogRevision(1)
+	p.Entries[0].Supersession = Supersession{Status: Current, SupersessionRevision: one, Terminal: p.Entries[0].Version.ID()}
+	f.tx.repository.page = p
+	if _, err := f.service.Query(context.Background(), q); err != nil {
+		t.Fatal(err)
+	}
+	// Two unrelated current terminals are a list, never a scalar latest winner.
+	p.Entries = append(p.Entries, p.Entries[0])
+	p.Entries[1].Version = f.versions[1]
+	p.Entries[1].Supersession.Terminal = f.versions[1].ID()
+	p.Inspected = 2
+	f.tx.repository.page = p
+	if result, err := f.service.Query(context.Background(), q); err != nil || len(result.Entries) != 2 {
+		t.Fatalf("multiple terminals: %v", err)
+	}
+	for _, name := range []string{"unavailable", "self-successor", "missing-terminal", "wrong-terminal", "unmanaged", "incoming-without-command", "superseded-in-current-list"} {
+		t.Run(name, func(t *testing.T) {
+			f, q, p := baselineQueryFixture(t)
+			q.Kind = ListCurrentVersions
+			q.Version = identity.ContentVersionID{}
+			p.Entries[0].Review = CatalogManagedUnreviewed
+			s := Supersession{Status: Current, SupersessionRevision: one, Terminal: p.Entries[0].Version.ID()}
+			switch name {
+			case "unavailable":
+				s = Supersession{}
+			case "self-successor":
+				s.Successor = p.Entries[0].Version.ID()
+			case "missing-terminal":
+				s.Terminal = identity.ContentVersionID{}
+			case "wrong-terminal":
+				s.Terminal = f.versions[1].ID()
+			case "unmanaged":
+				p.Entries[0].Review = CatalogUnmanaged
+			case "incoming-without-command":
+				s.Predecessor = f.versions[1].ID()
+			case "superseded-in-current-list":
+				s.Status = Superseded
+				s.SupersessionRevision, _ = domaincatalog.NewCatalogRevision(2)
+				s.Successor = f.versions[1].ID()
+				s.Terminal = f.versions[1].ID()
+				s.OutgoingCommand, _ = domaincatalog.NewCatalogCommandID()
+			}
+			p.Entries[0].Supersession = s
+			f.tx.repository.page = p
+			if _, err := f.service.Query(context.Background(), q); err != ErrRepositoryUnavailable {
+				t.Fatalf("annotation accepted: %v", err)
+			}
+		})
+	}
+	// Existing pair lookups retain both related identities and ambiguity.
+	f, q, p = baselineQueryFixture(t)
+	q.Kind = FindVersionsByPair
+	q.Version = identity.ContentVersionID{}
+	q.Fingerprint = f.versions[0].Fingerprint()
+	p.Kind = Ambiguous
+	p.Inspected = 2
+	p.Entries[0].Review = CatalogManagedUnreviewed
+	edge, _ := domaincatalog.NewCatalogCommandID()
+	two, _ := domaincatalog.NewCatalogRevision(2)
+	p.Entries[0].Supersession = Supersession{Status: Superseded, SupersessionRevision: two, Successor: f.versions[1].ID(), Terminal: f.versions[1].ID(), OutgoingCommand: edge}
+	r := p.Entries[0]
+	r.Version = f.versions[1]
+	r.Supersession = Supersession{Status: Current, SupersessionRevision: two, Predecessor: f.versions[0].ID(), Terminal: f.versions[1].ID(), IncomingCommand: edge}
+	p.Entries = append(p.Entries, r)
+	f.tx.repository.page = p
+	if result, err := f.service.Query(context.Background(), q); err != nil || result.Kind != Ambiguous || len(result.Entries) != 2 {
+		t.Fatalf("ambiguity lost: %v", err)
+	}
 }
 
 func projectionForTest(t *testing.T, claim domaincatalog.CatalogClaim, suffix string) domaincatalog.CatalogField {

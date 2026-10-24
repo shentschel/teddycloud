@@ -16,6 +16,7 @@ const (
 	FindVersionsByPair
 	FindVersionsByAudioID
 	ListVersions
+	ListCurrentVersions
 )
 
 type Query struct {
@@ -86,6 +87,7 @@ type CatalogRecord struct {
 	Model           domaincatalog.CatalogField
 	Article         domaincatalog.CatalogField
 	Media           MediaState
+	Supersession    Supersession
 }
 
 // QueryResult is a bounded page, never an implicit scalar winner. Repositories
@@ -103,8 +105,171 @@ type QueryResult struct {
 	EncodedBytes uint64
 }
 
+type SupersessionStatus uint8
+
+const (
+	Unavailable SupersessionStatus = iota
+	Current
+	Superseded
+)
+
+// Supersession annotates an immutable version. Terminal is descriptive only;
+// consumers must never use it to retarget an assignment or infer latest order.
+type Supersession struct {
+	Status                           SupersessionStatus
+	SupersessionRevision             domaincatalog.CatalogRevision
+	Predecessor, Successor, Terminal identity.ContentVersionID
+	IncomingCommand, OutgoingCommand domaincatalog.CatalogCommandID
+}
+
+type SupersessionQuery struct {
+	Content identity.ContentID
+	Version identity.ContentVersionID
+	Page    PageRequest
+}
+
+type SupersessionHistoryEntry struct {
+	Command, Result []byte
+	SourceRevoked   bool
+}
+
+// The owner validates the whole graph before filtering by the optional Version
+// (the entire containing chain) or paginating. Inspected counts all graph edges.
+// Cursors bind this filter, last edge revision, graph and revocation digest,
+// catalog snapshot and owner generation. Missing Content reports revisions 1/1.
+type HistoryPage struct {
+	Entries                                 []SupersessionHistoryEntry
+	AggregateRevision, SupersessionRevision domaincatalog.CatalogRevision
+	Complete                                bool
+	Next                                    string
+	Inspected, EncodedBytes                 uint64
+}
+
+func validateSupersessionAnnotation(entry CatalogRecord) error {
+	s := entry.Supersession
+	if s.Status == Unavailable {
+		if s != (Supersession{}) {
+			return ErrRepositoryUnavailable
+		}
+		return nil
+	}
+	v := entry.Version.ID()
+	if v.IsZero() || entry.Review == CatalogUnmanaged || s.Status > Superseded ||
+		s.SupersessionRevision.Uint64() == 0 || s.SupersessionRevision.Uint64() > domaincatalog.RetainedVersions.Maximum() ||
+		s.Terminal.IsZero() || s.Predecessor == v || s.Successor == v ||
+		s.Predecessor.IsZero() != s.IncomingCommand.IsZero() || s.Successor.IsZero() != s.OutgoingCommand.IsZero() {
+		return ErrRepositoryUnavailable
+	}
+	if s.SupersessionRevision.Uint64() == 1 && (!s.Predecessor.IsZero() || !s.Successor.IsZero()) {
+		return ErrRepositoryUnavailable
+	}
+	if !s.IncomingCommand.IsZero() && s.IncomingCommand == s.OutgoingCommand {
+		return ErrRepositoryUnavailable
+	}
+	if !s.Predecessor.IsZero() && (s.Predecessor == s.Successor || s.Predecessor == s.Terminal) {
+		return ErrRepositoryUnavailable
+	}
+	if s.Status == Current && (!s.Successor.IsZero() || s.Terminal != v) ||
+		s.Status == Superseded && (s.Successor.IsZero() || s.Terminal == v) {
+		return ErrRepositoryUnavailable
+	}
+	return nil
+}
+
+func validateSupersessionQuery(query SupersessionQuery) error {
+	// Reuse exactly the Content-scoped pagination contract. Version is an
+	// additional optional history filter, never an alternative to Content.
+	return validateQuery(Query{Kind: ListVersions, Content: query.Content, Page: query.Page})
+}
+
+func validateHistoryPage(query SupersessionQuery, page HistoryPage) error {
+	if page.AggregateRevision.Uint64() == 0 || page.SupersessionRevision.Uint64() == 0 ||
+		page.SupersessionRevision.Uint64() > page.AggregateRevision.Uint64() ||
+		page.SupersessionRevision.Uint64() > domaincatalog.RetainedVersions.Maximum() ||
+		page.Inspected != page.SupersessionRevision.Uint64()-1 || page.Inspected < uint64(len(page.Entries)) ||
+		page.Complete && page.Next != "" || !page.Complete && (page.Next == "" || len(page.Entries) == 0) {
+		return ErrRepositoryUnavailable
+	}
+	for _, bound := range []struct {
+		resource domaincatalog.Resource
+		count    uint64
+	}{
+		{domaincatalog.QueryEntries, uint64(len(page.Entries))}, {domaincatalog.QueryBytes, page.EncodedBytes},
+		{domaincatalog.ResolutionCandidates, page.Inspected}, {domaincatalog.CursorBytes, uint64(len(page.Next))},
+	} {
+		if err := domaincatalog.CheckLimit(bound.resource, 0, bound.count); err != nil {
+			return err
+		}
+	}
+	if uint64(len(page.Entries)) > query.Page.Limit {
+		return ErrLimitExceeded
+	}
+	if query.Page.ExpectedRevision.Uint64() != 0 && query.Page.ExpectedRevision != page.AggregateRevision {
+		return ErrStaleCursor
+	}
+	size := uint64(8 + len("pi08-version-supersession-page/1") + 6*8 + len(page.Next))
+	var previousSupersession, previousAggregate uint64
+	seenCommands := map[domaincatalog.CatalogCommandID]bool{}
+	predecessors := map[identity.ContentVersionID]identity.ContentVersionID{}
+	successors := map[identity.ContentVersionID]identity.ContentVersionID{}
+	for _, entry := range page.Entries {
+		added := uint64(24) + uint64(len(entry.Command)) + uint64(len(entry.Result))
+		if err := domaincatalog.CheckLimit(domaincatalog.QueryBytes, size, added); err != nil {
+			return err
+		}
+		size += added
+		command, _, err := domaincatalog.RehydrateCatalogSupersessionCommand(entry.Command, domaincatalog.CatalogPersistenceBindings{AllowUnbound: true})
+		if err != nil {
+			return ErrRepositoryUnavailable
+		}
+		result, err := domaincatalog.RehydrateCatalogSupersessionResult(entry.Result)
+		if err != nil {
+			return ErrRepositoryUnavailable
+		}
+		if _, err := validateSupersessionResponse(command, result); err != nil {
+			return err
+		}
+		if command.Content != query.Content || result.AggregateRevision.Uint64() > page.AggregateRevision.Uint64() ||
+			result.SupersessionRevision.Uint64() > page.SupersessionRevision.Uint64() ||
+			result.SupersessionRevision.Uint64() <= previousSupersession || result.AggregateRevision.Uint64() <= previousAggregate || seenCommands[command.ID] {
+			return ErrRepositoryUnavailable
+		}
+		seenCommands[command.ID] = true
+		if !successors[command.Old.ID()].IsZero() || !predecessors[command.New.ID()].IsZero() {
+			return ErrRepositoryUnavailable
+		}
+		successors[command.Old.ID()] = command.New.ID()
+		predecessors[command.New.ID()] = command.Old.ID()
+		previousSupersession, previousAggregate = result.SupersessionRevision.Uint64(), result.AggregateRevision.Uint64()
+	}
+	if size != page.EncodedBytes {
+		return ErrRepositoryUnavailable
+	}
+	// Unfiltered first-page complete history must contain every inspected edge.
+	if query.Version.IsZero() && query.Page.Cursor == "" && page.Complete && uint64(len(page.Entries)) != page.Inspected {
+		return ErrRepositoryUnavailable
+	}
+	if !query.Version.IsZero() && query.Page.Cursor == "" && page.Complete && len(page.Entries) != 0 {
+		// A complete filtered page must describe precisely one chain containing
+		// the requested version. Bounded traversal also rejects cyclic pages.
+		seen := map[identity.ContentVersionID]bool{query.Version: true}
+		for _, links := range []map[identity.ContentVersionID]identity.ContentVersionID{predecessors, successors} {
+			for v := links[query.Version]; !v.IsZero(); v = links[v] {
+				if seen[v] {
+					return ErrRepositoryUnavailable
+				}
+				seen[v] = true
+			}
+		}
+		if len(seen) != len(page.Entries)+1 {
+			return ErrRepositoryUnavailable
+		}
+	}
+	return nil
+}
+
 func validateQuery(query Query) error {
-	if query.Kind < GetContent || query.Kind > ListVersions || query.Page.Limit == 0 {
+	if query.Kind < GetContent || query.Kind > ListCurrentVersions || query.Page.Limit == 0 {
 		return ErrInvalidInput
 	}
 	if err := domaincatalog.CheckLimit(domaincatalog.QueryEntries, 0, query.Page.Limit); err != nil {
@@ -117,7 +282,7 @@ func validateQuery(query Query) error {
 		return ErrInvalidInput
 	}
 	switch query.Kind {
-	case GetContent, ListVersions:
+	case GetContent, ListVersions, ListCurrentVersions:
 		if query.Content.IsZero() || !query.Version.IsZero() || !query.Fingerprint.IsZero() || !query.AudioID.IsZero() {
 			return ErrInvalidInput
 		}
@@ -169,7 +334,7 @@ func validateQueryResult(query Query, result QueryResult) error {
 	if result.Kind == Ambiguous && len(result.Entries) < 2 || (query.Kind == GetContent || query.Kind == GetVersion) && len(result.Entries) > 1 {
 		return ErrRepositoryUnavailable
 	}
-	if result.Kind == Found && query.Kind != ListVersions && len(result.Entries) != 1 {
+	if result.Kind == Found && query.Kind != ListVersions && query.Kind != ListCurrentVersions && len(result.Entries) != 1 {
 		return ErrRepositoryUnavailable
 	}
 	conflict := false
@@ -179,6 +344,12 @@ func validateQueryResult(query Query, result QueryResult) error {
 		}
 		if err := validateCatalogRecord(entry); err != nil {
 			return err
+		}
+		if err := validateSupersessionAnnotation(entry); err != nil {
+			return err
+		}
+		if query.Kind == ListCurrentVersions && entry.Supersession.Status != Current {
+			return ErrRepositoryUnavailable
 		}
 		if query.Kind == GetContent && (entry.Version != (domaincatalog.ContentVersion{}) || entry.Media != MediaUnknown) {
 			return ErrRepositoryUnavailable
