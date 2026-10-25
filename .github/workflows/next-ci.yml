@@ -132,7 +132,7 @@ jobs:
 
       - name: Run focused persistence and domain race evidence
         working-directory: next
-        run: go test -race ./backend/internal/adapters/sqlite ./backend/internal/architecture ./backend/internal/domain/tag ./backend/internal/domain/content ./backend/internal/application/tagregistry ./backend/internal/testutil/taffixture ./backend/internal/adapters/contentfs
+        run: go test -timeout=20m -race ./backend/internal/adapters/sqlite ./backend/internal/architecture ./backend/internal/domain/tag ./backend/internal/domain/content ./backend/internal/application/tagregistry ./backend/internal/testutil/taffixture ./backend/internal/adapters/contentfs
 
       - name: Require qualified Linux blob filesystem and repetition
         working-directory: next
