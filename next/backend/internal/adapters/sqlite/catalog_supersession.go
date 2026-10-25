@@ -3,10 +3,13 @@ package sqlite
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
 	"crypto/sha256"
 	"database/sql"
+	"encoding/base64"
 	"encoding/binary"
 	"errors"
+	"io"
 	"math"
 	"time"
 
@@ -17,17 +20,326 @@ import (
 
 var _ app.SupersessionRepository = (*catalogRepository)(nil)
 
-// Query exposure is deliberately deferred until graph annotations and bounded
-// history pagination have their own acceptance evidence.
-func (r *catalogRepository) QuerySupersession(ctx context.Context, _ app.SupersessionQuery) (page app.HistoryPage, err error) {
+// History uses the callback lease, complete C3 validation and current service
+// authority. Historical source revocation changes provenance, not acceptance.
+func (r *catalogRepository) QuerySupersession(ctx context.Context, query app.SupersessionQuery) (page app.HistoryPage, err error) {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
-	_, done, err := r.stateCall(ctx)
+	call, done, err := r.stateCall(ctx)
 	if err != nil {
 		return page, err
 	}
-	defer done(&err)
-	return page, app.ErrUnsupported
+	defer func() {
+		done(&err)
+		if err != nil {
+			page = app.HistoryPage{}
+		}
+	}()
+	call = context.WithValue(call, catalogReadCacheKey{}, &catalogReadCache{repository: r})
+	if err := catalogQueryInput(app.Query{Kind: app.ListVersions, Content: query.Content, Page: query.Page}); err != nil {
+		return page, err
+	}
+	if err := r.supersessionReadSchema(call); err != nil {
+		return page, err
+	}
+	// Even a missing Content cannot turn dangling retained relations into a
+	// successful empty history. Found Contents get this guard in catalogFields.
+	var corrupt bool
+	if err := r.transaction.QueryRowContext(call, "SELECT EXISTS(SELECT 1 FROM pragma_foreign_key_check LIMIT 1)").Scan(&corrupt); err != nil {
+		return page, repositoryError(call, err)
+	}
+	if corrupt {
+		return page, app.ErrRepositoryUnavailable
+	}
+	record, aggregate, found, err := r.catalogContent(call, query.Content)
+	if err != nil {
+		return page, err
+	}
+	page.AggregateRevision = aggregate
+	page.SupersessionRevision, _ = domain.NewCatalogRevision(1)
+	if query.Page.ExpectedRevision.Uint64() != 0 && query.Page.ExpectedRevision != aggregate {
+		return page, app.ErrStaleCursor
+	}
+	if !found {
+		if query.Page.Cursor != "" {
+			return page, app.ErrStaleCursor
+		}
+		page.Complete = true
+		page.EncodedBytes = supersessionPageBytes(page)
+		return page, nil
+	}
+	if record.Review == app.CatalogUnmanaged {
+		return page, app.ErrUnsupported
+	}
+	state, err := r.readSupersession(call, query.Content, domain.CatalogPersistenceBindings{AllowUnbound: true})
+	if err != nil {
+		return page, err
+	}
+	page.SupersessionRevision = state.Revision()
+	page.Inspected = state.Revision().Uint64() - 1
+	versions, err := r.catalogVersions(call, query.Content)
+	if err != nil {
+		return page, err
+	}
+	digest, err := r.catalogScopedSnapshot(call, record, versions)
+	if err != nil {
+		return page, err
+	}
+	// Select a whole containing chain after validating the entire graph. An
+	// isolated or absent version intentionally has an empty history.
+	chain := map[identity.ContentVersionID]bool{}
+	history := state.History()
+	if !query.Version.IsZero() {
+		chain[query.Version] = true
+		for range len(history) {
+			changed := false
+			for _, e := range history {
+				if chain[e.Command.Old.ID()] || chain[e.Command.New.ID()] {
+					if !chain[e.Command.Old.ID()] || !chain[e.Command.New.ID()] {
+						changed = true
+					}
+					chain[e.Command.Old.ID()] = true
+					chain[e.Command.New.ID()] = true
+				}
+			}
+			if !changed {
+				break
+			}
+		}
+	}
+	var after uint64
+	if query.Page.Cursor != "" {
+		after, err = r.supersessionCursorAfter(query, aggregate, state.Revision(), digest)
+		if err != nil {
+			return page, err
+		}
+	}
+	type candidate struct {
+		key            string
+		revision, size uint64
+		revoked        bool
+	}
+	rows, err := r.transaction.QueryContext(call, `SELECT s.command_id,s.result_supersession,length(s.canonical_command)+length(s.canonical_result),p.revoked FROM tc_catalog_supersessions s JOIN tc_catalog_sources p USING(source_id,registration_revision) WHERE s.content_id=? ORDER BY s.result_supersession LIMIT 1024`, query.Content.String())
+	if err != nil {
+		return page, repositoryError(call, err)
+	}
+	var candidates []candidate
+	var count uint64
+	afterFound := after == 0
+	for rows.Next() {
+		var c candidate
+		var revoked int
+		if e := rows.Scan(&c.key, &c.revision, &c.size, &revoked); e != nil {
+			rows.Close()
+			return page, repositoryError(call, e)
+		}
+		if count >= uint64(len(history)) || c.revision != count+2 || c.key != history[count].Command.ID.String() || revoked < 0 || revoked > 1 || c.size == 0 || c.size > 2*domain.RetainedBytes.Maximum() {
+			rows.Close()
+			return page, app.ErrRepositoryUnavailable
+		}
+		e := history[count]
+		count++
+		c.revoked = revoked == 1
+		if !query.Version.IsZero() && !chain[e.Command.Old.ID()] {
+			continue
+		}
+		if c.revision == after {
+			afterFound = true
+		}
+		if c.revision > after {
+			candidates = append(candidates, c)
+		}
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return page, repositoryError(call, err)
+	}
+	if count != page.Inspected {
+		return page, app.ErrRepositoryUnavailable
+	}
+	if !afterFound {
+		return page, app.ErrStaleCursor
+	}
+	page.Complete = true
+	size := supersessionPageBytes(page)
+	chosen := 0
+	for i, c := range candidates {
+		added := 24 + c.size
+		more := i+1 < len(candidates)
+		var next string
+		if more {
+			next, err = r.supersessionCursor(query, aggregate, state.Revision(), digest, c.revision)
+			if err != nil {
+				return page, err
+			}
+		}
+		if uint64(chosen) == query.Page.Limit || size+added+uint64(len(next)) > domain.QueryBytes.Maximum() {
+			if chosen == 0 {
+				return page, app.ErrLimitExceeded
+			}
+			page.Complete = false
+			page.Next, err = r.supersessionCursor(query, aggregate, state.Revision(), digest, candidates[chosen-1].revision)
+			if err != nil {
+				return page, err
+			}
+			break
+		}
+		size += added
+		chosen++
+	}
+	// No response BLOB is selected until the exact page, including its cursor,
+	// has passed byte/count admission.
+	for _, c := range candidates[:chosen] {
+		var e app.SupersessionHistoryEntry
+		if err := r.transaction.QueryRowContext(call, `SELECT canonical_command,canonical_result FROM tc_catalog_supersessions WHERE command_id=? AND content_id=? AND length(canonical_command)+length(canonical_result)=?`, c.key, query.Content.String(), c.size).Scan(&e.Command, &e.Result); err != nil {
+			return page, repositoryError(call, err)
+		}
+		e.SourceRevoked = c.revoked
+		page.Entries = append(page.Entries, e)
+	}
+	page.EncodedBytes = supersessionPageBytes(page)
+	if page.EncodedBytes > domain.QueryBytes.Maximum() {
+		return page, app.ErrLimitExceeded
+	}
+	return page, call.Err()
+}
+
+func supersessionPageBytes(page app.HistoryPage) uint64 {
+	size := uint64(8 + len("pi08-version-supersession-page/1") + 6*8 + len(page.Next))
+	for _, e := range page.Entries {
+		size += 24 + uint64(len(e.Command)+len(e.Result))
+	}
+	return size
+}
+
+func (r *catalogRepository) supersessionCursor(query app.SupersessionQuery, aggregate, revision domain.CatalogRevision, snapshot [32]byte, after uint64) (string, error) {
+	payload := []byte{2}
+	payload = binary.BigEndian.AppendUint64(payload, after)
+	payload = binary.BigEndian.AppendUint64(payload, revision.Uint64())
+	payload = append(payload, snapshot[:]...)
+	mac, err := r.catalogCursorMAC(app.Query{Content: query.Content, Version: query.Version, Page: query.Page}, aggregate, payload)
+	if err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(append(payload, mac...)), nil
+}
+
+func (r *catalogRepository) supersessionCursorAfter(query app.SupersessionQuery, aggregate, revision domain.CatalogRevision, snapshot [32]byte) (uint64, error) {
+	raw, err := base64.RawURLEncoding.DecodeString(query.Page.Cursor)
+	if err != nil || len(raw) != 81 || raw[0] != 2 || base64.RawURLEncoding.EncodeToString(raw) != query.Page.Cursor {
+		return 0, app.ErrStaleCursor
+	}
+	mac, err := r.catalogCursorMAC(app.Query{Content: query.Content, Version: query.Version, Page: query.Page}, aggregate, raw[:49])
+	if err != nil {
+		return 0, err
+	}
+	after := binary.BigEndian.Uint64(raw[1:9])
+	if after < 2 || after > revision.Uint64() || binary.BigEndian.Uint64(raw[9:17]) != revision.Uint64() || !hmac.Equal(raw[17:49], snapshot[:]) || !hmac.Equal(raw[49:], mac) {
+		return 0, app.ErrStaleCursor
+	}
+	return after, nil
+}
+
+// Revocation is independent of the immutable command/result graph digest
+// already included by registrationSnapshot. Frames prevent source-key aliasing.
+func (r *catalogRepository) supersessionRevocations(ctx context.Context, content identity.ContentID, target io.Writer) error {
+	if r.schemaVersion != 9 {
+		return nil
+	}
+	rows, err := r.transaction.QueryContext(ctx, `SELECT DISTINCT s.source_id,s.registration_revision,p.revoked FROM tc_catalog_supersessions s JOIN tc_catalog_sources p USING(source_id,registration_revision) WHERE s.content_id=? ORDER BY s.source_id,s.registration_revision`, content.String())
+	if err != nil {
+		return repositoryError(ctx, err)
+	}
+	defer rows.Close()
+	count := 0
+	for rows.Next() {
+		var source, revision string
+		var revoked uint64
+		if err := rows.Scan(&source, &revision, &revoked); err != nil {
+			return repositoryError(ctx, err)
+		}
+		count++
+		if count > int(domain.SourceRegistrations.Maximum()) || !catalogHexID(source) || !catalogHexID(revision) || revoked > 1 {
+			return app.ErrRepositoryUnavailable
+		}
+		raw := registrationFrame(nil, []byte(source))
+		raw = registrationFrame(raw, []byte(revision))
+		raw = binary.BigEndian.AppendUint64(raw, revoked)
+		if _, err := target.Write(raw); err != nil {
+			return app.ErrRepositoryUnavailable
+		}
+	}
+	return repositoryError(ctx, rows.Err())
+}
+
+func (r *catalogRepository) catalogAnnotations(ctx context.Context, record app.CatalogRecord) (map[identity.ContentVersionID]app.Supersession, error) {
+	annotations := map[identity.ContentVersionID]app.Supersession{}
+	if r.schemaVersion != 9 || record.Review == app.CatalogUnmanaged {
+		return annotations, nil
+	}
+	if err := r.supersessionReadSchema(ctx); err != nil {
+		return nil, err
+	}
+	state, err := r.readSupersession(ctx, record.Content, domain.CatalogPersistenceBindings{AllowUnbound: true})
+	if err != nil {
+		return nil, err
+	}
+	for _, v := range state.Versions() {
+		annotations[v.ID()] = app.Supersession{Status: app.Current, SupersessionRevision: state.Revision(), Terminal: v.ID()}
+	}
+	for _, edge := range state.History() {
+		old, newer := annotations[edge.Command.Old.ID()], annotations[edge.Command.New.ID()]
+		old.Status = app.Superseded
+		old.Successor = edge.Command.New.ID()
+		old.OutgoingCommand = edge.Command.ID
+		newer.Predecessor = edge.Command.Old.ID()
+		newer.IncomingCommand = edge.Command.ID
+		annotations[edge.Command.Old.ID()], annotations[edge.Command.New.ID()] = old, newer
+	}
+	for id, a := range annotations {
+		terminal := id
+		for steps := 0; !annotations[terminal].Successor.IsZero(); steps++ {
+			if steps >= len(annotations) {
+				return nil, app.ErrRepositoryUnavailable
+			}
+			terminal = annotations[terminal].Successor
+		}
+		a.Terminal = terminal
+		annotations[id] = a
+	}
+	return annotations, nil
+}
+
+func (r *catalogRepository) supersessionReadSchema(ctx context.Context) error {
+	if r.schemaVersion != 9 {
+		return app.ErrUnsupported
+	}
+	rows, err := r.transaction.QueryContext(ctx, "SELECT version,migration_id,checksum,dirty FROM tc_schema_migrations ORDER BY version")
+	if err != nil {
+		return repositoryError(ctx, err)
+	}
+	defer rows.Close()
+	migrations := SchemaMigrations()
+	i := 0
+	for rows.Next() {
+		var version, dirty int
+		var id, sum string
+		if err := rows.Scan(&version, &id, &sum, &dirty); err != nil {
+			return repositoryError(ctx, err)
+		}
+		if i >= 9 || version != migrations[i].Version || id != migrations[i].ID || sum != migrationChecksum(migrations[i]) || dirty != 0 {
+			return app.ErrUnsupported
+		}
+		i++
+	}
+	if err := rows.Err(); err != nil {
+		return repositoryError(ctx, err)
+	}
+	if i != 9 {
+		return app.ErrUnsupported
+	}
+	return nil
 }
 
 func (r *catalogRepository) supersessionInput(ctx context.Context, op app.SupersessionOperation) ([]byte, error) {
@@ -442,10 +754,35 @@ func (r *catalogRepository) supersessionProvenance(ctx context.Context, c domain
 	return ctx.Err()
 }
 
+type catalogReadCacheKey struct{}
+
+// A query holds one immutable SQLite snapshot. Cache only its current Content,
+// never a map of all Contents or any state across callbacks. Writer contexts
+// never carry this private key, so every writer validation remains uncached.
+type catalogReadCache struct {
+	repository *catalogRepository
+	state      domain.CatalogSupersessionState
+	valid      bool
+}
+
+func (r *catalogRepository) readSupersession(ctx context.Context, content identity.ContentID, bindings domain.CatalogPersistenceBindings) (domain.CatalogSupersessionState, error) {
+	cache, _ := ctx.Value(catalogReadCacheKey{}).(*catalogReadCache)
+	use := cache != nil && cache.repository == r && bindings.AllowUnbound && len(bindings.Sources) == 0 && len(bindings.Reviewers) == 0 && len(bindings.Namespaces) == 0
+	if use && cache.valid && cache.state.Content() == content {
+		return cache.state, ctx.Err()
+	}
+	state, err := r.readSupersessionUncached(ctx, content, bindings)
+	if use && err == nil {
+		cache.state = state
+		cache.valid = true
+	}
+	return state, err
+}
+
 // Reconstruct the complete graph from immutable rows, bounded before selecting
 // any BLOB. Historical endpoint/order contexts are resolved from raw envelopes;
 // no reader here calls readStates (which in turn calls this function).
-func (r *catalogRepository) readSupersession(ctx context.Context, content identity.ContentID, bindings domain.CatalogPersistenceBindings) (domain.CatalogSupersessionState, error) {
+func (r *catalogRepository) readSupersessionUncached(ctx context.Context, content identity.ContentID, bindings domain.CatalogPersistenceBindings) (domain.CatalogSupersessionState, error) {
 	var zero domain.CatalogSupersessionState
 	if err := r.registrationAccounting(ctx, content); err != nil {
 		if ctx.Err() != nil {

@@ -63,6 +63,224 @@ func catalogSeedVersions(t *testing.T, owner *LifecycleOwner, count int) {
 	}
 }
 
+// All graph records are authored through accepted registration/supersession
+// services. SQL in these tests is reserved for corruption or snapshot changes.
+func supersessionQueryFixture(t *testing.T) (supersessionFixture, []domain.ContentVersion, []app.SupersedeVersionCommand, []domain.CatalogSupersessionResult) {
+	t.Helper()
+	f := newSupersessionFixture(t)
+	for n := 103; n <= 106; n++ {
+		if _, err := f.service.RegisterCatalogVersion(t.Context(), f.version(t, n, uint64(n-100))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var versions []domain.ContentVersion
+	for n := 101; n <= 106; n++ {
+		v, err := domain.NewContentVersion(catalogQueryVersion(t, n), f.command.Content, f.command.Old.Fingerprint(), domain.UnknownVersionOrderEvidence())
+		if err != nil {
+			t.Fatal(err)
+		}
+		versions = append(versions, v)
+	}
+	var commands []app.SupersedeVersionCommand
+	var results []domain.CatalogSupersessionResult
+	for i, pair := range [][2]int{{0, 1}, {1, 2}, {3, 4}} {
+		c := f.link(t, versions[pair[0]], versions[pair[1]], uint64(7+i), uint64(1+i))
+		r, err := f.sup.SupersedeVersion(t.Context(), c)
+		if err != nil {
+			t.Fatal(err)
+		}
+		commands = append(commands, c)
+		results = append(results, r)
+	}
+	f.command = commands[0]
+	return f, versions, commands, results
+}
+
+func TestCatalogSupersessionQueryAnnotations(t *testing.T) {
+	f, versions, commands, _ := supersessionQueryFixture(t)
+	q := app.Query{Kind: app.ListVersions, Content: f.command.Content, Page: app.PageRequest{Limit: 128}}
+	page, err := f.base.Query(t.Context(), q)
+	if err != nil || len(page.Entries) != 6 || !page.Complete {
+		t.Fatal(page, err)
+	}
+	for i, entry := range page.Entries {
+		s := entry.Supersession
+		if entry.Version != versions[i] || s.SupersessionRevision.Uint64() != 4 {
+			t.Fatal("tuple/revision", i, entry)
+		}
+		terminal := versions[i].ID()
+		if i < 2 {
+			terminal = versions[2].ID()
+		}
+		if i == 3 {
+			terminal = versions[4].ID()
+		}
+		if s.Terminal != terminal {
+			t.Fatal("terminal", i, s)
+		}
+		want := app.Current
+		if i == 0 || i == 1 || i == 3 {
+			want = app.Superseded
+		}
+		if s.Status != want {
+			t.Fatal("status", i, s)
+		}
+		if i == 0 && (s.Successor != versions[1].ID() || s.OutgoingCommand != commands[0].ID || !s.Predecessor.IsZero()) {
+			t.Fatal(s)
+		}
+		if i == 1 && (s.Predecessor != versions[0].ID() || s.Successor != versions[2].ID() || s.IncomingCommand != commands[0].ID || s.OutgoingCommand != commands[1].ID) {
+			t.Fatal(s)
+		}
+		if i == 2 && (s.Predecessor != versions[1].ID() || !s.Successor.IsZero() || s.IncomingCommand != commands[1].ID) {
+			t.Fatal(s)
+		}
+		if i == 5 && (!s.Predecessor.IsZero() || !s.Successor.IsZero() || !s.IncomingCommand.IsZero() || !s.OutgoingCommand.IsZero()) {
+			t.Fatal("isolated", s)
+		}
+	}
+	q.Kind = app.ListCurrentVersions
+	current, err := f.base.Query(t.Context(), q)
+	if err != nil || len(current.Entries) != 3 || current.Inspected != 6 || current.Kind != app.Found {
+		t.Fatal(current, err)
+	}
+	for i, n := range []int{2, 4, 5} {
+		if current.Entries[i].Version != versions[n] || current.Entries[i].Supersession.Status != app.Current {
+			t.Fatal(current)
+		}
+	}
+	q.Page.Limit = 1
+	seen := []identity.ContentVersionID{}
+	for range 4 {
+		page, err := f.base.Query(t.Context(), q)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, e := range page.Entries {
+			seen = append(seen, e.Version.ID())
+		}
+		if page.Complete {
+			break
+		}
+		q.Page.Cursor, q.Page.ExpectedRevision = page.Next, page.Revision
+	}
+	if !reflect.DeepEqual(seen, []identity.ContentVersionID{versions[2].ID(), versions[4].ID(), versions[5].ID()}) {
+		t.Fatal("filtered pagination", seen)
+	}
+	// An old tuple is never replaced by its terminal. Shared fingerprints stay
+	// ambiguous even across several edges and unrelated chains.
+	for _, kind := range []app.QueryKind{app.FindVersionsByPair, app.FindVersionsByAudioID} {
+		find := app.Query{Kind: kind, Page: app.PageRequest{Limit: 128}}
+		if kind == app.FindVersionsByPair {
+			find.Fingerprint = versions[0].Fingerprint()
+		} else {
+			find.AudioID = versions[0].Fingerprint().AudioID()
+		}
+		result, err := f.base.Query(t.Context(), find)
+		if err != nil || result.Kind != app.Ambiguous || len(result.Entries) != 6 {
+			t.Fatal("ambiguity", result, err)
+		}
+		if result.Entries[0].Version != versions[0] || result.Entries[0].Supersession.Status != app.Superseded {
+			t.Fatal(result)
+		}
+	}
+	old, err := f.base.Query(t.Context(), app.Query{Kind: app.GetVersion, Content: q.Content, Version: versions[0].ID(), Page: app.PageRequest{Limit: 1}})
+	if err != nil || len(old.Entries) != 1 || old.Entries[0].Version != versions[0] {
+		t.Fatal(old, err)
+	}
+	content, err := f.base.Query(t.Context(), app.Query{Kind: app.GetContent, Content: q.Content, Page: app.PageRequest{Limit: 1}})
+	if err != nil || content.Entries[0].Supersession != (app.Supersession{}) {
+		t.Fatal(content, err)
+	}
+	encoded, err := catalogRecordBytes(page.Entries[0])
+	if err != nil || !bytes.Contains(encoded, []byte(`"Supersession"`)) || !bytes.Contains(encoded, []byte(versions[2].ID().String())) {
+		t.Fatal("uncharged relation encoding", string(encoded), err)
+	}
+}
+
+func TestCatalogSupersessionQueryLegacyAndEmpty(t *testing.T) {
+	owner := catalogQueryOwner(t)
+	catalogSeedVersions(t, owner, 2)
+	for _, kind := range []app.QueryKind{app.ListVersions, app.GetVersion} {
+		q := app.Query{Kind: kind, Content: catalogQueryContent(t, 1), Page: app.PageRequest{Limit: 128}}
+		if kind == app.GetVersion {
+			q.Version = catalogQueryVersion(t, 1)
+		}
+		page, err := catalogRead(t, owner, q)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, e := range page.Entries {
+			if e.Supersession != (app.Supersession{}) {
+				t.Fatal("unmanaged inferred current", e)
+			}
+		}
+	}
+	if _, err := catalogRead(t, owner, app.Query{Kind: app.ListCurrentVersions, Content: catalogQueryContent(t, 1), Page: app.PageRequest{Limit: 128}}); !errors.Is(err, app.ErrUnsupported) {
+		t.Fatal(err)
+	}
+	f := newSupersessionFixture(t)
+	page, err := f.base.Query(t.Context(), app.Query{Kind: app.ListCurrentVersions, Content: f.command.Content, Page: app.PageRequest{Limit: 128}})
+	if err != nil || len(page.Entries) != 2 || page.Entries[0].Supersession.SupersessionRevision.Uint64() != 1 {
+		t.Fatal("empty managed graph", page, err)
+	}
+	v8 := newRegistrationFixtureMigrations(t, SchemaMigrations()[:8])
+	if _, err := v8.service.RegisterContent(t.Context(), v8.command); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := v8.service.RegisterCatalogVersion(t.Context(), v8.version(t, 101, 1)); err != nil {
+		t.Fatal(err)
+	}
+	page, err = v8.base.Query(t.Context(), app.Query{Kind: app.ListVersions, Content: v8.command.Subject.ContentID(), Page: app.PageRequest{Limit: 128}})
+	if err != nil || page.Entries[0].Supersession != (app.Supersession{}) {
+		t.Fatal("v8", page, err)
+	}
+	if _, err := v8.base.Query(t.Context(), app.Query{Kind: app.ListCurrentVersions, Content: v8.command.Subject.ContentID(), Page: app.PageRequest{Limit: 128}}); !errors.Is(err, app.ErrUnsupported) {
+		t.Fatal(err)
+	}
+}
+
+func TestCatalogSupersessionQueryCursor(t *testing.T) {
+	for _, change := range []string{"kind", "revocation", "edge", "generation", "external ABA"} {
+		t.Run(change, func(t *testing.T) {
+			f, versions, _, _ := supersessionQueryFixture(t)
+			if change == "external ABA" {
+				catalogSchemaExec(t, f.owner.database.db, "INSERT INTO tc_catalog_content VALUES (?,'before',NULL,NULL)", catalogQueryContent(t, 999).String())
+			}
+			q := app.Query{Kind: app.ListVersions, Content: f.command.Content, Page: app.PageRequest{Limit: 1}}
+			first, err := catalogRead(t, f.owner, q)
+			if err != nil || first.Next == "" {
+				t.Fatal(first, err)
+			}
+			q.Page.Cursor, q.Page.ExpectedRevision = first.Next, first.Revision
+			switch change {
+			case "kind":
+				q.Kind = app.ListCurrentVersions
+			case "revocation":
+				catalogSchemaExec(t, f.owner.database.db, "UPDATE tc_catalog_sources SET revoked=1 WHERE source_id=?", f.source.ID().String())
+			case "edge":
+				if _, err := f.sup.SupersedeVersion(t.Context(), f.link(t, versions[2], versions[5], 10, 4)); err != nil {
+					t.Fatal(err)
+				}
+			case "generation":
+				f.owner.generation.Add(1)
+			case "external ABA":
+				external, err := Open(t.Context(), f.owner.config, SchemaMigrations())
+				if err != nil {
+					t.Fatal(err)
+				}
+				catalogSchemaExec(t, external.db, "UPDATE tc_catalog_content SET title='temporary' WHERE content_id=?", catalogQueryContent(t, 999).String())
+				catalogSchemaExec(t, external.db, "UPDATE tc_catalog_content SET title='before' WHERE content_id=?", catalogQueryContent(t, 999).String())
+				if err := external.Close(); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := catalogRead(t, f.owner, q); !errors.Is(err, app.ErrStaleCursor) {
+				t.Fatal(change, err)
+			}
+		})
+	}
+}
+
 func TestCatalogQueryAfterCommitOrder(t *testing.T) {
 	f, _, op, next, result := orderWriteFixture(t)
 	query := app.Query{Kind: app.ListVersions, Content: f.subject.ContentID(), Page: app.PageRequest{Limit: 1}}

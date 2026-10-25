@@ -7,11 +7,13 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 
 	app "github.com/shentschel/teddycloud/next/backend/internal/application/catalog"
 	domain "github.com/shentschel/teddycloud/next/backend/internal/domain/catalog"
 	"github.com/shentschel/teddycloud/next/backend/internal/domain/evidence"
+	"github.com/shentschel/teddycloud/next/backend/internal/domain/identity"
 )
 
 type supersessionFixture struct {
@@ -94,7 +96,7 @@ func TestSupersessionSQLiteReplay(t *testing.T) {
 		t.Fatal("growth after edge", err)
 	}
 	page, err := catalogRead(t, f.owner, app.Query{Kind: app.ListVersions, Content: f.command.Content, Page: app.PageRequest{Limit: 128}})
-	if !errors.Is(err, app.ErrUnsupported) {
+	if err != nil || len(page.Entries) != 3 {
 		t.Fatal(page, err)
 	}
 	third, _ := domain.NewContentVersion(catalogQueryVersion(t, 103), f.command.Content, f.command.New.Fingerprint(), domain.UnknownVersionOrderEvidence())
@@ -120,8 +122,8 @@ func TestSupersessionSQLiteReplay(t *testing.T) {
 	if !reflect.DeepEqual(before, registrationSchemaRows(t, f.owner.database.db)) {
 		t.Fatal("replay wrote or charged rows")
 	}
-	if _, err := f.sup.QuerySupersession(t.Context(), app.SupersessionQuery{Content: f.command.Content, Page: app.PageRequest{Limit: 128}}); !errors.Is(err, app.ErrUnsupported) {
-		t.Fatal("premature history exposure", err)
+	if page, err := f.sup.QuerySupersession(t.Context(), app.SupersessionQuery{Content: f.command.Content, Page: app.PageRequest{Limit: 128}}); err != nil || len(page.Entries) != 2 {
+		t.Fatal("complete history", page, err)
 	}
 	if err := f.owner.Close(t.Context()); err != nil {
 		t.Fatal(err)
@@ -865,5 +867,275 @@ func TestSupersessionSQLiteEvidenceAndReviewer(t *testing.T) {
 				t.Fatal("rejection wrote")
 			}
 		})
+	}
+}
+
+func supersessionHistoryReader(t *testing.T, f supersessionFixture, owner *LifecycleOwner) app.SupersessionService {
+	t.Helper()
+	source := newRegistrationIntegrationSource(t, f.cap.Reviewer(), domain.CoreOperator)
+	base, err := app.NewService(owner, source.source, source.review, source.space)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cap, err := domain.NewCatalogSupersessionCapability(source.review)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := app.NewSupersessionService(base, cap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return service
+}
+
+func TestSupersessionHistoryQuery(t *testing.T) {
+	f, versions, commands, results := supersessionQueryFixture(t)
+	before := registrationSchemaRows(t, f.owner.database.db)
+	q := app.SupersessionQuery{Content: f.command.Content, Page: app.PageRequest{Limit: 128}}
+	page, err := f.sup.QuerySupersession(t.Context(), q)
+	if err != nil || !page.Complete || page.Inspected != 3 || len(page.Entries) != 3 || page.AggregateRevision.Uint64() != 10 || page.SupersessionRevision.Uint64() != 4 {
+		t.Fatal(page, err)
+	}
+	size := uint64(8 + len("pi08-version-supersession-page/1") + 48)
+	for i, e := range page.Entries {
+		command, err := f.op(commands[i]).Command.CanonicalEncoding(f.cap)
+		if err != nil {
+			t.Fatal(err)
+		}
+		result, err := results[i].CanonicalEncoding()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(e.Command, command) || !bytes.Equal(e.Result, result) || e.SourceRevoked {
+			t.Fatal("original bytes", i)
+		}
+		size += 24 + uint64(len(command)+len(result))
+	}
+	if size != page.EncodedBytes {
+		t.Fatal("page byte accounting", size, page.EncodedBytes)
+	}
+	for _, c := range []struct{ index, want int }{{0, 2}, {1, 2}, {2, 2}, {3, 1}, {4, 1}, {5, 0}, {6, 0}} {
+		filter := q
+		if c.index == 6 {
+			filter.Version = catalogQueryVersion(t, 999)
+		} else {
+			filter.Version = versions[c.index].ID()
+		}
+		p, err := f.sup.QuerySupersession(t.Context(), filter)
+		if err != nil || !p.Complete || p.Inspected != 3 || len(p.Entries) != c.want {
+			t.Fatal("whole chain", c, p, err)
+		}
+	}
+	for _, filtered := range []bool{false, true} {
+		query := q
+		query.Page.Limit = 1
+		if filtered {
+			query.Version = versions[1].ID()
+		}
+		var seen [][]byte
+		for range 4 {
+			p, err := f.sup.QuerySupersession(t.Context(), query)
+			if err != nil || len(p.Entries) != 1 {
+				t.Fatal(p, err)
+			}
+			seen = append(seen, p.Entries[0].Result)
+			if p.Complete {
+				if p.Next != "" {
+					t.Fatal(p)
+				}
+				break
+			}
+			if p.Next == "" || len(p.Next) > 256 || p.EncodedBytes != supersessionPageBytes(p) {
+				t.Fatal(p)
+			}
+			query.Page.Cursor, query.Page.ExpectedRevision = p.Next, p.AggregateRevision
+		}
+		want := 3
+		if filtered {
+			want = 2
+		}
+		if len(seen) != want {
+			t.Fatal("pagination", len(seen), want)
+		}
+		for i := range seen {
+			if !bytes.Equal(seen[i], page.Entries[i].Result) {
+				t.Fatal("history order")
+			}
+		}
+	}
+	if !reflect.DeepEqual(before, registrationSchemaRows(t, f.owner.database.db)) {
+		t.Fatal("history query wrote rows")
+	}
+}
+
+func TestSupersessionHistoryCursor(t *testing.T) {
+	for _, change := range []string{"filter", "content", "limit", "tamper", "revision", "revocation", "generation", "owner", "edge", "registration", "corruption"} {
+		t.Run(change, func(t *testing.T) {
+			f, versions, _, _ := supersessionQueryFixture(t)
+			reader := supersessionHistoryReader(t, f, f.owner)
+			q := app.SupersessionQuery{Content: f.command.Content, Page: app.PageRequest{Limit: 1}}
+			first, err := reader.QuerySupersession(t.Context(), q)
+			if err != nil || first.Next == "" {
+				t.Fatal(first, err)
+			}
+			q.Page.Cursor, q.Page.ExpectedRevision = first.Next, first.AggregateRevision
+			want := app.ErrStaleCursor
+			switch change {
+			case "filter":
+				q.Version = versions[0].ID()
+			case "content":
+				q.Content = catalogQueryContent(t, 999)
+			case "limit":
+				q.Page.Limit = 2
+			case "tamper":
+				q.Page.Cursor = first.Next + "="
+			case "revision":
+				q.Page.ExpectedRevision, _ = domain.NewCatalogRevision(99)
+			case "revocation":
+				catalogSchemaExec(t, f.owner.database.db, "UPDATE tc_catalog_sources SET revoked=1 WHERE source_id=?", f.source.ID().String())
+				fresh := q
+				fresh.Page.Cursor = ""
+				fresh.Page.ExpectedRevision = domain.CatalogRevision{}
+				p, err := reader.QuerySupersession(t.Context(), fresh)
+				if err != nil || len(p.Entries) != 1 || !p.Entries[0].SourceRevoked {
+					t.Fatal("revocation erased acceptance", p, err)
+				}
+			case "generation":
+				f.owner.generation.Add(1)
+			case "owner":
+				config := f.owner.config
+				if err := f.owner.Close(t.Context()); err != nil {
+					t.Fatal(err)
+				}
+				owner, err := OpenLifecycleOwner(t.Context(), config, SchemaMigrations())
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer owner.Close(context.Background())
+				reader = supersessionHistoryReader(t, f, owner)
+			case "edge":
+				if _, err := f.sup.SupersedeVersion(t.Context(), f.link(t, versions[2], versions[5], 10, 4)); err != nil {
+					t.Fatal(err)
+				}
+			case "registration":
+				if _, err := f.service.RegisterCatalogVersion(t.Context(), f.version(t, 107, 10)); err != nil {
+					t.Fatal(err)
+				}
+			case "corruption":
+				catalogSchemaExec(t, f.owner.database.db, "DROP TRIGGER tc_catalog_supersession_support_no_delete")
+				catalogSchemaExec(t, f.owner.database.db, "DELETE FROM tc_catalog_supersession_support")
+				want = app.ErrRepositoryUnavailable
+			}
+			if p, err := reader.QuerySupersession(t.Context(), q); !errors.Is(err, want) || len(p.Entries) != 0 {
+				t.Fatal(change, p, err, "want", want)
+			}
+		})
+	}
+}
+
+func TestSupersessionHistoryBoundsAndAbsent(t *testing.T) {
+	f := newSupersessionFixture(t)
+	q := app.SupersessionQuery{Content: f.command.Content, Page: app.PageRequest{Limit: 128}}
+	unmanaged := catalogQueryOwner(t)
+	catalogSeedVersions(t, unmanaged, 2)
+	if _, err := supersessionHistoryReader(t, f, unmanaged).QuerySupersession(t.Context(), app.SupersessionQuery{Content: catalogQueryContent(t, 1), Page: q.Page}); !errors.Is(err, app.ErrUnsupported) {
+		t.Fatal("unmanaged history", err)
+	}
+	old := newRegistrationFixtureMigrations(t, SchemaMigrations()[:8])
+	if _, err := supersessionHistoryReader(t, f, old.owner).QuerySupersession(t.Context(), q); !errors.Is(err, app.ErrUnsupported) {
+		t.Fatal("old schema history", err)
+	}
+	for _, missing := range []bool{false, true} {
+		query := q
+		if missing {
+			query.Content = catalogQueryContent(t, 999)
+		}
+		page, err := f.sup.QuerySupersession(t.Context(), query)
+		if err != nil || !page.Complete || len(page.Entries) != 0 || page.Inspected != 0 || page.SupersessionRevision.Uint64() != 1 {
+			t.Fatal(page, err)
+		}
+		if missing && page.AggregateRevision.Uint64() != 1 {
+			t.Fatal(page)
+		}
+	}
+	for _, bound := range []string{"zero limit", "limit", "cursor", "missing content", "cursor without revision", "cancel", "schema"} {
+		t.Run(bound, func(t *testing.T) {
+			query := q
+			ctx := t.Context()
+			want := app.ErrLimitExceeded
+			switch bound {
+			case "zero limit":
+				query.Page.Limit = 0
+				want = app.ErrInvalidInput
+			case "limit":
+				query.Page.Limit = 129
+			case "cursor":
+				query.Page.Cursor = strings.Repeat("x", 257)
+			case "missing content":
+				query.Content = f.command.New.ContentID()
+				query.Content = identity.ContentID{}
+				query.Version = f.command.New.ID()
+				want = app.ErrInvalidInput
+			case "cursor without revision":
+				query.Page.Cursor = "x"
+				want = app.ErrInvalidInput
+			case "cancel":
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithCancel(ctx)
+				cancel()
+				want = context.Canceled
+			case "schema":
+				catalogSchemaExec(t, f.owner.database.db, "UPDATE tc_schema_migrations SET checksum=? WHERE version=9", strings.Repeat("0", 64))
+				want = app.ErrUnsupported
+			}
+			if _, err := f.sup.QuerySupersession(ctx, query); !errors.Is(err, want) {
+				t.Fatal(bound, err, "want", want)
+			}
+		})
+	}
+}
+
+func TestSupersessionHistoryOversizeEntry(t *testing.T) {
+	f := newSupersessionFixture(t)
+	c := f.command
+	raw := []byte(`{"safe":` + strings.Repeat(" ", 60<<10) + `true}`)
+	claim, _ := domain.OwnershipClaim(c.Content)
+	subject, _ := domain.VersionSubject(c.Content, c.New.ID())
+	o := f.observationSnapshot(t, subject, claim, raw)
+	c.Evidence = nil
+	c.Support = nil
+	for range 20 {
+		id, _ := domain.NewBatchID()
+		eid, err := evidence.ParseID("obs_" + id.String()[:26])
+		if err != nil {
+			t.Fatal(err)
+		}
+		e, err := domain.NewCatalogSupersessionEvidence(f.ingest, f.source, domain.CatalogSupersessionEvidenceInput{ID: eid, Content: c.Content, OldVersion: c.Old.ID(), NewVersion: c.New.ID(), Coordinate: o.Input().Coordinate, ObservedAt: o.Input().ObservedAt})
+		if err != nil {
+			t.Fatal(err)
+		}
+		c.Evidence = append(c.Evidence, e)
+		c.Support = append(c.Support, e.ID())
+	}
+	result, err := f.sup.SupersedeVersion(t.Context(), c)
+	if err != nil {
+		t.Fatal("admitted large canonical command", err)
+	}
+	if _, err := f.sup.QuerySupersession(t.Context(), app.SupersessionQuery{Content: c.Content, Page: app.PageRequest{Limit: 128}}); !errors.Is(err, app.ErrLimitExceeded) {
+		t.Fatal("truncated oversized entry", err)
+	}
+	got, found, err := f.sup.ReadSupersession(t.Context(), c)
+	if err != nil || !found || !reflect.DeepEqual(got, result) {
+		t.Fatal("large command readback", got, found, err)
+	}
+}
+
+func TestSupersessionHistoryMissingCorruption(t *testing.T) {
+	f := newSupersessionFixture(t)
+	catalogSchemaExec(t, f.owner.database.db, "PRAGMA foreign_keys=OFF")
+	catalogSchemaExec(t, f.owner.database.db, "INSERT INTO tc_catalog_supersession_support VALUES (?,?)", f.command.ID.String(), f.command.Support[0].String())
+	catalogSchemaExec(t, f.owner.database.db, "PRAGMA foreign_keys=ON")
+	if page, err := f.sup.QuerySupersession(t.Context(), app.SupersessionQuery{Content: catalogQueryContent(t, 999), Page: app.PageRequest{Limit: 128}}); !errors.Is(err, app.ErrRepositoryUnavailable) || len(page.Entries) != 0 {
+		t.Fatal("orphan became absence", page, err)
 	}
 }

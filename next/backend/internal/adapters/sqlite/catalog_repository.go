@@ -35,6 +35,7 @@ func (r *catalogRepository) Query(ctx context.Context, query app.Query) (result 
 	}
 	call, cancel := context.WithCancel(r.ctx)
 	defer cancel()
+	call = context.WithValue(call, catalogReadCacheKey{}, &catalogReadCache{repository: r})
 	stop := context.AfterFunc(ctx, cancel)
 	defer stop()
 	if ctx.Err() != nil {
@@ -45,11 +46,11 @@ func (r *catalogRepository) Query(ctx context.Context, query app.Query) (result 
 			r.failure = err
 		}
 	}()
-	if query.Kind == app.ListCurrentVersions {
-		return result, app.ErrUnsupported
-	}
 	if err := catalogQueryInput(query); err != nil {
 		return result, err
+	}
+	if query.Kind == app.ListCurrentVersions && r.schemaVersion != 9 {
+		return result, app.ErrUnsupported
 	}
 	if query.Kind == app.FindVersionsByPair || query.Kind == app.FindVersionsByAudioID {
 		return r.catalogFind(call, query)
@@ -69,6 +70,9 @@ func (r *catalogRepository) Query(ctx context.Context, query app.Query) (result 
 		result.Kind, result.Complete = app.NoMatch, true
 		return catalogPageSize(result)
 	}
+	if query.Kind == app.ListCurrentVersions && record.Review == app.CatalogUnmanaged {
+		return result, app.ErrUnsupported
+	}
 	if query.Kind == app.GetContent {
 		result.Entries = []app.CatalogRecord{record}
 		result.Inspected = 1
@@ -81,45 +85,18 @@ func (r *catalogRepository) Query(ctx context.Context, query app.Query) (result 
 		return app.QueryResult{}, err
 	}
 	result.Inspected = uint64(len(versions))
-	// Hash the entire bounded relevant snapshot, including baseline/projections
-	// and media relations. Raw legacy Save and PI-07 attachment do not advance
-	// the managed revision, so revision alone is insufficient for continuation.
-	snapshot := sha256.New()
+	annotations, err := r.catalogAnnotations(call, record)
+	if err != nil {
+		return app.QueryResult{}, err
+	}
 	base, err := catalogRecordBytes(record)
 	if err != nil {
 		return app.QueryResult{}, err
 	}
-	snapshot.Write(base)
-	if err := r.registrationSnapshot(call, record.Content, snapshot); err != nil {
+	digest, err := r.catalogScopedSnapshot(call, record, versions)
+	if err != nil {
 		return app.QueryResult{}, err
 	}
-	// The single pooled connection has a stable total_changes counter; SQLite's
-	// data_version catches other connections. Together they also invalidate an
-	// ABA write whose final values happen to equal the old snapshot.
-	var changes, dataVersion uint64
-	if err := r.transaction.QueryRowContext(call, "SELECT total_changes()").Scan(&changes); err != nil {
-		return app.QueryResult{}, repositoryError(call, err)
-	}
-	if err := r.transaction.QueryRowContext(call, "PRAGMA data_version").Scan(&dataVersion); err != nil {
-		return app.QueryResult{}, repositoryError(call, err)
-	}
-	var generations [16]byte
-	binary.BigEndian.PutUint64(generations[:8], changes)
-	binary.BigEndian.PutUint64(generations[8:], dataVersion)
-	snapshot.Write(generations[:])
-	for _, version := range versions {
-		encoded, err := catalogVersionBytes(version)
-		if err != nil {
-			return app.QueryResult{}, err
-		}
-		snapshot.Write(encoded)
-		snapshot.Write(version.Digest[:])
-		var size [8]byte
-		binary.BigEndian.PutUint64(size[:], version.Size)
-		snapshot.Write(size[:])
-	}
-	var digest [32]byte
-	copy(digest[:], snapshot.Sum(nil))
 	after := ""
 	if query.Page.Cursor != "" {
 		after, err = r.catalogCursorAfter(query, revision, digest)
@@ -140,11 +117,21 @@ func (r *catalogRepository) Query(ctx context.Context, query app.Query) (result 
 		if query.Kind == app.GetVersion && versions[i].Version.ID() != query.Version {
 			continue
 		}
+		if query.Kind == app.ListCurrentVersions && annotations[versions[i].Version.ID()].Status != app.Current {
+			continue
+		}
+		entry := record
+		entry.Version, entry.Media = versions[i].Version, versions[i].Media
+		entry.Supersession = annotations[entry.Version.ID()]
+		entryBytes, err := catalogRecordBytes(entry)
+		if err != nil {
+			return app.QueryResult{}, app.ErrRepositoryUnavailable
+		}
 		versionBytes, err := catalogVersionBytes(versions[i])
 		if err != nil {
 			return app.QueryResult{}, app.ErrRepositoryUnavailable
 		}
-		added := uint64(len(base) + len(versionBytes) + 32)
+		added := uint64(len(entryBytes) + len(versionBytes) + 32)
 		if uint64(len(result.Entries)) == query.Page.Limit || charged+added > domain.QueryBytes.Maximum() {
 			if len(result.Entries) == 0 {
 				return app.QueryResult{}, app.ErrLimitExceeded
@@ -157,8 +144,6 @@ func (r *catalogRepository) Query(ctx context.Context, query app.Query) (result 
 			return catalogPageSize(result)
 		}
 		charged += added
-		entry := record
-		entry.Version, entry.Media = versions[i].Version, versions[i].Media
 		result.Entries = append(result.Entries, entry)
 	}
 	result.Complete = true
@@ -167,14 +152,14 @@ func (r *catalogRepository) Query(ctx context.Context, query app.Query) (result 
 }
 
 func catalogQueryInput(q app.Query) error {
-	if q.Kind < app.GetContent || q.Kind > app.ListVersions || q.Page.Limit == 0 {
+	if q.Kind < app.GetContent || q.Kind > app.ListCurrentVersions || q.Page.Limit == 0 {
 		return app.ErrInvalidInput
 	}
 	if q.Page.Limit > domain.QueryEntries.Maximum() || uint64(len(q.Page.Cursor)) > domain.CursorBytes.Maximum() {
 		return app.ErrLimitExceeded
 	}
 	global := q.Kind == app.FindVersionsByPair || q.Kind == app.FindVersionsByAudioID
-	if q.Page.Cursor != "" && ((!global && q.Kind != app.ListVersions) || q.Page.ExpectedRevision.Uint64() == 0) {
+	if q.Page.Cursor != "" && ((!global && q.Kind != app.ListVersions && q.Kind != app.ListCurrentVersions) || q.Page.ExpectedRevision.Uint64() == 0) {
 		return app.ErrInvalidInput
 	}
 	switch q.Kind {
@@ -265,6 +250,9 @@ func (r *catalogRepository) catalogFind(ctx context.Context, query app.Query) (a
 		if err := r.registrationSnapshot(ctx, id, snapshot); err != nil {
 			return app.QueryResult{}, err
 		}
+		if err := r.supersessionRevocations(ctx, id, snapshot); err != nil {
+			return app.QueryResult{}, err
+		}
 		if !found {
 			return app.QueryResult{}, app.ErrRepositoryUnavailable
 		}
@@ -281,6 +269,10 @@ func (r *catalogRepository) catalogFind(ctx context.Context, query app.Query) (a
 		retained += uint64(len(base))
 		snapshot.Write(base)
 		versions, err := r.catalogVersions(ctx, id)
+		if err != nil {
+			return app.QueryResult{}, err
+		}
+		annotations, err := r.catalogAnnotations(ctx, record)
 		if err != nil {
 			return app.QueryResult{}, err
 		}
@@ -308,6 +300,7 @@ func (r *catalogRepository) catalogFind(ctx context.Context, query app.Query) (a
 			}
 			entry := record
 			entry.Version, entry.Media = row.Version, row.Media
+			entry.Supersession = annotations[row.Version.ID()]
 			matches = append(matches, candidate{record: entry, key: id.String() + row.Version.ID().String()})
 		}
 	}
@@ -425,17 +418,6 @@ func (r *catalogRepository) catalogContent(ctx context.Context, id identity.Cont
 	}
 	if err := r.catalogFields(ctx, &record, revision, aggregate.Valid); err != nil {
 		return record, revision, false, err
-	}
-	if aggregate.Valid && r.schemaVersion == 9 {
-		// C3 validates the graph but does not expose unannotated records as a
-		// successful F02 query. C4 owns current/history annotations and cursors.
-		var graph bool
-		if err := r.transaction.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM tc_catalog_supersessions WHERE content_id=?)", id.String()).Scan(&graph); err != nil {
-			return record, revision, false, repositoryError(ctx, err)
-		}
-		if graph {
-			return record, revision, false, app.ErrUnsupported
-		}
 	}
 	return record, revision, true, nil
 }
@@ -848,13 +830,63 @@ func catalogRecordBytes(record app.CatalogRecord) ([]byte, error) {
 		}
 		fields = append(fields, f)
 	}
+	type relation struct {
+		Status                                                             app.SupersessionStatus
+		Revision                                                           uint64
+		Predecessor, Successor, Terminal, IncomingCommand, OutgoingCommand string
+	}
+	s := record.Supersession
 	return json.Marshal(struct {
 		Content, Title, Model, Article string
 		ModelPresent, ArticlePresent   bool
 		Review                         app.CatalogReviewStatus
 		Protected                      bool
 		Fields                         []field
-	}{record.Content.String(), record.Baseline.Title(), model.String(), article.String(), modelPresent, articlePresent, record.Review, record.ProtectedCustom, fields})
+		Supersession                   relation
+	}{record.Content.String(), record.Baseline.Title(), model.String(), article.String(), modelPresent, articlePresent, record.Review, record.ProtectedCustom, fields, relation{s.Status, s.SupersessionRevision.Uint64(), s.Predecessor.String(), s.Successor.String(), s.Terminal.String(), s.IncomingCommand.String(), s.OutgoingCommand.String()}})
+}
+
+// Scoped record and history cursors share the full catalog/media snapshot,
+// immutable graph and current source-revocation state. Owner identity and
+// generation are bound separately by catalogCursorMAC.
+func (r *catalogRepository) catalogScopedSnapshot(ctx context.Context, record app.CatalogRecord, versions []catalogVersionRow) ([32]byte, error) {
+	var digest [32]byte
+	snapshot := sha256.New()
+	base, err := catalogRecordBytes(record)
+	if err != nil {
+		return digest, app.ErrRepositoryUnavailable
+	}
+	snapshot.Write(base)
+	if err := r.registrationSnapshot(ctx, record.Content, snapshot); err != nil {
+		return digest, err
+	}
+	if err := r.supersessionRevocations(ctx, record.Content, snapshot); err != nil {
+		return digest, err
+	}
+	var changes, dataVersion uint64
+	if err := r.transaction.QueryRowContext(ctx, "SELECT total_changes()").Scan(&changes); err != nil {
+		return digest, repositoryError(ctx, err)
+	}
+	if err := r.transaction.QueryRowContext(ctx, "PRAGMA data_version").Scan(&dataVersion); err != nil {
+		return digest, repositoryError(ctx, err)
+	}
+	var counters [16]byte
+	binary.BigEndian.PutUint64(counters[:8], changes)
+	binary.BigEndian.PutUint64(counters[8:], dataVersion)
+	snapshot.Write(counters[:])
+	for _, v := range versions {
+		raw, err := catalogVersionBytes(v)
+		if err != nil {
+			return digest, err
+		}
+		snapshot.Write(raw)
+		snapshot.Write(v.Digest[:])
+		var n [8]byte
+		binary.BigEndian.PutUint64(n[:], v.Size)
+		snapshot.Write(n[:])
+	}
+	copy(digest[:], snapshot.Sum(nil))
+	return digest, nil
 }
 
 func catalogVersionBytes(row catalogVersionRow) ([]byte, error) {
