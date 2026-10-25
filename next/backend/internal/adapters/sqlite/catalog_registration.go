@@ -594,10 +594,34 @@ func (r *catalogRepository) registrationKeyOnly(ctx context.Context, key string)
 	if err := r.transaction.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM tc_catalog_registrations WHERE command_id=?)", key).Scan(&used); err != nil {
 		return repositoryError(ctx, err)
 	}
+	if !used && r.schemaVersion == 9 {
+		if err := r.transaction.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM tc_catalog_supersessions WHERE command_id=?)", key).Scan(&used); err != nil {
+			return repositoryError(ctx, err)
+		}
+	}
 	if used {
 		return domain.ErrCatalogCommandConflict
 	}
 	return nil
+}
+
+// Existing exact provenance remains readable, including legacy overlaps. A
+// newly created v9 batch cannot occupy any catalog command namespace.
+func (r *catalogRepository) catalogBatchKeyGuard(ctx context.Context, key string) error {
+	if err := r.registrationKeyOnly(ctx, key); err != nil {
+		return err
+	}
+	if r.schemaVersion != 9 {
+		return nil
+	}
+	var exists bool
+	if err := r.transaction.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM tc_catalog_batches WHERE batch_id=?)", key).Scan(&exists); err != nil {
+		return repositoryError(ctx, err)
+	}
+	if exists {
+		return nil
+	}
+	return r.registrationKeyGuard(ctx, key, false)
 }
 
 func (r *catalogRepository) registrationKeyGuard(ctx context.Context, key string, registrations bool) error {
@@ -735,7 +759,7 @@ func (r *catalogRepository) registrationEvidence(ctx context.Context, command do
 		if facts.ID.String() == command.ID.String() {
 			return domain.ErrCatalogCommandConflict
 		}
-		if err := r.registrationKeyOnly(ctx, facts.ID.String()); err != nil {
+		if err := r.catalogBatchKeyGuard(ctx, facts.ID.String()); err != nil {
 			return err
 		}
 		var count int
@@ -777,6 +801,10 @@ func (r *catalogRepository) registrationEvidence(ctx context.Context, command do
 // Charge retained physical copies, not SQLite page sizes. Each index column
 // uses its normative N(integer) or T(bytes) encoding, including framing bytes.
 func (r *catalogRepository) registrationAccounting(ctx context.Context, content identity.ContentID) error {
+	return r.registrationAccountingWith(ctx, content, supersessionUsage{})
+}
+
+func (r *catalogRepository) registrationAccountingWith(ctx context.Context, content identity.ContentID, added supersessionUsage) error {
 	if r.schemaVersion < 8 {
 		return nil
 	}
@@ -798,8 +826,18 @@ func (r *catalogRepository) registrationAccounting(ctx context.Context, content 
 	if err != nil {
 		return repositoryError(ctx, err)
 	}
+	if r.schemaVersion == 9 {
+		usage, err := r.supersessionUsage(ctx, content)
+		if err != nil {
+			return err
+		}
+		bytesRetained += usage.bytes + added.bytes
+		observations += usage.observations + added.observations
+		links += usage.links + added.links
+		events += usage.events + added.events
+	}
 	var orderRaw []byte
-	err = r.transaction.QueryRowContext(ctx, `SELECT state FROM (SELECT order_revision,state FROM tc_catalog_order_states WHERE content_id=?1 UNION ALL SELECT order_revision,state FROM tc_catalog_order_states_v2 WHERE content_id=?1) ORDER BY order_revision DESC LIMIT 1`, content.String()).Scan(&orderRaw)
+	err = r.transaction.QueryRowContext(ctx, `SELECT CASE WHEN length(state)<=8388608 THEN state END FROM (SELECT order_revision,state FROM tc_catalog_order_states WHERE content_id=?1 UNION ALL SELECT order_revision,state FROM tc_catalog_order_states_v2 WHERE content_id=?1) ORDER BY order_revision DESC LIMIT 1`, content.String()).Scan(&orderRaw)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return repositoryError(ctx, err)
 	}
@@ -974,6 +1012,20 @@ func (r *catalogRepository) registeredFields(ctx context.Context, record *app.Ca
 func (r *catalogRepository) registrationSnapshot(ctx context.Context, content identity.ContentID, target io.Writer) error {
 	if r.schemaVersion < 8 {
 		return nil
+	}
+	if r.schemaVersion == 9 {
+		state, err := r.readSupersession(ctx, content, domain.CatalogPersistenceBindings{AllowUnbound: true})
+		if err != nil {
+			return err
+		}
+		raw, err := state.PersistenceEncoding()
+		if err != nil {
+			return app.ErrRepositoryUnavailable
+		}
+		sum := sha256.Sum256(raw)
+		if _, err := target.Write(sum[:]); err != nil {
+			return app.ErrRepositoryUnavailable
+		}
 	}
 	rows, err := r.transaction.QueryContext(ctx, `SELECT canonical_command,canonical_result FROM tc_catalog_registrations WHERE content_id=?1 ORDER BY result_revision`, content.String())
 	if err != nil {

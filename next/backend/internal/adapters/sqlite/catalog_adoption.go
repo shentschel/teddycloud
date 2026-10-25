@@ -81,7 +81,7 @@ func (r *catalogRepository) AdoptBaseline(ctx context.Context, op app.AdoptionOp
 	if err = r.stateSourceActive(call, command.Source); err != nil {
 		return result, err
 	}
-	if err = r.registrationKeyOnly(call, command.ID.String()); err != nil {
+	if err = r.catalogBatchKeyGuard(call, command.ID.String()); err != nil {
 		return result, err
 	}
 	id := command.Subject.ContentID()
@@ -271,6 +271,9 @@ func (r *catalogRepository) AdoptBaseline(ctx context.Context, op app.AdoptionOp
 		}
 	}
 	if _, _, err = r.readStates(call, id, command.Subject, true, domain.CatalogPersistenceBindings{AllowUnbound: true}); err != nil {
+		return result, err
+	}
+	if err = r.registrationAccounting(call, id); err != nil {
 		return result, err
 	}
 	r.wrote = true

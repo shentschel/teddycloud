@@ -363,6 +363,16 @@ func catalogSubjectKey(subject domain.CatalogSubject) string {
 // Counts and byte admission precede any blob materialization. History is read
 // in full within these fixed bounds: a truncated tail cannot look like a miss.
 func (r *catalogRepository) readStates(ctx context.Context, content identity.ContentID, subject domain.CatalogSubject, order bool, bindings domain.CatalogPersistenceBindings) ([]catalogStoredState, domain.CatalogRevision, error) {
+	states, revision, err := r.readStatesRaw(ctx, content, subject, order, bindings)
+	if err == nil && r.schemaVersion == 9 {
+		_, err = r.readSupersession(ctx, content, bindings)
+	}
+	return states, revision, err
+}
+
+// Raw envelope validation never calls the graph reader. The graph reader uses
+// these immutable snapshots to validate historical fences without recursion.
+func (r *catalogRepository) readStatesRaw(ctx context.Context, content identity.ContentID, subject domain.CatalogSubject, order bool, bindings domain.CatalogPersistenceBindings) ([]catalogStoredState, domain.CatalogRevision, error) {
 	id, key := content.String(), catalogSubjectKey(subject)
 	var corrupt bool
 	if err := r.transaction.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM pragma_foreign_key_check LIMIT 1)").Scan(&corrupt); err != nil {
@@ -408,6 +418,10 @@ func (r *catalogRepository) readStates(ctx context.Context, content identity.Con
 	args := []any{id, id}
 	if r.schemaVersion >= 8 {
 		eventSQL += ` UNION ALL SELECT aggregate_revision FROM tc_catalog_order_states_v2 WHERE content_id=? AND order_revision>1`
+		args = append(args, id)
+	}
+	if r.schemaVersion == 9 {
+		eventSQL += ` UNION ALL SELECT result_aggregate FROM tc_catalog_supersessions WHERE content_id=?`
 		args = append(args, id)
 	}
 	err = r.transaction.QueryRowContext(ctx, eventSQL+")", args...).Scan(&events, &distinct, &minimum, &maximum)
@@ -734,7 +748,7 @@ func (d *catalogStateReader) coordinate(source catalogStoredSource, binaryBatch 
 	parser, revision := d.text(), d.text()
 	index, locator, snapshot := d.number(), d.text(), []byte(d.text())
 	if d.write && d.err == nil {
-		if err := d.repository.registrationKeyOnly(d.ctx, batch); err != nil {
+		if err := d.repository.catalogBatchKeyGuard(d.ctx, batch); err != nil {
 			d.err = err
 		}
 	}
@@ -1119,12 +1133,22 @@ func (r *catalogRepository) CommitReview(ctx context.Context, operation app.Revi
 		return err
 	}
 	r.wrote = true
+	tx := r.transaction
 	r.authorize = append(r.authorize, func() error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		_, _, err := current.LookupCommand(operation.Capability, command)
-		return err
+		if _, _, err := current.LookupCommand(operation.Capability, command); err != nil {
+			return err
+		}
+		var revoked int
+		if err := tx.QueryRowContext(r.ctx, "SELECT revoked FROM tc_catalog_sources WHERE source_id=? AND registration_revision=?", command.Source.ID().String(), command.Source.Revision().String()).Scan(&revoked); err != nil {
+			return repositoryError(r.ctx, err)
+		}
+		if revoked != 0 {
+			return domain.ErrCatalogUnauthorized
+		}
+		return ctx.Err()
 	})
 	return call.Err()
 }

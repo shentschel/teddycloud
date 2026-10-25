@@ -45,6 +45,9 @@ func (r *catalogRepository) Query(ctx context.Context, query app.Query) (result 
 			r.failure = err
 		}
 	}()
+	if query.Kind == app.ListCurrentVersions {
+		return result, app.ErrUnsupported
+	}
 	if err := catalogQueryInput(query); err != nil {
 		return result, err
 	}
@@ -422,6 +425,17 @@ func (r *catalogRepository) catalogContent(ctx context.Context, id identity.Cont
 	}
 	if err := r.catalogFields(ctx, &record, revision, aggregate.Valid); err != nil {
 		return record, revision, false, err
+	}
+	if aggregate.Valid && r.schemaVersion == 9 {
+		// C3 validates the graph but does not expose unannotated records as a
+		// successful F02 query. C4 owns current/history annotations and cursors.
+		var graph bool
+		if err := r.transaction.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM tc_catalog_supersessions WHERE content_id=?)", id.String()).Scan(&graph); err != nil {
+			return record, revision, false, repositoryError(ctx, err)
+		}
+		if graph {
+			return record, revision, false, app.ErrUnsupported
+		}
 	}
 	return record, revision, true, nil
 }

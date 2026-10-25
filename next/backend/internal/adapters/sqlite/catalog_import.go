@@ -8,6 +8,7 @@ import (
 
 	app "github.com/shentschel/teddycloud/next/backend/internal/application/catalog"
 	domain "github.com/shentschel/teddycloud/next/backend/internal/domain/catalog"
+	"github.com/shentschel/teddycloud/next/backend/internal/domain/identity"
 )
 
 var _ app.ImportRepository = (*catalogRepository)(nil)
@@ -46,7 +47,7 @@ func (r *catalogRepository) commitImport(ctx context.Context, op app.ImportOpera
 	if err = r.stateSourceActive(ctx, source); err != nil {
 		return result, err
 	}
-	if err = r.registrationKeyOnly(ctx, key); err != nil {
+	if err = r.catalogBatchKeyGuard(ctx, key); err != nil {
 		return result, err
 	}
 	sourceRaw, err := source.PersistenceEncoding()
@@ -144,6 +145,11 @@ func (r *catalogRepository) commitImport(ctx context.Context, op app.ImportOpera
 		}
 	}
 	if err = exec("INSERT INTO tc_catalog_imports VALUES (?,?,?,?)", key, artifact, report, op.Payload.RetainedBytes()); err != nil {
+		return result, err
+	}
+	// Imports grow only global provenance, so use an absent content to check
+	// shared staging/source budgets without inventing an aggregate event.
+	if err = r.registrationAccounting(ctx, identity.ContentID{}); err != nil {
 		return result, err
 	}
 	r.wrote = true
