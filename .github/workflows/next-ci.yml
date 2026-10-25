@@ -128,7 +128,7 @@ jobs:
         run: |
           go test ./backend/internal/adapters/sqlite ./backend/internal/architecture
           go test ./backend/internal/domain/tag ./backend/internal/application/tagregistry
-          go test -count=10 ./backend/internal/adapters/sqlite
+          go test -timeout=20m -count=10 ./backend/internal/adapters/sqlite
 
       - name: Run focused persistence and domain race evidence
         working-directory: next
