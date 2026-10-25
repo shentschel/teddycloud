@@ -197,8 +197,8 @@ func newRegistrationIntegrationFixture(t *testing.T) *registrationIntegrationFix
 	t.Helper()
 	f := &registrationIntegrationFixture{owner: catalogQueryOwner(t)}
 	t.Cleanup(func() { _ = f.owner.Close(context.Background()) })
-	if version, err := f.owner.CurrentVersion(t.Context()); err != nil || version != 8 {
-		t.Fatal("newly migrated v8", version, err)
+	if version, err := f.owner.CurrentVersion(t.Context()); err != nil || version != 9 {
+		t.Fatal("newly migrated v9", version, err)
 	}
 	for table, rows := range registrationSchemaRows(t, f.owner.database.db) {
 		if table != "tc_schema_migrations" && len(rows) != 0 {

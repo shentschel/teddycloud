@@ -43,10 +43,19 @@ type registrationFixture struct {
 
 func newRegistrationFixture(t *testing.T) registrationFixture {
 	t.Helper()
-	f := registrationFixture{owner: catalogQueryOwner(t)}
+	return newRegistrationFixtureMigrations(t, SchemaMigrations())
+}
+
+func newRegistrationFixtureMigrations(t *testing.T, migrations []Migration) registrationFixture {
+	t.Helper()
+	owner, err := OpenLifecycleOwner(t.Context(), Config{Path: filepath.Join(t.TempDir(), "registration.sqlite")}, migrations)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = owner.Close(context.Background()) })
+	f := registrationFixture{owner: owner}
 	sid, _ := domain.NewSourceID()
 	principal, _ := domain.NewIssuerPrincipal()
-	var err error
 	f.source, f.ingest, err = domain.NewSourceRegistration(sid, principal, domain.SourceSpec{Adapter: "registration-test", AdapterVersion: "1", Scope: "core", Acquisition: domain.CoreOperator, AllowedClaims: []domain.ClaimKey{domain.TitleClaimKey, domain.ModelClaimKey, domain.ArticleClaimKey, domain.FingerprintClaimKey, domain.OwnershipClaimKey}})
 	if err != nil {
 		t.Fatal(err)
@@ -848,7 +857,12 @@ func registrationSchemaState(t *testing.T, db *sql.DB, kind string, aggregate, r
 
 func registrationSchemaFixture(t *testing.T) *Database {
 	t.Helper()
-	db := catalogSchemaFixture(t)
+	return registrationSchemaFixtureMigrations(t, SchemaMigrations())
+}
+
+func registrationSchemaFixtureMigrations(t *testing.T, migrations []Migration) *Database {
+	t.Helper()
+	db := catalogSchemaFixtureMigrations(t, migrations)
 	key, cid := strings.Repeat("6", 32), catalogSchemaID("cnt", 1)
 	registrationSchemaInsert(t, db.db, 1, key)
 	registrationSchemaSource(t, db.db, key)
@@ -864,7 +878,8 @@ func registrationSchemaFixture(t *testing.T) *Database {
 
 func TestRegistrationMigrationQuery(t *testing.T) {
 	t.Run("real v7 upgrade and exact restore", func(t *testing.T) {
-		migrations := SchemaMigrations()
+		// Keep the historical v7-to-v8 migration and exact v8 restore proof.
+		migrations := SchemaMigrations()[:8]
 		if len(migrations) != 8 || migrations[7].Version != 8 || migrations[7].ID != "0008-catalog-registration" {
 			t.Fatal("migration 8 identity")
 		}
@@ -1435,7 +1450,7 @@ func TestRegistrationSchemaRecovery(t *testing.T) {
 			want           error
 		}{
 			{"dirty", "UPDATE tc_schema_migrations SET dirty=1 WHERE version=8", ErrDirtyMigration},
-			{"future", "INSERT INTO tc_schema_migrations VALUES (9,'future','unknown',0,NULL)", ErrSchemaNewer},
+			{"future", "INSERT INTO tc_schema_migrations VALUES (10,'future','unknown',0,NULL)", ErrSchemaNewer},
 			{"checksum", "UPDATE tc_schema_migrations SET checksum='changed' WHERE version=8", ErrChecksumDrift},
 		} {
 			t.Run(tc.name, func(t *testing.T) {

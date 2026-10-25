@@ -2,27 +2,26 @@ package sqlite
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
+
+	app "github.com/shentschel/teddycloud/next/backend/internal/application/catalog"
+	domain "github.com/shentschel/teddycloud/next/backend/internal/domain/catalog"
 )
 
 // C1 exercises SQL envelopes on deliberately seeded fixtures. It makes no claim
 // about canonical bytes, historical support, full graph reconstruction or the
-// combined accounting that C2 must implement before activating migration 9.
-func supersessionSchemaMigrations() []Migration {
-	return append(SchemaMigrations(), catalogSupersessionMigration())
-}
+// combined accounting required before exposing supersession repository commands.
 
 func supersessionSchemaFixture(t *testing.T) *Database {
 	t.Helper()
 	db := registrationSchemaFixture(t)
-	if err := applyMigration(t.Context(), db.db, catalogSupersessionMigration()); err != nil {
-		t.Fatal(err)
-	}
 	cid := catalogSchemaID("cnt", 1)
 	for _, n := range []int{3, 4} {
 		vid := catalogSchemaID("ver", n)
@@ -47,21 +46,41 @@ func supersessionSchemaEvidence(t *testing.T, db *sql.DB) {
 }
 
 func TestSupersessionSchemaUpgrade(t *testing.T) {
-	db := registrationSchemaFixture(t)
+	db := registrationSchemaFixtureMigrations(t, SchemaMigrations()[:8])
 	before := registrationSchemaRows(t, db.db)
+	objects := catalogSchemaRows(t, db.db, catalogRecoveryObjects)
 	path := dbPathForSupersessionTest(t, db)
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
-	migrations := supersessionSchemaMigrations()
-	if len(SchemaMigrations()) != 8 || migrations[8].Version != 9 || migrations[8].ID != "0009-catalog-version-supersession" {
-		t.Fatal("C1 must remain staged until C2 admits all v9 owner paths")
+	migrations := SchemaMigrations()
+	if len(migrations) != 9 || migrations[8].Version != 9 || migrations[8].ID != "0009-catalog-version-supersession" {
+		t.Fatal("migration 9 not active")
+	}
+	if migrationChecksum(migrations[7]) != "4504d2bc70747671589c83a1036c63d66a190394e82207f5c74f14848b67544c" {
+		t.Fatal("migration 8 checksum changed")
+	}
+	if rejected, err := Open(t.Context(), Config{Path: path}, migrations); !errors.Is(err, ErrUpgradeBackupRequired) {
+		if rejected != nil {
+			rejected.Close()
+		}
+		t.Fatal("v8 upgrade without verified backup accepted", err)
 	}
 	upgraded, err := Open(t.Context(), Config{Path: path, UpgradeBackupPath: filepath.Join(t.TempDir(), "pre-v9.sqlite")}, migrations)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer upgraded.Close()
+	if version, err := upgraded.CurrentVersion(t.Context()); err != nil || version != 9 {
+		t.Fatal("normal Open did not activate v9", version, err)
+	}
+	backup, ok := upgraded.UpgradeBackup()
+	if !ok || backup.SchemaVersion != 8 {
+		t.Fatal("missing v8 backup")
+	}
+	if err := VerifyBackup(t.Context(), backup, migrations); err != nil {
+		t.Fatal("v8 backup verification", err)
+	}
 	for table, want := range before {
 		query := "SELECT * FROM " + table + " ORDER BY 1,2"
 		if table == "tc_schema_migrations" {
@@ -69,6 +88,11 @@ func TestSupersessionSchemaUpgrade(t *testing.T) {
 		}
 		if got := catalogSchemaRows(t, upgraded.db, query); !reflect.DeepEqual(got, want) {
 			t.Fatalf("v8 bytes or values changed in %s", table)
+		}
+	}
+	for _, object := range objects {
+		if !catalogSchemaContains(catalogSchemaRows(t, upgraded.db, catalogRecoveryObjects), object) {
+			t.Fatal("migration changed an existing schema object")
 		}
 	}
 	for _, table := range []string{"tc_catalog_supersessions", "tc_catalog_supersession_evidence", "tc_catalog_supersession_support"} {
@@ -86,6 +110,7 @@ func TestSupersessionSchemaUpgrade(t *testing.T) {
 			}
 		}
 	}
+	current := registrationSchemaRows(t, upgraded.db)
 	if err := upgraded.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -93,9 +118,140 @@ func TestSupersessionSchemaUpgrade(t *testing.T) {
 	if err != nil {
 		t.Fatal("clean v9 reopen", err)
 	}
+	if _, created := reopened.UpgradeBackup(); created || !reflect.DeepEqual(current, registrationSchemaRows(t, reopened.db)) {
+		t.Fatal("same-schema reopen changed rows or created an upgrade backup")
+	}
 	reopened.Close()
-	if _, err := Open(t.Context(), Config{Path: path}, SchemaMigrations()); !errors.Is(err, ErrSchemaNewer) {
+	if rejected, err := Open(t.Context(), Config{Path: path}, migrations[:8]); !errors.Is(err, ErrSchemaNewer) {
+		if rejected != nil {
+			rejected.Close()
+		}
 		t.Fatal("v8 binary accepted v9", err)
+	}
+	reopened, err = Open(t.Context(), Config{Path: path}, migrations)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	if !reflect.DeepEqual(current, registrationSchemaRows(t, reopened.db)) {
+		t.Fatal("same-schema or rejected old-reader open changed retained rows")
+	}
+}
+
+func TestSupersessionSchemaDispatch(t *testing.T) {
+	for _, version := range []int{4, 5, 7, 8, 9, 10} {
+		t.Run(fmt.Sprint(version), func(t *testing.T) {
+			migrations := SchemaMigrations()
+			if version == 10 {
+				migrations = append(migrations, Migration{Version: 10, ID: "0010-test-future", Statements: []string{"CREATE TABLE test_future (id INTEGER) STRICT"}})
+			} else {
+				migrations = migrations[:version]
+			}
+			owner, err := OpenLifecycleOwner(t.Context(), Config{Path: filepath.Join(t.TempDir(), "dispatch.sqlite")}, migrations)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer owner.Close(context.Background())
+			before := registrationSchemaRows(t, owner.database.db)
+			calls := 0
+			err = owner.WithinCatalogTransaction(t.Context(), func(r app.CatalogRepository) error {
+				calls++
+				if r.(*catalogRepository).schemaVersion != version {
+					t.Fatal("wrong schema dispatched")
+				}
+				return nil
+			})
+			if version < 5 || version > 9 {
+				if !errors.Is(err, app.ErrUnsupported) || calls != 0 {
+					t.Fatal("unsupported schema dispatched callback", calls, err)
+				}
+			} else if err != nil || calls != 1 {
+				t.Fatal("supported schema dispatch", calls, err)
+			}
+			if !reflect.DeepEqual(before, registrationSchemaRows(t, owner.database.db)) {
+				t.Fatal("dispatch changed retained rows")
+			}
+		})
+	}
+}
+
+func TestSupersessionSchemaRegistrationCompatibility(t *testing.T) {
+	f := newRegistrationFixtureMigrations(t, SchemaMigrations()[:8])
+	content, err := f.service.RegisterContent(t.Context(), f.command)
+	if err != nil {
+		t.Fatal("historical v8 content registration", err)
+	}
+	command := f.version(t, 101, 1)
+	version, err := f.service.RegisterCatalogVersion(t.Context(), command)
+	if err != nil {
+		t.Fatal("historical v8 version registration", err)
+	}
+	before := registrationSchemaRows(t, f.owner.database.db)
+	path := f.owner.config.Path
+	if err := f.owner.Close(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	f.owner, err = OpenLifecycleOwner(t.Context(), Config{Path: path, UpgradeBackupPath: filepath.Join(t.TempDir(), "registered-v8.sqlite")}, SchemaMigrations())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.owner.Close(context.Background())
+	f.bind(t)
+	if current, err := f.owner.CurrentVersion(t.Context()); err != nil || current != 9 {
+		t.Fatal("registered v8 fixture not upgraded", current, err)
+	}
+	for table, want := range before {
+		query := "SELECT * FROM " + table
+		if table == "tc_schema_migrations" {
+			query += " WHERE version<=8"
+		}
+		if got := catalogSchemaRows(t, f.owner.database.db, query+" ORDER BY 1,2"); !reflect.DeepEqual(got, want) {
+			t.Fatal("upgrade changed registration data or migration checksum", table)
+		}
+	}
+	upgraded := registrationSchemaRows(t, f.owner.database.db)
+	if got, err := f.service.RegisterContent(t.Context(), f.command); err != nil || !reflect.DeepEqual(got, content) {
+		t.Fatal("v8 content replay after upgrade", err)
+	}
+	if got, err := f.service.RegisterCatalogVersion(t.Context(), command); err != nil || !reflect.DeepEqual(got, version) {
+		t.Fatal("v8 version replay after upgrade", err)
+	}
+	if got, found, err := f.service.ReadRegistration(t.Context(), domain.RegisterCatalogVersion, command); err != nil || !found || !reflect.DeepEqual(got, version) {
+		t.Fatal("v8 registration readback after upgrade", found, err)
+	}
+	if !reflect.DeepEqual(upgraded, registrationSchemaRows(t, f.owner.database.db)) {
+		t.Fatal("replay or readback rewrote retained bytes")
+	}
+	if _, err := f.service.RegisterCatalogVersion(t.Context(), f.version(t, 102, 2)); err != nil {
+		t.Fatal("new F01 registration on upgraded v9", err)
+	}
+}
+
+func TestSupersessionSchemaRegistrationFailClosed(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		schema int
+		mutate string
+	}{
+		{"pre-registration schema", 7, ""},
+		{"future schema", 9, "UPDATE tc_schema_migrations SET version=10 WHERE version=9"},
+		{"dirty schema", 9, "UPDATE tc_schema_migrations SET dirty=1 WHERE version=9"},
+		{"checksum drift", 9, "UPDATE tc_schema_migrations SET checksum='changed' WHERE version=9"},
+		{"ledger gap", 9, "DELETE FROM tc_schema_migrations WHERE version=8"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newRegistrationFixtureMigrations(t, SchemaMigrations()[:tc.schema])
+			if tc.mutate != "" {
+				catalogSchemaExec(t, f.owner.database.db, tc.mutate)
+			}
+			before := registrationSchemaRows(t, f.owner.database.db)
+			if _, err := f.service.RegisterContent(t.Context(), f.command); !errors.Is(err, app.ErrUnsupported) {
+				t.Fatal("invalid schema accepted registration", err)
+			}
+			if !reflect.DeepEqual(before, registrationSchemaRows(t, f.owner.database.db)) {
+				t.Fatal("rejected registration changed schema or data")
+			}
+		})
 	}
 }
 
@@ -209,7 +365,7 @@ func TestSupersessionSchemaAuthorityAndCollisions(t *testing.T) {
 }
 
 func TestSupersessionSchemaRollbackAndDirty(t *testing.T) {
-	db := registrationSchemaFixture(t)
+	db := registrationSchemaFixtureMigrations(t, SchemaMigrations()[:8])
 	before := registrationSchemaRows(t, db.db)
 	broken := catalogSupersessionMigration()
 	broken.Statements = append(broken.Statements, "CREATE TABLE broken (")
@@ -228,7 +384,7 @@ func TestSupersessionSchemaRollbackAndDirty(t *testing.T) {
 	if err := db.db.QueryRowContext(t.Context(), `SELECT count(*) FROM sqlite_schema WHERE name LIKE 'tc_catalog_supersession%'`).Scan(&n); err != nil || n != 0 {
 		t.Fatal("partial schema published", n, err)
 	}
-	if _, err := inspectMigrationState(t.Context(), db.db, supersessionSchemaMigrations()); !errors.Is(err, ErrDirtyMigration) {
+	if _, err := inspectMigrationState(t.Context(), db.db, SchemaMigrations()); !errors.Is(err, ErrDirtyMigration) {
 		t.Fatal("dirty accepted", err)
 	}
 }
@@ -236,7 +392,7 @@ func TestSupersessionSchemaRollbackAndDirty(t *testing.T) {
 func TestSupersessionSchemaFreshAndCorrupt(t *testing.T) {
 	t.Run("fresh v9 and checksum drift", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "fresh-v9.sqlite")
-		migrations := supersessionSchemaMigrations()
+		migrations := SchemaMigrations()
 		db, err := Open(t.Context(), Config{Path: path}, migrations)
 		if err != nil {
 			t.Fatal(err)

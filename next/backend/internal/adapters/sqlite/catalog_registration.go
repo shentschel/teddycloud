@@ -55,7 +55,7 @@ func (r *catalogRepository) registrationInput(ctx context.Context, op app.Regist
 	if err != nil {
 		return nil, nil, err
 	}
-	if r.schemaVersion != 8 {
+	if r.schemaVersion < 8 || r.schemaVersion > 9 {
 		return nil, nil, app.ErrUnsupported
 	}
 	rows, err := r.transaction.QueryContext(ctx, "SELECT version,migration_id,checksum,dirty FROM tc_schema_migrations ORDER BY version")
@@ -82,7 +82,7 @@ func (r *catalogRepository) registrationInput(ctx context.Context, op app.Regist
 	if err != nil {
 		return nil, nil, repositoryError(ctx, err)
 	}
-	if i != 8 {
+	if i != r.schemaVersion {
 		return nil, nil, app.ErrUnsupported
 	}
 	return raw, sources, nil

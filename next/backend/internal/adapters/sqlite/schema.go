@@ -365,6 +365,7 @@ func init() {
 		`CREATE TRIGGER tc_catalog_imports_no_delete BEFORE DELETE ON tc_catalog_imports BEGIN SELECT RAISE(ABORT,'immutable catalog import'); END`,
 	}})
 	schemaMigrations = append(schemaMigrations, catalogRegistrationMigration())
+	schemaMigrations = append(schemaMigrations, catalogSupersessionMigration())
 }
 
 // Migration 8 only supplies storage fences. C2 must still validate complete
@@ -531,10 +532,9 @@ func catalogRegistrationMigration() Migration {
 	return m
 }
 
-// catalogSupersessionMigration is the staged C1 storage foundation. C2 must
-// admit version 9 together with owner dispatch, all-writer accounting and graph
-// validation. Leaving it out of SchemaMigrations keeps existing F01 operational
-// until those atomicity prerequisites are implemented.
+// catalogSupersessionMigration adds storage fences while existing catalog and
+// registration operations retain their accepted semantics. Supersession writers,
+// graph reconstruction and combined accounting require separate implementation.
 func catalogSupersessionMigration() Migration {
 	m := Migration{Version: 9, ID: "0009-catalog-version-supersession", Statements: []string{
 		`CREATE TABLE tc_catalog_supersessions (
