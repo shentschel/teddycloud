@@ -89,6 +89,7 @@ func TestCatalogMigrationAudit(t *testing.T) {
 
 func TestCatalogMilestoneQueryable(t *testing.T) {
 	registrationIntegrationMilestone(t)
+	supersessionIntegrationMilestone(t)
 }
 
 // Deliberate legacy/corruption fixture; the command-authored milestone above
