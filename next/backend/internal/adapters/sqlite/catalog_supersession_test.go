@@ -398,6 +398,173 @@ func TestSupersessionSQLiteCorruption(t *testing.T) {
 	}
 }
 
+// Corruption only: SQLite's endpoint UNIQUE constraints are table constraints,
+// so rebuild just this table, omitting the one guard needed for a branch/merge.
+// Keep all rows, other constraints, explicit indexes and triggers intact.
+func supersessionRemoveEndpointGuard(t *testing.T, f supersessionFixture, column string) {
+	t.Helper()
+	db := f.owner.database.db
+	var ddl string
+	if err := db.QueryRowContext(t.Context(), "SELECT sql FROM sqlite_schema WHERE name='tc_catalog_supersessions'").Scan(&ddl); err != nil {
+		t.Fatal(err)
+	}
+	guard := "UNIQUE(" + column + "),"
+	if strings.Count(ddl, guard) != 1 {
+		t.Fatal("missing endpoint guard", column)
+	}
+	objects := catalogSchemaRows(t, db, "SELECT sql FROM sqlite_schema WHERE tbl_name='tc_catalog_supersessions' AND type IN ('index','trigger') AND sql IS NOT NULL ORDER BY type,name")
+	catalogSchemaExec(t, db, "CREATE TEMP TABLE supersession_corruption_rows AS SELECT * FROM tc_catalog_supersessions")
+	catalogSchemaExec(t, db, "DROP TABLE tc_catalog_supersessions")
+	catalogSchemaExec(t, db, strings.Replace(ddl, guard, "", 1))
+	catalogSchemaExec(t, db, "INSERT INTO tc_catalog_supersessions SELECT * FROM supersession_corruption_rows")
+	for _, object := range objects {
+		catalogSchemaExec(t, db, object[0].(string))
+	}
+	catalogSchemaExec(t, db, "DROP TABLE supersession_corruption_rows")
+}
+
+func TestSupersessionSQLitePersistedGraphShapes(t *testing.T) {
+	for _, shape := range []string{"cycle", "branch", "merge"} {
+		t.Run(shape, func(t *testing.T) {
+			f, versions, commands, results := supersessionQueryFixture(t)
+			db := f.owner.database.db
+			before := catalogRecoveryRows(t, db)
+			// Start with accepted A->B->C and D->E. Rewrite only the last
+			// edge to C->A (cycle), A->E (branch) or D->C (merge).
+			c, result := commands[2], results[2]
+			switch shape {
+			case "cycle":
+				c.Old, c.New = versions[2], versions[0]
+			case "branch":
+				c.Old = versions[0]
+			case "merge":
+				c.New = versions[2]
+			}
+			c.Evidence = append([]domain.CatalogSupersessionEvidence(nil), c.Evidence...)
+			for i, e := range c.Evidence {
+				input := e.Input()
+				input.OldVersion, input.NewVersion = c.Old.ID(), c.New.ID()
+				var err error
+				c.Evidence[i], err = domain.NewCatalogSupersessionEvidence(f.ingest, f.source, input)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			result.Old, result.New = c.Old, c.New
+			commandRaw, err := f.op(c).Command.CanonicalEncoding(f.cap)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resultRaw, err := result.CanonicalEncoding()
+			if err != nil {
+				t.Fatal(err)
+			}
+			commandHash, resultHash := sha256.Sum256(commandRaw), sha256.Sum256(resultRaw)
+			// Disable FKs only across the parent/evidence pair rewrite; every
+			// relation is valid again before any repository read is attempted.
+			catalogSchemaExec(t, db, "PRAGMA foreign_keys=OFF")
+			if shape == "branch" {
+				supersessionRemoveEndpointGuard(t, f, "old_version_id")
+			} else if shape == "merge" {
+				supersessionRemoveEndpointGuard(t, f, "new_version_id")
+			}
+			guards := catalogSchemaRows(t, db, "SELECT name,sql FROM sqlite_schema WHERE name IN ('tc_catalog_supersessions_no_update','tc_catalog_supersession_evidence_no_update') ORDER BY name")
+			if len(guards) != 2 {
+				t.Fatal("missing immutable guards")
+			}
+			for _, guard := range guards {
+				catalogSchemaExec(t, db, "DROP TRIGGER "+guard[0].(string))
+			}
+			catalogSchemaExec(t, db, "UPDATE tc_catalog_supersessions SET old_version_id=?,new_version_id=?,canonical_command=?,canonical_result=?,command_sha256=?,result_sha256=? WHERE command_id=?", c.Old.ID().String(), c.New.ID().String(), commandRaw, resultRaw, commandHash[:], resultHash[:], c.ID.String())
+			catalogSchemaExec(t, db, "UPDATE tc_catalog_supersession_evidence SET old_version_id=?,new_version_id=? WHERE command_id=?", c.Old.ID().String(), c.New.ID().String(), c.ID.String())
+			for _, guard := range guards {
+				catalogSchemaExec(t, db, guard[1].(string))
+			}
+			catalogSchemaExec(t, db, "PRAGMA foreign_keys=ON")
+			if err := verifyForeignKeys(t.Context(), db); err != nil {
+				t.Fatal("fixture has unrelated FK corruption", err)
+			}
+			wantEdges := [][]any{
+				{versions[0].ID().String(), versions[1].ID().String()},
+				{versions[1].ID().String(), versions[2].ID().String()},
+				{c.Old.ID().String(), c.New.ID().String()},
+			}
+			if edges := catalogSchemaRows(t, db, "SELECT old_version_id,new_version_id FROM tc_catalog_supersessions ORDER BY result_supersession"); !reflect.DeepEqual(edges, wantEdges) {
+				t.Fatal("fixture did not persist the requested graph shape", edges)
+			}
+			corrupt := catalogRecoveryRows(t, db)
+			for table, rows := range before {
+				switch table {
+				case "sqlite_schema":
+					continue
+				case "tc_catalog_supersessions", "tc_catalog_supersession_evidence":
+					// The first two canonical edges and their evidence stay intact.
+					commandColumn := 0
+					if table == "tc_catalog_supersession_evidence" {
+						commandColumn = 1
+					}
+					if len(rows) != len(corrupt[table]) {
+						t.Fatal("fixture changed row counts", table)
+					}
+					for _, row := range rows {
+						if row[commandColumn] != c.ID.String() && !catalogSchemaContains(corrupt[table], row) {
+							t.Fatal("fixture changed unrelated edge/evidence", table)
+						}
+					}
+				default:
+					if !reflect.DeepEqual(rows, corrupt[table]) {
+						t.Fatal("fixture changed unrelated rows/accounting", table)
+					}
+				}
+			}
+			err = f.owner.WithinCatalogTransaction(t.Context(), func(repository app.CatalogRepository) error {
+				r := repository.(*catalogRepository)
+				if err := r.registrationAccounting(t.Context(), c.Content); err != nil {
+					t.Fatal("fixture has unrelated accounting corruption", err)
+				}
+				if _, err := r.supersessionProject(t.Context(), commandRaw, false); err != nil {
+					t.Fatal("fixture has inconsistent canonical evidence/support", err)
+				}
+				state, err := r.readSupersessionUncached(t.Context(), c.Content, domain.CatalogPersistenceBindings{AllowUnbound: true})
+				if !errors.Is(err, app.ErrRepositoryUnavailable) || !reflect.DeepEqual(state, domain.CatalogSupersessionState{}) {
+					t.Fatal("reconstruction returned a partial graph", state, err)
+				}
+				return err
+			})
+			if !errors.Is(err, app.ErrRepositoryUnavailable) {
+				t.Fatal("reconstruction error lost", err)
+			}
+			// Read an unchanged command: a later corrupt edge must invalidate
+			// the complete graph, even when the requested row is canonical.
+			if got, found, err := f.sup.ReadSupersession(t.Context(), commands[0]); !errors.Is(err, app.ErrRepositoryUnavailable) || found || !reflect.DeepEqual(got, domain.CatalogSupersessionResult{}) {
+				t.Fatal("readback leaked a result", got, found, err)
+			}
+			for _, version := range []identity.ContentVersionID{{}, versions[0].ID(), versions[5].ID()} {
+				if page, err := f.sup.QuerySupersession(t.Context(), app.SupersessionQuery{Content: c.Content, Version: version, Page: app.PageRequest{Limit: 1}}); !errors.Is(err, app.ErrRepositoryUnavailable) || !reflect.DeepEqual(page, app.HistoryPage{}) {
+					t.Fatal("history leaked entries/accounting", version, page, err)
+				}
+			}
+			for _, kind := range []app.QueryKind{app.GetContent, app.GetVersion, app.ListVersions, app.ListCurrentVersions, app.FindVersionsByPair, app.FindVersionsByAudioID} {
+				q := app.Query{Kind: kind, Content: c.Content, Page: app.PageRequest{Limit: 1}}
+				switch kind {
+				case app.GetVersion:
+					q.Version = versions[5].ID() // An isolated row cannot hide corruption.
+				case app.FindVersionsByPair:
+					q.Content, q.Fingerprint = identity.ContentID{}, c.Old.Fingerprint()
+				case app.FindVersionsByAudioID:
+					q.Content, q.AudioID = identity.ContentID{}, c.Old.Fingerprint().AudioID()
+				}
+				if page, err := catalogRead(t, f.owner, q); !errors.Is(err, app.ErrRepositoryUnavailable) || !reflect.DeepEqual(page, app.QueryResult{}) {
+					t.Fatal("catalog query leaked entries/accounting", kind, page, err)
+				}
+			}
+			if !reflect.DeepEqual(corrupt, catalogRecoveryRows(t, db)) {
+				t.Fatal("rejected reads repaired history or mutated rows/accounting")
+			}
+		})
+	}
+}
+
 func TestSupersessionSQLiteConcurrency(t *testing.T) {
 	for _, same := range []bool{false, true} {
 		t.Run(fmt.Sprint(same), func(t *testing.T) {
