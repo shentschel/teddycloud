@@ -330,6 +330,73 @@ func supersessionIntegrationMilestone(t *testing.T) {
 
 func TestSupersessionIntegrationMilestone(t *testing.T) { supersessionIntegrationMilestone(t) }
 
+func TestSupersessionHistoryCursorVerifiedRestore(t *testing.T) {
+	f := newSupersessionIntegrationFixture(t)
+	f.correctVersions(t)
+	// Retain this service and owner across Restore: no reopen, synthetic
+	// generation change or replacement reader can account for invalidation.
+	reader := f.sup
+	q := app.SupersessionQuery{Content: f.chain[0].ContentID(), Page: app.PageRequest{Limit: 128}}
+	restoredHistory, err := reader.QuerySupersession(t.Context(), q)
+	if err != nil || !restoredHistory.Complete || restoredHistory.Next != "" || len(restoredHistory.Entries) != 2 {
+		t.Fatal("snapshot history", restoredHistory, err)
+	}
+	for i, entry := range restoredHistory.Entries {
+		command, err := f.operation(f.commands[i]).Command.CanonicalEncoding(f.cap)
+		if err != nil {
+			t.Fatal(err)
+		}
+		result, err := f.results[i].CanonicalEncoding()
+		if err != nil || !bytes.Equal(entry.Command, command) || !bytes.Equal(entry.Result, result) || entry.SourceRevoked {
+			t.Fatal("history differs from accepted canonical command/result", i, err)
+		}
+	}
+	continuation := q
+	continuation.Page.Limit = 1
+	first, err := reader.QuerySupersession(t.Context(), continuation)
+	if err != nil || first.Complete || first.Next == "" || len(first.Entries) != 1 || !reflect.DeepEqual(first.Entries[0], restoredHistory.Entries[0]) {
+		t.Fatal("issue history cursor", first, err)
+	}
+	continuation.Page.Cursor, continuation.Page.ExpectedRevision = first.Next, first.AggregateRevision
+	if second, err := reader.QuerySupersession(t.Context(), continuation); err != nil || !second.Complete || second.Next != "" || len(second.Entries) != 1 || !reflect.DeepEqual(second.Entries[0], restoredHistory.Entries[1]) {
+		t.Fatal("cursor was not usable before restore", second, err)
+	}
+	rows := catalogRecoveryRows(t, f.owner.database.db)
+	snapshot, err := f.owner.database.CreateBackup(t.Context(), filepath.Join(t.TempDir(), "history.sqlite"), SchemaMigrations())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyBackup(t.Context(), snapshot, SchemaMigrations()); err != nil {
+		t.Fatal(err)
+	}
+	// Distinguish live history from the accepted snapshot using commands only.
+	later := f.addVersion(t, 1)
+	f.link(t, f.chain[2], later)
+	live, err := reader.QuerySupersession(t.Context(), q)
+	if err != nil || !live.Complete || len(live.Entries) != 3 || live.AggregateRevision.Uint64() <= restoredHistory.AggregateRevision.Uint64() || live.SupersessionRevision.Uint64() != restoredHistory.SupersessionRevision.Uint64()+1 || !reflect.DeepEqual(live.Entries[:2], restoredHistory.Entries) {
+		t.Fatal("post-snapshot history did not advance", live, err)
+	}
+	destination := filepath.Join(t.TempDir(), "restored-history.sqlite")
+	if err := f.owner.Restore(t.Context(), snapshot, destination); err != nil {
+		t.Fatal(err)
+	}
+	f.bindSupersession(t)
+	if f.owner.config.Path != destination || !reflect.DeepEqual(rows, catalogRecoveryRows(t, f.owner.database.db)) {
+		t.Fatal("restore did not select the exact snapshot at the new path")
+	}
+	// The original aggregate, graph and snapshot are back, so rejection cannot
+	// be explained merely by the later edge or its aggregate revision.
+	if page, err := reader.QuerySupersession(t.Context(), continuation); !errors.Is(err, app.ErrStaleCursor) || !reflect.DeepEqual(page, app.HistoryPage{}) {
+		t.Fatal("verified restore accepted the prior owner cursor", page, err)
+	}
+	if fresh, err := reader.QuerySupersession(t.Context(), q); err != nil || !reflect.DeepEqual(fresh, restoredHistory) {
+		t.Fatal("fresh history differs from the restored history", fresh, err)
+	}
+	if !reflect.DeepEqual(rows, catalogRecoveryRows(t, f.owner.database.db)) {
+		t.Fatal("stale/fresh queries mutated restored rows/accounting")
+	}
+}
+
 func TestSupersessionMediaAssignmentCompatibility(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("descriptor-backed contentfs requires Linux")
