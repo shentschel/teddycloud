@@ -4,9 +4,12 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -15,6 +18,271 @@ import (
 	"github.com/shentschel/teddycloud/next/backend/internal/domain/evidence"
 	"github.com/shentschel/teddycloud/next/backend/internal/domain/identity"
 )
+
+// This fence observes an authored prospective transaction and can roll it back
+// for measurement. It never changes rows or bypasses a writer's admission checks.
+type combinedAccountingFence struct {
+	owner   *LifecycleOwner
+	after   func(*catalogRepository) error
+	failure error
+}
+
+func (f *combinedAccountingFence) WithinCatalogTransaction(ctx context.Context, operation func(app.CatalogRepository) error) error {
+	f.failure = nil
+	return f.owner.WithinCatalogTransaction(ctx, func(repository app.CatalogRepository) error {
+		if err := operation(repository); err != nil {
+			f.failure = err
+			return err
+		}
+		if f.after != nil {
+			return f.after(repository.(*catalogRepository))
+		}
+		return nil
+	})
+}
+
+type combinedAccountingWriter struct {
+	name string
+	// CommitRegistration covers both registration APIs; CommitReview covers
+	// RecordObservations and the fact-decision APIs (AcceptSupport below).
+	kind string
+	// These are the only tables this particular command may change.
+	tables string
+	// Shared retained boundaries reachable by this writer. A from-absence
+	// writer cannot inherit state, and "none" means it never grows that count.
+	dimensions string
+}
+
+var combinedAccountingWriters = []combinedAccountingWriter{
+	// Initial registration has one event, <=64 observations and <=5 selections;
+	// it cannot approach the shared event/observation/link maxima from absence.
+	{"RegisterContent", "content", "tc_catalog_content tc_catalog_managed tc_catalog_subjects tc_catalog_observations tc_catalog_registrations tc_catalog_registration_sources tc_catalog_registration_support tc_catalog_review_states_v2 tc_catalog_order_states_v2", "bytes; events/observations/support from-absence"},
+	{"RegisterCatalogVersion", "version", "tc_content_versions tc_catalog_managed tc_catalog_subjects tc_catalog_observations tc_catalog_registrations tc_catalog_registration_sources tc_catalog_registration_support tc_catalog_review_states_v2 tc_catalog_order_states_v2 tc_catalog_order_state_versions_v2", "bytes events observations support"},
+	{"RecordObservations", "review", "tc_catalog_managed tc_catalog_subjects tc_catalog_observations tc_catalog_decisions tc_catalog_review_states_v2", "bytes events observations; support none"},
+	// Fact decisions require their retained source/observations: no global growth.
+	{"AcceptSupport", "decision", "tc_catalog_managed tc_catalog_subjects tc_catalog_decisions tc_catalog_decision_support tc_catalog_review_states_v2", "bytes events support; observations none"},
+	{"DecideOrder", "order", "tc_catalog_managed tc_catalog_order_states_v2 tc_catalog_order_state_versions_v2", "bytes events observations support"},
+	// Adoption initializes unreviewed states: zero events/observations/support.
+	{"AdoptBaseline", "adoption", "tc_catalog_managed tc_catalog_subjects tc_catalog_review_states tc_catalog_order_states", "bytes/events/observations/support from-absence"},
+	// Import has no per-content retained charge; only global provenance grows.
+	{"Import", "import", "tc_catalog_imports", "per-content bytes/events/observations/support none"},
+	{"SupersedeVersion", "supersession", "tc_catalog_managed tc_catalog_supersessions tc_catalog_supersession_evidence tc_catalog_supersession_support", "bytes events observations support"},
+}
+
+func combinedAccountingAssertRows(t *testing.T, writer combinedAccountingWriter, before, after map[string][][]any, observations int) {
+	t.Helper()
+	want := map[string]int{"tc_catalog_sources": 1, "tc_catalog_source_claims": 5, "tc_catalog_batches": 1, "tc_catalog_records": 1}
+	switch writer.kind {
+	case "content", "version":
+		want["tc_catalog_subjects"], want["tc_catalog_registrations"], want["tc_catalog_registration_sources"], want["tc_catalog_review_states_v2"], want["tc_catalog_order_states_v2"] = 1, 1, 1, 1, 1
+		want["tc_catalog_observations"] = observations
+		want["tc_catalog_registration_support"] = 1
+		if writer.kind == "content" {
+			want["tc_catalog_content"], want["tc_catalog_managed"] = 1, 1
+		} else {
+			want["tc_content_versions"], want["tc_catalog_registration_support"] = 1, 2
+			want["tc_catalog_order_state_versions_v2"] = len(after["tc_content_versions"])
+		}
+	case "review", "decision":
+		want["tc_catalog_decisions"], want["tc_catalog_review_states_v2"] = 1, 1
+		if writer.kind == "review" {
+			want["tc_catalog_observations"] = observations
+		} else {
+			want["tc_catalog_decision_support"] = 1
+			want["tc_catalog_sources"], want["tc_catalog_source_claims"] = 0, 0
+			want["tc_catalog_batches"], want["tc_catalog_records"] = 0, 0
+		}
+	case "order":
+		want["tc_catalog_order_states_v2"] = 1
+		want["tc_catalog_order_state_versions_v2"] = len(after["tc_content_versions"])
+	case "adoption":
+		want["tc_catalog_source_claims"], want["tc_catalog_records"] = 4, 2
+		want["tc_catalog_managed"], want["tc_catalog_subjects"], want["tc_catalog_review_states"], want["tc_catalog_order_states"] = 1, 1, 1, 1
+	case "import":
+		want["tc_catalog_imports"] = 1
+	case "supersession":
+		want["tc_catalog_supersessions"] = 1
+		want["tc_catalog_supersession_evidence"], want["tc_catalog_supersession_support"] = observations, observations
+	default:
+		t.Fatal("unmapped row charges", writer.name)
+	}
+	for table, rows := range before {
+		if delta := len(after[table]) - len(rows); delta != want[table] {
+			t.Fatal("unexpected row charge", writer.name, table, delta, want[table])
+		}
+	}
+}
+
+func combinedAccountingFixture(t *testing.T) supersessionFixture {
+	t.Helper()
+	f := newSupersessionFixture(t)
+	if _, err := f.service.RegisterCatalogVersion(t.Context(), f.version(t, 103, 3)); err != nil {
+		t.Fatal(err)
+	}
+	f.command.ExpectedAggregate, _ = domain.NewCatalogRevision(4)
+	if _, err := f.sup.SupersedeVersion(t.Context(), f.command); err != nil {
+		t.Fatal(err)
+	}
+	// Adoption starts from a real legacy Save, never an SQL-seeded baseline.
+	baseline, _ := domain.NewContent(catalogQueryContent(t, 200), domain.NewContentFacts("saved baseline", domain.ProductIdentifiers{}))
+	if err := f.owner.WithinTransaction(t.Context(), func(r app.ContentRepository) error { return r.Save(t.Context(), baseline) }); err != nil {
+		t.Fatal(err)
+	}
+	return f
+}
+
+func combinedAccountingPending(t *testing.T, f supersessionFixture, writer combinedAccountingWriter, fence *combinedAccountingFence, observationCount ...int) func() (any, error) {
+	t.Helper()
+	acquisition := domain.CoreOperator
+	if writer.kind == "adoption" {
+		acquisition = domain.BaselineSnapshot
+	}
+	s := newRegistrationIntegrationSource(t, f.review.Reviewer(), acquisition)
+	w := registrationFixture{owner: f.owner, source: s.source, ingest: s.ingest, review: s.review, namespace: s.space, command: f.registrationFixture.command}
+	w.capability, _ = domain.NewCatalogRegistrationCapability(s.review, []domain.ReviewCapability{s.review})
+	base, err := app.NewService(fence, s.source, s.review, s.space)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if writer.kind == "decision" {
+		base, err = app.NewService(fence, f.source, f.review, f.namespace)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	var registration app.RegistrationService
+	if writer.kind == "content" || writer.kind == "version" {
+		registration, err = app.NewRegistrationService(base, w.capability)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	id, _ := domain.NewCatalogCommandID()
+	var aggregate, reviewRevision, orderRevision uint64
+	if err := f.owner.database.db.QueryRowContext(t.Context(), `SELECT aggregate_revision,(SELECT review_revision FROM tc_catalog_subjects WHERE subject_id=?1),(SELECT max(order_revision) FROM tc_catalog_order_states_v2 WHERE content_id=?1) FROM tc_catalog_managed WHERE content_id=?1`, f.command.Content.String()).Scan(&aggregate, &reviewRevision, &orderRevision); err != nil {
+		t.Fatal(err)
+	}
+	expectedAggregate, _ := domain.NewCatalogRevision(aggregate)
+	expectedReview, _ := domain.NewCatalogRevision(reviewRevision)
+	claim, _ := domain.TitleClaim("matrix evidence")
+	o := w.observation(t, w.command.Subject, claim)
+	count := 1
+	if writer.kind == "version" {
+		count = 2
+	}
+	if len(observationCount) != 0 {
+		count = observationCount[0]
+	}
+	copyObservation := func(original domain.CatalogObservation) domain.CatalogObservation {
+		input := original.Input()
+		input.ID, _ = evidence.ParseID(registrationIntegrationID(t, "obs"))
+		copied, err := domain.NewCatalogObservation(w.ingest, w.source, input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return copied
+	}
+	switch writer.kind {
+	case "content":
+		subject, _ := domain.ContentSubject(catalogQueryContent(t, 201))
+		o = w.observation(t, subject, claim)
+		c := app.RegistrationCommand{ID: id, Subject: subject, ExpectedKind: domain.CatalogExpectedAbsent, Observations: []domain.CatalogObservation{o}, Selections: []domain.CatalogRegistrationSelection{{Key: domain.TitleClaimKey, Observation: o.ID()}}, Reason: "matrix content"}
+		return func() (any, error) { return registration.RegisterContent(t.Context(), c) }
+	case "version":
+		c := w.version(t, 999, aggregate)
+		// Share expectedReview real coordinate: the writer adds expectedReview batch and expectedReview record.
+		input := c.Observations[1].Input()
+		input.Coordinate = c.Observations[0].Input().Coordinate
+		c.Observations[1], err = domain.NewCatalogObservation(w.ingest, w.source, input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for len(c.Observations) < count {
+			c.Observations = append(c.Observations, copyObservation(c.Observations[1]))
+		}
+		return func() (any, error) { return registration.RegisterCatalogVersion(t.Context(), c) }
+	case "review", "decision":
+		c := app.ReviewCommand{ID: id, Subject: w.command.Subject, ExpectedAggregate: expectedAggregate, ExpectedReview: expectedReview, Observations: []domain.CatalogObservation{o}, Reason: "matrix review"}
+		for len(c.Observations) < count {
+			c.Observations = append(c.Observations, copyObservation(o))
+		}
+		if writer.kind == "decision" {
+			c.Observations = nil
+			c.Key, c.Support = domain.TitleClaimKey, []evidence.ID{f.registrationFixture.command.Observations[0].ID()}
+			return func() (any, error) { return base.AcceptSupport(t.Context(), c) }
+		}
+		return func() (any, error) { return base.RecordObservations(t.Context(), c) }
+	case "order":
+		expectedOrder, _ := domain.NewCatalogRevision(orderRevision)
+		sequence, e := domain.NewCatalogSequenceEvidence(w.ingest, w.namespace, domain.CatalogSequenceInput{ID: o.ID(), Content: f.command.Content, Version: f.command.New.ID(), Position: 1, Coordinate: o.Input().Coordinate})
+		if e != nil {
+			t.Fatal(e)
+		}
+		c := app.OrderCommand{ID: id, Content: f.command.Content, ExpectedAggregate: expectedAggregate, ExpectedOrder: expectedOrder, Evidence: []domain.CatalogSequenceEvidence{sequence}, Entries: []domain.CatalogOrderEntry{{Version: f.command.New.ID(), Position: 1, Support: []evidence.ID{o.ID()}}}, Reason: "matrix order"}
+		for len(c.Evidence) < count {
+			input := sequence.Input()
+			input.ID, _ = evidence.ParseID(registrationIntegrationID(t, "obs"))
+			item, err := domain.NewCatalogSequenceEvidence(w.ingest, w.namespace, input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			c.Evidence = append(c.Evidence, item)
+			c.Entries[0].Support = append(c.Entries[0].Support, item.Input().ID)
+		}
+		return func() (any, error) { return base.DecideOrder(t.Context(), c) }
+	case "adoption":
+		baseline, revision, e := base.ReadBaseline(t.Context(), catalogQueryContent(t, 200))
+		if e != nil {
+			t.Fatal(e)
+		}
+		c := app.AdoptionCommand{ID: id, Content: baseline.Content().ID(), ExpectedAggregate: revision, BaselineSHA256: baseline.SHA256(), Reason: "matrix adoption"}
+		return func() (any, error) { return base.AdoptBaseline(t.Context(), c) }
+	case "import":
+		service, e := app.NewImportService(fence, w.source, w.ingest)
+		if e != nil {
+			t.Fatal(e)
+		}
+		batch, _ := domain.NewBatchID()
+		report := importReport(t, `{"format":"catalog-offline-v1","records":[{"record":"matrix","kind":"public","title":"safe"}]}`)
+		return func() (any, error) { return service.Import(t.Context(), batch, report) }
+	case "supersession":
+		capability, e := domain.NewCatalogSupersessionCapability(w.review)
+		if e != nil {
+			t.Fatal(e)
+		}
+		service, e := app.NewSupersessionService(base, capability)
+		if e != nil {
+			t.Fatal(e)
+		}
+		third, _ := domain.NewContentVersion(catalogQueryVersion(t, 103), f.command.Content, f.command.New.Fingerprint(), domain.UnknownVersionOrderEvidence())
+		var revision uint64
+		if err := f.owner.database.db.QueryRowContext(t.Context(), "SELECT count(*)+1 FROM tc_catalog_supersessions WHERE content_id=?", f.command.Content.String()).Scan(&revision); err != nil {
+			t.Fatal(err)
+		}
+		c := f.link(t, f.command.New, third, aggregate, revision)
+		input := c.Evidence[0].Input()
+		input.Coordinate = o.Input().Coordinate
+		c.Evidence[0], e = domain.NewCatalogSupersessionEvidence(w.ingest, w.source, input)
+		if e != nil {
+			t.Fatal(e)
+		}
+		c.Support = []evidence.ID{c.Evidence[0].ID()}
+		for len(c.Evidence) < count {
+			input := c.Evidence[0].Input()
+			input.ID, _ = evidence.ParseID(registrationIntegrationID(t, "obs"))
+			item, err := domain.NewCatalogSupersessionEvidence(w.ingest, w.source, input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			c.Evidence = append(c.Evidence, item)
+			c.Support = append(c.Support, item.ID())
+		}
+		return func() (any, error) { return service.SupersedeVersion(t.Context(), c) }
+	default:
+		t.Fatal("unmapped writer", writer.name)
+		return nil
+	}
+}
 
 type supersessionFixture struct {
 	registrationFixture
@@ -1304,5 +1572,407 @@ func TestSupersessionHistoryMissingCorruption(t *testing.T) {
 	catalogSchemaExec(t, f.owner.database.db, "PRAGMA foreign_keys=ON")
 	if page, err := f.sup.QuerySupersession(t.Context(), app.SupersessionQuery{Content: catalogQueryContent(t, 999), Page: app.PageRequest{Limit: 128}}); !errors.Is(err, app.ErrRepositoryUnavailable) || len(page.Entries) != 0 {
 		t.Fatal("orphan became absence", page, err)
+	}
+}
+
+// Read complete persisted charges, including F01 immutable envelopes and F02
+// non-BLOB/provenance columns. No usage counters or fixture row mutations.
+func combinedAccountingUsage(t *testing.T, db interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}, content identity.ContentID) supersessionUsage {
+	t.Helper()
+	var u, f02 supersessionUsage
+	if err := db.QueryRowContext(t.Context(), `SELECT
+ (SELECT COALESCE(sum(length(canonical_command)+length(canonical_result)),0) FROM tc_catalog_decisions WHERE content_id=?1)+
+ (SELECT COALESCE(sum(length(state)),0) FROM tc_catalog_review_states WHERE content_id=?1)+
+ (SELECT COALESCE(sum(length(state)),0) FROM tc_catalog_order_states WHERE content_id=?1)+
+ (SELECT COALESCE(sum(length(state)),0) FROM tc_catalog_review_states_v2 WHERE content_id=?1)+
+ (SELECT COALESCE(sum(length(state)),0) FROM tc_catalog_order_states_v2 WHERE content_id=?1)+
+ (SELECT COALESCE(sum(length(canonical_command)+length(canonical_result)),0) FROM tc_catalog_registrations WHERE content_id=?1)+
+ (SELECT COALESCE(sum(COALESCE(length(o.text_value),0)+COALESCE(length(b.snapshot),0)+512),0) FROM tc_catalog_observations o LEFT JOIN tc_catalog_records b ON b.batch_id=o.batch_id AND b.record_index=o.record_index WHERE o.content_id=?1)+
+ (SELECT COALESCE(sum(8+length(s.command_id)+8+length(s.source_id)+8+length(s.registration_revision)+8+length(s.reviewer_principal)+8),0) FROM tc_catalog_registration_sources s JOIN tc_catalog_registrations r USING(command_id) WHERE r.content_id=?1)+
+ (SELECT COALESCE(sum(8+length(s.command_id)+8+length(s.observation_id)+8+length(s.subject_id)+8+length(s.source_id)+8+length(s.registration_revision)+8),0) FROM tc_catalog_registration_support s JOIN tc_catalog_registrations r USING(command_id) WHERE r.content_id=?1)+
+ (SELECT COALESCE(sum(8+length(content_id)+8+8+length(version_id)),0) FROM tc_catalog_order_state_versions_v2 WHERE content_id=?1),
+ (SELECT count(*) FROM tc_catalog_observations WHERE content_id=?1),
+ (SELECT count(*) FROM tc_catalog_decision_support s JOIN tc_catalog_subjects u USING(subject_id) WHERE u.content_id=?1)+(SELECT count(*) FROM tc_catalog_registration_support s JOIN tc_catalog_registrations r USING(command_id) WHERE r.content_id=?1),
+ (SELECT count(*) FROM tc_catalog_decisions WHERE content_id=?1)+(SELECT count(*) FROM tc_catalog_registrations WHERE content_id=?1)+(SELECT count(*) FROM tc_catalog_order_states WHERE content_id=?1 AND order_revision>1)+(SELECT count(*) FROM tc_catalog_order_states_v2 o WHERE content_id=?1 AND order_revision>1 AND NOT EXISTS(SELECT 1 FROM tc_catalog_registrations r WHERE r.content_id=o.content_id AND r.result_revision=o.aggregate_revision))`, content.String()).Scan(&u.bytes, &u.observations, &u.links, &u.events); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRowContext(t.Context(), `SELECT
+ (SELECT COALESCE(sum(length(canonical_command)+length(canonical_result)+
+ 8+length(command_id)+8+length(content_id)+8+length(old_version_id)+8+length(new_version_id)+8+length(source_id)+8+length(registration_revision)+8+length(reviewer_principal)+9*8+64),0) FROM tc_catalog_supersessions WHERE content_id=?1)+
+ (SELECT COALESCE(sum(8+length(e.evidence_id)+8+length(e.command_id)+8+length(e.content_id)+8+length(e.old_version_id)+8+length(e.new_version_id)+8+length(e.source_id)+8+length(e.registration_revision)+8+length(e.batch_id)+8+8+length(CAST(e.asserted_origin AS BLOB))+8+length(e.observed_at)+8+
+ 8+length(e.batch_id)+32+8+8+8+length(CAST(b.parser_revision AS BLOB))+8+length(CAST(b.source_revision AS BLOB))+8+8+length(CAST(r.locator AS BLOB))+8+length(r.snapshot)),0) FROM tc_catalog_supersession_evidence e JOIN tc_catalog_batches b USING(batch_id) JOIN tc_catalog_records r ON r.batch_id=e.batch_id AND r.record_index=e.record_index WHERE e.content_id=?1)+
+ (SELECT COALESCE(sum(8+length(s.command_id)+8+length(s.evidence_id)),0) FROM tc_catalog_supersession_support s JOIN tc_catalog_supersessions e USING(command_id) WHERE e.content_id=?1),
+ (SELECT count(*) FROM tc_catalog_supersession_evidence WHERE content_id=?1),
+ (SELECT count(*) FROM tc_catalog_supersession_support s JOIN tc_catalog_supersessions e USING(command_id) WHERE e.content_id=?1),
+ (SELECT count(*) FROM tc_catalog_supersessions WHERE content_id=?1)`, content.String()).Scan(&f02.bytes, &f02.observations, &f02.links, &f02.events); err != nil {
+		t.Fatal(err)
+	}
+	u.bytes += f02.bytes
+	u.observations += f02.observations
+	u.links += f02.links
+	u.events += f02.events
+	var raw []byte
+	err := db.QueryRowContext(t.Context(), `SELECT state FROM (SELECT order_revision,state FROM tc_catalog_order_states WHERE content_id=?1 UNION ALL SELECT order_revision,state FROM tc_catalog_order_states_v2 WHERE content_id=?1) ORDER BY order_revision DESC LIMIT 1`, content.String()).Scan(&raw)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		t.Fatal(err)
+	}
+	if err == nil {
+		links, observations, err := registrationOrderUsage(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		u.links += links
+		u.observations += observations
+	}
+	return u
+}
+
+func combinedAccountingByteFixture(t *testing.T, padding, reason int) supersessionFixture {
+	t.Helper()
+	f := newSupersessionFixture(t)
+	if _, err := f.service.RegisterCatalogVersion(t.Context(), f.version(t, 103, 3)); err != nil {
+		t.Fatal(err)
+	}
+	f.command.ExpectedAggregate, _ = domain.NewCatalogRevision(4)
+	input := f.command.Evidence[0].Input()
+	claim, _ := domain.OwnershipClaim(f.command.Content)
+	subject, _ := domain.VersionSubject(f.command.Content, f.command.New.ID())
+	o := f.observationSnapshot(t, subject, claim, []byte(`{"safe":true}`+strings.Repeat(" ", padding)))
+	input.Coordinate = o.Input().Coordinate
+	f.command.Evidence, f.command.Support = nil, nil
+	for range 64 {
+		input.ID, _ = evidence.ParseID(registrationIntegrationID(t, "obs"))
+		e, err := domain.NewCatalogSupersessionEvidence(f.ingest, f.source, input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		f.command.Evidence = append(f.command.Evidence, e)
+		f.command.Support = append(f.command.Support, e.ID())
+	}
+	f.command.Reason = "a" + strings.Repeat("x", reason)
+	if _, err := f.sup.SupersedeVersion(t.Context(), f.command); err != nil {
+		t.Fatal("author byte filler", err)
+	}
+	return f
+}
+
+// The padding is a retained JSON whitespace byte per evidence coordinate, both
+// in the canonical command and in the F02 coordinate charge: 64 * 2 bytes.
+// The reason supplies the remainder one byte at a time. Both are authoring inputs.
+func TestSupersessionSQLiteCombinedWriterBytes(t *testing.T) {
+	for _, writer := range combinedAccountingWriters {
+		if writer.kind == "content" || writer.kind == "adoption" || writer.kind == "import" {
+			continue
+		}
+		t.Run(writer.name, func(t *testing.T) {
+			calibration := combinedAccountingByteFixture(t, 0, 0)
+			fence := &combinedAccountingFence{owner: calibration.owner}
+			write := combinedAccountingPending(t, calibration, writer, fence)
+			beforeUsage := combinedAccountingUsage(t, calibration.owner.database.db, calibration.command.Content)
+			var prospective supersessionUsage
+			fence.after = func(r *catalogRepository) error {
+				prospective = combinedAccountingUsage(t, r.transaction, calibration.command.Content)
+				return errors.New("rollback byte calibration")
+			}
+			before := catalogRecoveryRows(t, calibration.owner.database.db)
+			if _, err := write(); !errors.Is(err, app.ErrRepositoryUnavailable) || prospective.bytes == 0 {
+				t.Fatal("calibrate bytes", err)
+			}
+			if !reflect.DeepEqual(before, catalogRecoveryRows(t, calibration.owner.database.db)) {
+				t.Fatal("calibration leaked rows")
+			}
+			delta := prospective.bytes - beforeUsage.bytes
+			remaining := domain.RetainedBytes.Maximum() - prospective.bytes
+			for _, extra := range []uint64{0, 1} {
+				t.Run(fmt.Sprintf("over_%d", extra), func(t *testing.T) {
+					f := combinedAccountingByteFixture(t, int(remaining/128), int(remaining%128+extra))
+					fence := &combinedAccountingFence{owner: f.owner}
+					write := combinedAccountingPending(t, f, writer, fence)
+					usage := combinedAccountingUsage(t, f.owner.database.db, f.command.Content)
+					if usage.bytes+delta != domain.RetainedBytes.Maximum()+extra {
+						t.Fatal("fixture is not exact", usage, delta, extra)
+					}
+					before := catalogRecoveryRows(t, f.owner.database.db)
+					result, err := write()
+					if extra == 1 {
+						var limit domain.LimitError
+						if !errors.Is(err, app.ErrLimitExceeded) || !errors.As(fence.failure, &limit) || limit.Resource != domain.RetainedBytes {
+							t.Fatal("byte rejection", err, fence.failure)
+						}
+						if !reflect.DeepEqual(before, catalogRecoveryRows(t, f.owner.database.db)) {
+							t.Fatal("byte rejection leaked rows")
+						}
+						return
+					}
+					if err != nil {
+						t.Fatal("exact combined byte bound", err, fence.failure)
+					}
+					after := catalogRecoveryRows(t, f.owner.database.db)
+					n := 1
+					if writer.kind == "version" {
+						n = 2
+					}
+					combinedAccountingAssertRows(t, writer, before, after, n)
+					got := combinedAccountingUsage(t, f.owner.database.db, f.command.Content)
+					if got.bytes != domain.RetainedBytes.Maximum() || got.events != usage.events+1 {
+						t.Fatal("actual combined charges", usage, got)
+					}
+					for table, rows := range before {
+						if !slices.Contains(strings.Fields(writer.tables+" tc_catalog_sources tc_catalog_source_claims tc_catalog_batches tc_catalog_records"), table) && !reflect.DeepEqual(rows, after[table]) {
+							t.Fatal("changed unrelated rows", table)
+						}
+					}
+					replay, err := write()
+					if err != nil || !reflect.DeepEqual(result, replay) || !reflect.DeepEqual(after, catalogRecoveryRows(t, f.owner.database.db)) {
+						t.Fatal("byte-bound replay changed result or rows", err)
+					}
+				})
+			}
+		})
+	}
+}
+
+func combinedAccountingClone(t *testing.T, f supersessionFixture) supersessionFixture {
+	t.Helper()
+	path, err := f.owner.database.CreateBackup(t.Context(), filepath.Join(t.TempDir(), "authored.sqlite"), SchemaMigrations())
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.owner, err = OpenLifecycleOwner(t.Context(), Config{Path: path.Path}, SchemaMigrations())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = f.owner.Close(context.Background()) })
+	f.bind(t)
+	f.sup, err = app.NewSupersessionService(f.base, f.cap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return f
+}
+
+func combinedAccountingObservationFixture(t *testing.T) supersessionFixture {
+	t.Helper()
+	f := combinedAccountingFixture(t)
+	fence := &combinedAccountingFence{owner: f.owner}
+	base, err := app.NewService(fence, f.source, f.review, f.namespace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sup, err := app.NewSupersessionService(base, f.cap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	usage := combinedAccountingUsage(t, f.owner.database.db, f.command.Content)
+	const target = uint64(4094)
+	needed := target - usage.observations
+	edges := int((needed + 65) / 66)
+	evidenceLeft := needed - 2*uint64(edges)
+	aggregate, supersessionRevision := uint64(5), uint64(2)
+	old, err := domain.NewContentVersion(catalogQueryVersion(t, 103), f.command.Content, f.command.New.Fingerprint(), domain.UnknownVersionOrderEvidence())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for edge := 0; edge < edges; edge++ {
+		n := 104 + edge
+		if _, err := f.service.RegisterCatalogVersion(t.Context(), f.version(t, n, aggregate)); err != nil {
+			t.Fatal("author compact observation manifest", n, err)
+		}
+		aggregate++
+		newer, err := domain.NewContentVersion(catalogQueryVersion(t, n), f.command.Content, f.command.New.Fingerprint(), domain.UnknownVersionOrderEvidence())
+		if err != nil {
+			t.Fatal(err)
+		}
+		command := f.link(t, old, newer, aggregate, supersessionRevision)
+		input := command.Evidence[0].Input()
+		remainingEdges := uint64(edges - edge - 1)
+		count := min(uint64(64), evidenceLeft-remainingEdges)
+		command.Evidence, command.Support = nil, nil
+		for range count {
+			input.ID, _ = evidence.ParseID(registrationIntegrationID(t, "obs"))
+			item, err := domain.NewCatalogSupersessionEvidence(f.ingest, f.source, input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			command.Evidence = append(command.Evidence, item)
+			command.Support = append(command.Support, item.ID())
+		}
+		if _, err := sup.SupersedeVersion(t.Context(), command); err != nil {
+			t.Fatal("author compact observation evidence", edge, err, fence.failure)
+		}
+		aggregate++
+		supersessionRevision++
+		evidenceLeft -= count
+		old = newer
+	}
+	if u := combinedAccountingUsage(t, f.owner.database.db, f.command.Content); u.observations != target || u.bytes >= domain.RetainedBytes.Maximum() {
+		t.Fatal("observation fixture", u)
+	}
+	return f
+}
+
+func TestSupersessionSQLiteCombinedWriterObservations(t *testing.T) {
+	seed := combinedAccountingObservationFixture(t)
+	for _, writer := range combinedAccountingWriters {
+		if writer.kind != "version" {
+			continue
+		}
+		for _, count := range []int{2, 3} {
+			t.Run(fmt.Sprintf("%s/observations_%d", writer.name, count), func(t *testing.T) {
+				f := combinedAccountingClone(t, seed)
+				fence := &combinedAccountingFence{owner: f.owner}
+				write := combinedAccountingPending(t, f, writer, fence, count)
+				before := catalogRecoveryRows(t, f.owner.database.db)
+				result, err := write()
+				if count == 3 {
+					var limit domain.LimitError
+					if !errors.Is(err, app.ErrLimitExceeded) || !errors.As(fence.failure, &limit) || limit.Resource != domain.RetainedObservations {
+						t.Fatal("combined observation rejection", err, fence.failure)
+					}
+					if !reflect.DeepEqual(before, catalogRecoveryRows(t, f.owner.database.db)) {
+						t.Fatal("observation rejection leaked rows")
+					}
+					return
+				}
+				if err != nil {
+					t.Fatal("exact combined observations", err, fence.failure)
+				}
+				after := catalogRecoveryRows(t, f.owner.database.db)
+				combinedAccountingAssertRows(t, writer, before, after, count)
+				if u := combinedAccountingUsage(t, f.owner.database.db, f.command.Content); u.observations != 4096 {
+					t.Fatal("observation charge duplicated or lost", u)
+				}
+				for table, rows := range before {
+					if !slices.Contains(strings.Fields(writer.tables+" tc_catalog_sources tc_catalog_source_claims tc_catalog_batches tc_catalog_records"), table) && !reflect.DeepEqual(rows, after[table]) {
+						t.Fatal("observation writer changed unrelated rows", table)
+					}
+				}
+				replay, err := write()
+				if err != nil || !reflect.DeepEqual(result, replay) || !reflect.DeepEqual(after, catalogRecoveryRows(t, f.owner.database.db)) {
+					t.Fatal("observation replay changed result or rows", err)
+				}
+			})
+		}
+	}
+}
+
+func combinedAccountingContentBytes(t *testing.T, f supersessionFixture, fence *combinedAccountingFence, padding, locatorPadding, reason int) func() (any, error) {
+	t.Helper()
+	base, err := app.NewService(fence, f.source, f.review, f.namespace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := app.NewRegistrationService(base, f.capability)
+	if err != nil {
+		t.Fatal(err)
+	}
+	subject, _ := domain.ContentSubject(catalogQueryContent(t, 201))
+	claim, _ := domain.TitleClaim("title")
+	o := f.observationSnapshot(t, subject, claim, []byte(`{"safe":true}`+strings.Repeat(" ", padding)))
+	id, _ := domain.NewCatalogCommandID()
+	c := app.RegistrationCommand{ID: id, Subject: subject, ExpectedKind: domain.CatalogExpectedAbsent, Reason: "a" + strings.Repeat("x", reason)}
+	for i := 0; i < 64; i++ {
+		input := o.Input()
+		input.ID, _ = evidence.ParseID(registrationIntegrationID(t, "obs"))
+		if i == 63 {
+			facts := o.Input().Coordinate.Artifact().Facts()
+			facts.ID, _ = domain.NewBatchID()
+			artifact, err := domain.NewArtifact(f.ingest, f.source, facts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			input.Coordinate, err = domain.NewRecordCoordinate(artifact, 0, "0"+strings.Repeat("x", locatorPadding), o.Input().Coordinate.Snapshot())
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+		item, err := domain.NewCatalogObservation(f.ingest, f.source, input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		c.Observations = append(c.Observations, item)
+	}
+	c.Selections = []domain.CatalogRegistrationSelection{{Key: domain.TitleClaimKey, Observation: c.Observations[0].ID()}}
+	return func() (any, error) { return service.RegisterContent(t.Context(), c) }
+}
+
+func TestSupersessionSQLiteCombinedRegisterContentBytes(t *testing.T) {
+	f := combinedAccountingFixture(t)
+	fence := &combinedAccountingFence{owner: f.owner}
+	measure := func(padding, locatorPadding, reason int) uint64 {
+		var size uint64
+		fence.after = func(r *catalogRepository) error {
+			size = combinedAccountingUsage(t, r.transaction, catalogQueryContent(t, 201)).bytes
+			return errors.New("rollback content calibration")
+		}
+		before := catalogRecoveryRows(t, f.owner.database.db)
+		if _, err := combinedAccountingContentBytes(t, f, fence, padding, locatorPadding, reason)(); !errors.Is(err, app.ErrRepositoryUnavailable) || size == 0 {
+			t.Fatal("content calibration", err)
+		}
+		if !reflect.DeepEqual(before, catalogRecoveryRows(t, f.owner.database.db)) {
+			t.Fatal("content calibration leaked rows")
+		}
+		return size
+	}
+	initial := measure(0, 0, 0)
+	snapshotStep, locatorStep, reasonStep := measure(1, 0, 0)-initial, measure(0, 1, 0)-initial, measure(0, 0, 1)-initial
+	fence.after = nil
+	if snapshotStep != 256 || locatorStep != 3 || reasonStep != 2 {
+		t.Fatal("unexpected content charge steps", snapshotStep, locatorStep, reasonStep)
+	}
+	for _, extra := range []uint64{0, 1} {
+		t.Run(fmt.Sprintf("over_%d", extra), func(t *testing.T) {
+			remaining := domain.RetainedBytes.Maximum() + extra - initial
+			padding := remaining / snapshotStep
+			locatorPadding, reason, found := uint64(0), uint64(0), false
+			for !found && padding > 0 {
+				remainder := remaining - padding*snapshotStep
+				for x := uint64(0); x <= min(uint64(512), remainder/locatorStep); x++ {
+					if (remainder-x*locatorStep)%reasonStep == 0 {
+						locatorPadding, reason, found = x, (remainder-x*locatorStep)/reasonStep, true
+						break
+					}
+				}
+				if !found {
+					padding--
+				}
+			}
+			if !found {
+				t.Fatal("no exact authoring inputs")
+			}
+			clone := combinedAccountingClone(t, f)
+			fence := &combinedAccountingFence{owner: clone.owner}
+			write := combinedAccountingContentBytes(t, clone, fence, int(padding), int(locatorPadding), int(reason))
+			before := catalogRecoveryRows(t, clone.owner.database.db)
+			result, err := write()
+			if extra == 1 {
+				var limit domain.LimitError
+				if !errors.Is(err, app.ErrLimitExceeded) || !errors.As(fence.failure, &limit) || limit.Resource != domain.RetainedBytes {
+					t.Fatal("initial content byte rejection", err, fence.failure)
+				}
+				if !reflect.DeepEqual(before, catalogRecoveryRows(t, clone.owner.database.db)) {
+					t.Fatal("initial content rejection leaked rows")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal("exact initial content bytes", err, fence.failure)
+			}
+			if u := combinedAccountingUsage(t, clone.owner.database.db, catalogQueryContent(t, 201)); u.bytes != domain.RetainedBytes.Maximum() || u.observations != 64 || u.events != 1 || u.links != 1 {
+				t.Fatal("initial content actual charges", u)
+			}
+			after := catalogRecoveryRows(t, clone.owner.database.db)
+			for table, rows := range before {
+				if !slices.Contains(strings.Fields(combinedAccountingWriters[0].tables+" tc_catalog_batches tc_catalog_records"), table) && !reflect.DeepEqual(rows, after[table]) {
+					t.Fatal("content changed unrelated rows", table)
+				}
+			}
+			replay, err := write()
+			if err != nil || !reflect.DeepEqual(result, replay) || !reflect.DeepEqual(after, catalogRecoveryRows(t, clone.owner.database.db)) {
+				t.Fatal("initial content replay changed result or rows", err)
+			}
+		})
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"reflect"
 	"sync"
 	"time"
@@ -88,7 +89,8 @@ func (owner *LifecycleOwner) catalogTransaction(ctx context.Context, operation f
 	if (version < 5 || version > 9) || dirty != 0 {
 		return app.ErrUnsupported
 	}
-	repository := &catalogRepository{transaction: tx, ctx: ctx, owner: owner, database: owner.database, generation: owner.generation.Load(), schemaVersion: version}
+	repository := &catalogRepository{transaction: tx, ctx: ctx, owner: owner, database: owner.database, generation: owner.generation.Load(), schemaVersion: version, statements: make(map[string]*sql.Stmt)}
+	defer repository.closeStatements()
 	defer repository.revoke()
 	result = operation(repository)
 	repository.revoke()
@@ -134,6 +136,26 @@ type catalogRepository struct {
 	schemaVersion int
 	wrote         bool
 	authorize     []func() error
+	statements    map[string]*sql.Stmt
+}
+
+func (r *catalogRepository) statement(ctx context.Context, query string) (*sql.Stmt, error) {
+	if statement := r.statements[query]; statement != nil {
+		return statement, nil
+	}
+	statement, err := r.transaction.PrepareContext(ctx, query)
+	if err != nil {
+		return nil, repositoryError(ctx, err)
+	}
+	r.statements[query] = statement
+	return statement, nil
+}
+
+func (r *catalogRepository) closeStatements() {
+	for _, statement := range r.statements {
+		_ = statement.Close()
+	}
+	r.statements = nil
 }
 
 func (r *catalogRepository) revoke() {
@@ -363,8 +385,15 @@ func catalogSubjectKey(subject domain.CatalogSubject) string {
 // Counts and byte admission precede any blob materialization. History is read
 // in full within these fixed bounds: a truncated tail cannot look like a miss.
 func (r *catalogRepository) readStates(ctx context.Context, content identity.ContentID, subject domain.CatalogSubject, order bool, bindings domain.CatalogPersistenceBindings) ([]catalogStoredState, domain.CatalogRevision, error) {
+	return r.readStatesWithGraph(ctx, content, subject, order, bindings, true)
+}
+
+// A caller that already reconstructed the graph from this unchanged SQLite
+// snapshot may still validate another complete state envelope without doing
+// the identical graph reconstruction twice.
+func (r *catalogRepository) readStatesWithGraph(ctx context.Context, content identity.ContentID, subject domain.CatalogSubject, order bool, bindings domain.CatalogPersistenceBindings, graph bool) ([]catalogStoredState, domain.CatalogRevision, error) {
 	states, revision, err := r.readStatesRaw(ctx, content, subject, order, bindings)
-	if err == nil && r.schemaVersion == 9 {
+	if err == nil && graph && r.schemaVersion == 9 {
 		_, err = r.readSupersession(ctx, content, bindings)
 	}
 	return states, revision, err
@@ -625,6 +654,7 @@ type catalogStateReader struct {
 	expectedAggregate uint64
 	skipManifest      bool
 	manifestTable     string
+	matches           map[string]bool
 }
 
 func (d *catalogStateReader) insert(query string, args ...any) {
@@ -675,11 +705,29 @@ func (d *catalogStateReader) match(query string, args ...any) {
 	if d.err != nil || d.repository == nil {
 		return
 	}
+	key := ""
+	if d.matches != nil {
+		raw := registrationFrame(nil, []byte(query))
+		for _, arg := range args {
+			raw = registrationFrame(raw, []byte(fmt.Sprintf("%T:%#v", arg, arg)))
+		}
+		key = string(raw)
+		if d.matches[key] {
+			return
+		}
+	}
+	statement, err := d.repository.statement(d.ctx, query)
+	if err != nil {
+		d.err = err
+		return
+	}
 	var valid bool
-	if err := d.repository.transaction.QueryRowContext(d.ctx, query, args...).Scan(&valid); err != nil {
+	if err := statement.QueryRowContext(d.ctx, args...).Scan(&valid); err != nil {
 		d.err = repositoryError(d.ctx, err)
 	} else if !valid {
 		d.err = app.ErrRepositoryUnavailable
+	} else if d.matches != nil {
+		d.matches[key] = true
 	}
 }
 

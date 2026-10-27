@@ -634,7 +634,16 @@ func supersessionAdded(c domain.CatalogSupersessionCommand, result domain.Catalo
 // The projector validates normalized provenance without constructing authority.
 // With write=true it creates only absent exact source/batch/record rows.
 func (r *catalogRepository) supersessionProject(ctx context.Context, raw []byte, write bool) (map[string]domain.SourceRegistration, error) {
+	var matches map[string]bool
+	if !write {
+		matches = make(map[string]bool)
+	}
+	return r.supersessionProjectMatches(ctx, raw, write, matches)
+}
+
+func (r *catalogRepository) supersessionProjectMatches(ctx context.Context, raw []byte, write bool, matches map[string]bool) (map[string]domain.SourceRegistration, error) {
 	d := catalogStateReader{raw: raw, repository: r, ctx: ctx, write: write, sources: map[string]domain.SourceRegistration{}}
+	d.matches = matches
 	d.text()
 	d.text()
 	command, content := d.text(), d.text()
@@ -889,8 +898,9 @@ func (r *catalogRepository) readSupersessionUncached(ctx context.Context, conten
 	for _, s := range resolved.Sources {
 		seen[s.ID().String()+s.Revision().String()] = true
 	}
+	matches := make(map[string]bool)
 	for _, p := range pairs {
-		sources, e := r.supersessionProject(ctx, p.command, false)
+		sources, e := r.supersessionProjectMatches(ctx, p.command, false, matches)
 		if e != nil {
 			return zero, e
 		}
