@@ -126,7 +126,10 @@ func (r *catalogRepository) lookupRegistration(ctx context.Context, op app.Regis
 	if err != nil || !found || !bytes.Equal(encoded, resultRaw) {
 		return domain.CatalogRegistrationResult{}, false, app.ErrRepositoryUnavailable
 	}
-	if _, _, err := r.readStates(ctx, op.Command.Subject.ContentID(), domain.CatalogSubject{}, true, bindings); err != nil {
+	// The review read immediately above reconstructed the complete graph from
+	// this unchanged transaction snapshot, including raw order envelopes.
+	// Revalidate the semantic order state without reconstructing that graph.
+	if _, _, err := r.readStatesWithGraph(ctx, op.Command.Subject.ContentID(), domain.CatalogSubject{}, true, bindings, false); err != nil {
 		return domain.CatalogRegistrationResult{}, false, err
 	}
 	if err := r.registrationAccounting(ctx, op.Command.Subject.ContentID()); err != nil {

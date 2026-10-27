@@ -363,8 +363,15 @@ func catalogSubjectKey(subject domain.CatalogSubject) string {
 // Counts and byte admission precede any blob materialization. History is read
 // in full within these fixed bounds: a truncated tail cannot look like a miss.
 func (r *catalogRepository) readStates(ctx context.Context, content identity.ContentID, subject domain.CatalogSubject, order bool, bindings domain.CatalogPersistenceBindings) ([]catalogStoredState, domain.CatalogRevision, error) {
+	return r.readStatesWithGraph(ctx, content, subject, order, bindings, true)
+}
+
+// readStatesWithGraph permits a caller that has just validated the complete
+// graph in the same unchanged transaction snapshot to validate another raw
+// envelope without reconstructing that graph a second time.
+func (r *catalogRepository) readStatesWithGraph(ctx context.Context, content identity.ContentID, subject domain.CatalogSubject, order bool, bindings domain.CatalogPersistenceBindings, graph bool) ([]catalogStoredState, domain.CatalogRevision, error) {
 	states, revision, err := r.readStatesRaw(ctx, content, subject, order, bindings)
-	if err == nil && r.schemaVersion == 9 {
+	if err == nil && graph && r.schemaVersion == 9 {
 		_, err = r.readSupersession(ctx, content, bindings)
 	}
 	return states, revision, err
@@ -528,12 +535,18 @@ func (r *catalogRepository) readStatesRaw(ctx context.Context, content identity.
 	if uint64(len(states)) != count || !order && states[len(states)-1].revision != expected {
 		return nil, revision, app.ErrRepositoryUnavailable
 	}
+	statements := make(map[string]*sql.Stmt)
+	defer func() {
+		for _, statement := range statements {
+			_ = statement.Close()
+		}
+	}()
 	for i := range states {
 		if err := ctx.Err(); err != nil {
 			return nil, revision, err
 		}
 		s := &states[i]
-		projection := catalogStateReader{raw: s.raw, repository: r, ctx: ctx, content: id, subject: key, order: order, sources: make(map[string]domain.SourceRegistration)}
+		projection := catalogStateReader{raw: s.raw, repository: r, ctx: ctx, content: id, subject: key, order: order, sources: make(map[string]domain.SourceRegistration), statements: statements}
 		if err := projection.checkEnvelope(s, versions, i == len(states)-1); err != nil {
 			return nil, revision, err
 		}
@@ -625,6 +638,7 @@ type catalogStateReader struct {
 	expectedAggregate uint64
 	skipManifest      bool
 	manifestTable     string
+	statements        map[string]*sql.Stmt
 }
 
 func (d *catalogStateReader) insert(query string, args ...any) {
@@ -676,7 +690,23 @@ func (d *catalogStateReader) match(query string, args ...any) {
 		return
 	}
 	var valid bool
-	if err := d.repository.transaction.QueryRowContext(d.ctx, query, args...).Scan(&valid); err != nil {
+	var row *sql.Row
+	if d.statements == nil {
+		row = d.repository.transaction.QueryRowContext(d.ctx, query, args...)
+	} else {
+		statement := d.statements[query]
+		if statement == nil {
+			var err error
+			statement, err = d.repository.transaction.PrepareContext(d.ctx, query)
+			if err != nil {
+				d.err = repositoryError(d.ctx, err)
+				return
+			}
+			d.statements[query] = statement
+		}
+		row = statement.QueryRowContext(d.ctx, args...)
+	}
+	if err := row.Scan(&valid); err != nil {
 		d.err = repositoryError(d.ctx, err)
 	} else if !valid {
 		d.err = app.ErrRepositoryUnavailable

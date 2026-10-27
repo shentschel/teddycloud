@@ -1943,33 +1943,15 @@ func combinedAccountingObservationFixture(t *testing.T) supersessionFixture {
 	t.Helper()
 	f := combinedAccountingFixture(t)
 	coordinate := f.registrationFixture.command.Observations[0].Input().Coordinate
-	subjects := []domain.CatalogSubject{f.registrationFixture.command.Subject}
-	for _, n := range []int{101, 102, 103} {
-		subject, _ := domain.VersionSubject(f.command.Content, catalogQueryVersion(t, n))
-		subjects = append(subjects, subject)
-	}
-	revisions := make([]uint64, len(subjects))
-	for i := range revisions {
-		revisions[i] = 1
-	}
 	aggregate := uint64(5)
-	for step := 0; step < 62; step++ {
-		i := step % len(subjects)
-		subject := subjects[i]
+	for n := 104; n <= 165; n++ {
+		c := f.version(t, n, aggregate)
 		count := 64
-		if step == 61 {
+		if n == 165 {
 			count = 60
 		}
-		claim, _ := domain.FingerprintClaim(f.command.Old.Fingerprint())
-		if i == 0 {
-			claim, _ = domain.TitleClaim("observation filler")
-		}
-		input := f.observation(t, subject, claim).Input()
+		input := c.Observations[1].Input()
 		input.Coordinate = coordinate
-		id, _ := domain.NewCatalogCommandID()
-		a, _ := domain.NewCatalogRevision(aggregate)
-		r, _ := domain.NewCatalogRevision(revisions[i])
-		c := app.ReviewCommand{ID: id, Subject: subject, ExpectedAggregate: a, ExpectedReview: r, Reason: "observation filler"}
 		for len(c.Observations) < count {
 			input.ID, _ = evidence.ParseID(registrationIntegrationID(t, "obs"))
 			item, err := domain.NewCatalogObservation(f.ingest, f.source, input)
@@ -1978,11 +1960,10 @@ func combinedAccountingObservationFixture(t *testing.T) supersessionFixture {
 			}
 			c.Observations = append(c.Observations, item)
 		}
-		if _, err := f.base.RecordObservations(t.Context(), c); err != nil {
-			t.Fatal("author observation evidence", step, err)
+		if _, err := f.service.RegisterCatalogVersion(t.Context(), c); err != nil {
+			t.Fatal("author observation manifest", n, err)
 		}
 		aggregate++
-		revisions[i]++
 	}
 	if u := combinedAccountingUsage(t, f.owner.database.db, f.command.Content); u.observations != 4094 {
 		t.Fatal("observation fixture", u)
