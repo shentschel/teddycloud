@@ -48,22 +48,27 @@ type combinedAccountingWriter struct {
 	kind string
 	// These are the only tables this particular command may change.
 	tables string
+	// Per-content retained dimensions this writer can grow to a shared bound.
+	// "from-absence" means the API can grow the dimension but cannot reach the
+	// shared maximum because it creates a new aggregate. "none" means that the
+	// writer does not grow the dimension at all.
+	retained string
 }
 
 var combinedAccountingWriters = []combinedAccountingWriter{
 	// Initial registration has one event, <=64 observations and <=5 selections;
 	// it cannot approach the shared event/observation/link maxima from absence.
-	{"RegisterContent", "content", "tc_catalog_content tc_catalog_managed tc_catalog_subjects tc_catalog_observations tc_catalog_registrations tc_catalog_registration_sources tc_catalog_registration_support tc_catalog_review_states_v2 tc_catalog_order_states_v2"},
-	{"RegisterCatalogVersion", "version", "tc_content_versions tc_catalog_managed tc_catalog_subjects tc_catalog_observations tc_catalog_registrations tc_catalog_registration_sources tc_catalog_registration_support tc_catalog_review_states_v2 tc_catalog_order_states_v2 tc_catalog_order_state_versions_v2"},
-	{"RecordObservations", "review", "tc_catalog_managed tc_catalog_subjects tc_catalog_observations tc_catalog_decisions tc_catalog_review_states_v2"},
+	{"RegisterContent", "content", "tc_catalog_content tc_catalog_managed tc_catalog_subjects tc_catalog_observations tc_catalog_registrations tc_catalog_registration_sources tc_catalog_registration_support tc_catalog_review_states_v2 tc_catalog_order_states_v2", "bytes; events/observations/support from-absence"},
+	{"RegisterCatalogVersion", "version", "tc_content_versions tc_catalog_managed tc_catalog_subjects tc_catalog_observations tc_catalog_registrations tc_catalog_registration_sources tc_catalog_registration_support tc_catalog_review_states_v2 tc_catalog_order_states_v2 tc_catalog_order_state_versions_v2", "bytes events observations support"},
+	{"RecordObservations", "review", "tc_catalog_managed tc_catalog_subjects tc_catalog_observations tc_catalog_decisions tc_catalog_review_states_v2", "bytes events observations; support none"},
 	// Fact decisions require their retained source/observations: no global growth.
-	{"AcceptSupport", "decision", "tc_catalog_managed tc_catalog_subjects tc_catalog_decisions tc_catalog_decision_support tc_catalog_review_states_v2"},
-	{"DecideOrder", "order", "tc_catalog_managed tc_catalog_order_states_v2 tc_catalog_order_state_versions_v2"},
+	{"AcceptSupport", "decision", "tc_catalog_managed tc_catalog_subjects tc_catalog_decisions tc_catalog_decision_support tc_catalog_review_states_v2", "bytes events support; observations none"},
+	{"DecideOrder", "order", "tc_catalog_managed tc_catalog_order_states_v2 tc_catalog_order_state_versions_v2", "bytes events observations support"},
 	// Adoption initializes unreviewed states: zero events/observations/support.
-	{"AdoptBaseline", "adoption", "tc_catalog_managed tc_catalog_subjects tc_catalog_review_states tc_catalog_order_states"},
+	{"AdoptBaseline", "adoption", "tc_catalog_managed tc_catalog_subjects tc_catalog_review_states tc_catalog_order_states", "bytes from-absence; events/observations/support none"},
 	// Import has no per-content retained charge; only global provenance grows.
-	{"Import", "import", "tc_catalog_imports"},
-	{"SupersedeVersion", "supersession", "tc_catalog_managed tc_catalog_supersessions tc_catalog_supersession_evidence tc_catalog_supersession_support"},
+	{"Import", "import", "tc_catalog_imports", "bytes/events/observations/support none"},
+	{"SupersedeVersion", "supersession", "tc_catalog_managed tc_catalog_supersessions tc_catalog_supersession_evidence tc_catalog_supersession_support", "bytes events observations support"},
 }
 
 func combinedAccountingAssertRows(t *testing.T, writer combinedAccountingWriter, before, after map[string][][]any, observations int) {
@@ -1937,33 +1942,35 @@ func combinedAccountingClone(t *testing.T, f supersessionFixture) supersessionFi
 func combinedAccountingObservationFixture(t *testing.T) supersessionFixture {
 	t.Helper()
 	f := combinedAccountingFixture(t)
-	aggregate := uint64(5)
-	for n := 104; n <= 164; n++ {
-		if _, err := f.service.RegisterCatalogVersion(t.Context(), f.version(t, n, aggregate)); err != nil {
-			t.Fatal("author observation manifest", n, err)
-		}
-		aggregate++
-	}
-	// Independent review subjects retain the observations in one decision each.
-	// Keep the pending supersession endpoints (102 and 103) at review revision 1.
 	coordinate := f.registrationFixture.command.Observations[0].Input().Coordinate
-	for n := 101; n <= 164; n++ {
-		if n == 102 || n == 103 {
-			continue
-		}
+	subjects := []domain.CatalogSubject{f.registrationFixture.command.Subject}
+	for _, n := range []int{101, 102, 103} {
 		subject, _ := domain.VersionSubject(f.command.Content, catalogQueryVersion(t, n))
+		subjects = append(subjects, subject)
+	}
+	revisions := make([]uint64, len(subjects))
+	for i := range revisions {
+		revisions[i] = 1
+	}
+	aggregate := uint64(5)
+	for step := 0; step < 62; step++ {
+		i := step % len(subjects)
+		subject := subjects[i]
+		count := 64
+		if step == 61 {
+			count = 60
+		}
 		claim, _ := domain.FingerprintClaim(f.command.Old.Fingerprint())
+		if i == 0 {
+			claim, _ = domain.TitleClaim("observation filler")
+		}
 		input := f.observation(t, subject, claim).Input()
 		input.Coordinate = coordinate
 		id, _ := domain.NewCatalogCommandID()
 		a, _ := domain.NewCatalogRevision(aggregate)
-		one, _ := domain.NewCatalogRevision(1)
-		c := app.ReviewCommand{ID: id, Subject: subject, ExpectedAggregate: a, ExpectedReview: one, Reason: "a"}
-		count := 64
-		if n == 164 {
-			count = 60
-		}
-		for range count {
+		r, _ := domain.NewCatalogRevision(revisions[i])
+		c := app.ReviewCommand{ID: id, Subject: subject, ExpectedAggregate: a, ExpectedReview: r, Reason: "observation filler"}
+		for len(c.Observations) < count {
 			input.ID, _ = evidence.ParseID(registrationIntegrationID(t, "obs"))
 			item, err := domain.NewCatalogObservation(f.ingest, f.source, input)
 			if err != nil {
@@ -1972,14 +1979,118 @@ func combinedAccountingObservationFixture(t *testing.T) supersessionFixture {
 			c.Observations = append(c.Observations, item)
 		}
 		if _, err := f.base.RecordObservations(t.Context(), c); err != nil {
-			t.Fatal("author observation evidence", n, err)
+			t.Fatal("author observation evidence", step, err)
 		}
 		aggregate++
+		revisions[i]++
 	}
 	if u := combinedAccountingUsage(t, f.owner.database.db, f.command.Content); u.observations != 4094 {
 		t.Fatal("observation fixture", u)
 	}
 	return f
+}
+
+func combinedAccountingSupportFixture(t *testing.T, target uint64) supersessionFixture {
+	t.Helper()
+	f := combinedAccountingFixture(t)
+	u := combinedAccountingUsage(t, f.owner.database.db, f.command.Content)
+	if u.links >= target {
+		t.Fatal("support target below authored fixture", u.links, target)
+	}
+	subject, _ := domain.VersionSubject(f.command.Content, catalogQueryVersion(t, 101))
+	claim, _ := domain.FingerprintClaim(f.command.Old.Fingerprint())
+	input := f.observation(t, subject, claim).Input()
+	input.Coordinate = f.registrationFixture.command.Observations[0].Input().Coordinate
+	var observations []domain.CatalogObservation
+	for range 64 {
+		input.ID, _ = evidence.ParseID(registrationIntegrationID(t, "obs"))
+		item, err := domain.NewCatalogObservation(f.ingest, f.source, input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		observations = append(observations, item)
+	}
+	aggregate, review := uint64(5), uint64(1)
+	id, _ := domain.NewCatalogCommandID()
+	a, _ := domain.NewCatalogRevision(aggregate)
+	r, _ := domain.NewCatalogRevision(review)
+	if _, err := f.base.RecordObservations(t.Context(), app.ReviewCommand{ID: id, Subject: subject, ExpectedAggregate: a, ExpectedReview: r, Observations: observations, Reason: "support evidence"}); err != nil {
+		t.Fatal("author support observations", err)
+	}
+	aggregate++
+	review++
+	ids := make([]evidence.ID, len(observations))
+	for i := range observations {
+		ids[i] = observations[i].ID()
+	}
+	for u = combinedAccountingUsage(t, f.owner.database.db, f.command.Content); u.links < target; u = combinedAccountingUsage(t, f.owner.database.db, f.command.Content) {
+		count := min(uint64(len(ids)), target-u.links)
+		id, _ = domain.NewCatalogCommandID()
+		a, _ = domain.NewCatalogRevision(aggregate)
+		r, _ = domain.NewCatalogRevision(review)
+		command := app.ReviewCommand{ID: id, Subject: subject, ExpectedAggregate: a, ExpectedReview: r, Key: domain.FingerprintClaimKey, Support: ids[:count], Reason: "support filler"}
+		if _, err := f.base.AcceptSupport(t.Context(), command); err != nil {
+			t.Fatal("author support links", u.links, err)
+		}
+		aggregate++
+		review++
+	}
+	if u.links != target {
+		t.Fatal("support fixture", u, target)
+	}
+	return f
+}
+
+func TestSupersessionSQLiteCombinedWriterSupport(t *testing.T) {
+	for _, writer := range combinedAccountingWriters {
+		if writer.kind != "version" && writer.kind != "decision" && writer.kind != "order" && writer.kind != "supersession" {
+			continue
+		}
+		delta := uint64(1)
+		if writer.kind == "version" {
+			delta = 2
+		}
+		for _, extra := range []uint64{0, 1} {
+			t.Run(fmt.Sprintf("%s/over_%d", writer.name, extra), func(t *testing.T) {
+				f := combinedAccountingSupportFixture(t, domain.RetainedSupportLinks.Maximum()-delta+extra)
+				fence := &combinedAccountingFence{owner: f.owner}
+				write := combinedAccountingPending(t, f, writer, fence)
+				before := catalogRecoveryRows(t, f.owner.database.db)
+				result, err := write()
+				if extra == 1 {
+					var limit domain.LimitError
+					if !errors.Is(err, app.ErrLimitExceeded) || !errors.As(fence.failure, &limit) || limit.Resource != domain.RetainedSupportLinks {
+						t.Fatal("combined support rejection", err, fence.failure)
+					}
+					if !reflect.DeepEqual(before, catalogRecoveryRows(t, f.owner.database.db)) {
+						t.Fatal("support rejection leaked rows")
+					}
+					return
+				}
+				if err != nil {
+					t.Fatal("exact combined support", err, fence.failure)
+				}
+				after := catalogRecoveryRows(t, f.owner.database.db)
+				n := 1
+				if writer.kind == "version" {
+					n = 2
+				}
+				combinedAccountingAssertRows(t, writer, before, after, n)
+				if u := combinedAccountingUsage(t, f.owner.database.db, f.command.Content); u.links != domain.RetainedSupportLinks.Maximum() {
+					t.Fatal("support charge duplicated or lost", u)
+				}
+				for table, rows := range before {
+					if !slices.Contains(strings.Fields(writer.tables+" tc_catalog_sources tc_catalog_source_claims tc_catalog_batches tc_catalog_records"), table) && !reflect.DeepEqual(rows, after[table]) {
+						t.Fatal("support writer changed unrelated rows", table)
+					}
+				}
+				replay, err := write()
+				if err != nil || !reflect.DeepEqual(result, replay) || !reflect.DeepEqual(after, catalogRecoveryRows(t, f.owner.database.db)) {
+					t.Fatal("support replay changed result or rows", err)
+				}
+			})
+		}
+	}
 }
 
 func TestSupersessionSQLiteCombinedWriterObservations(t *testing.T) {
