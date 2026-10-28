@@ -123,16 +123,30 @@ jobs:
             next/tools/go.sum
             next/go.work
 
+      - name: Run command-authored D2e accounting boundaries once
+        working-directory: next
+        # Keep every exact/+1 assertion in these new D2e fixtures mandatory.
+        # Fresh-process -race runs hit the unchanged catalog deadlines in the
+        # byte cases and observation authoring; more package time cannot fix
+        # that instrumentation overhead. The observation seed also takes about
+        # 150s without -race, so it must not be rebuilt ten times below.
+        run: go test -count=1 -run '^TestSupersessionSQLiteCombined(WriterBytes|WriterObservations|RegisterContentBytes)$' ./backend/internal/adapters/sqlite
+
       - name: Run focused SQLite regressions and repetition
         working-directory: next
+        # Exclude only the observation test explicitly covered above.
+        # Every other SQLite test retains the full ten repetitions.
         run: |
-          go test ./backend/internal/adapters/sqlite ./backend/internal/architecture
+          go test -skip '^TestSupersessionSQLiteCombinedWriterObservations$' ./backend/internal/adapters/sqlite ./backend/internal/architecture
           go test ./backend/internal/domain/tag ./backend/internal/application/tagregistry
-          go test -timeout=20m -count=10 ./backend/internal/adapters/sqlite
+          go test -timeout=20m -count=10 -skip '^TestSupersessionSQLiteCombinedWriterObservations$' ./backend/internal/adapters/sqlite
 
       - name: Run focused persistence and domain race evidence
         working-directory: next
-        run: go test -timeout=25m -race ./backend/internal/adapters/sqlite ./backend/internal/architecture ./backend/internal/domain/tag ./backend/internal/domain/content ./backend/internal/application/tagregistry ./backend/internal/testutil/taffixture ./backend/internal/adapters/contentfs
+        # Isolate only the three new D2e volume-boundary fixtures run above.
+        # All pre-existing SQLite and other-package race coverage stays intact;
+        # -count=1 forces an uncached pass with the original package timeout.
+        run: go test -count=1 -timeout=25m -race -skip '^TestSupersessionSQLiteCombined(WriterBytes|WriterObservations|RegisterContentBytes)$' ./backend/internal/adapters/sqlite ./backend/internal/architecture ./backend/internal/domain/tag ./backend/internal/domain/content ./backend/internal/application/tagregistry ./backend/internal/testutil/taffixture ./backend/internal/adapters/contentfs
 
       - name: Require qualified Linux blob filesystem and repetition
         working-directory: next
