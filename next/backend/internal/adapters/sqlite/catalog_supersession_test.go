@@ -54,7 +54,7 @@ type combinedAccountingWriter struct {
 }
 
 var combinedAccountingWriters = []combinedAccountingWriter{
-	// Initial registration has one event, <=64 observations and <=5 selections;
+	// Initial registration has one event and <=64 observations/selections;
 	// it cannot approach the shared event/observation/link maxima from absence.
 	{"RegisterContent", "content", "tc_catalog_content tc_catalog_managed tc_catalog_subjects tc_catalog_observations tc_catalog_registrations tc_catalog_registration_sources tc_catalog_registration_support tc_catalog_review_states_v2 tc_catalog_order_states_v2", "bytes; events/observations/support from-absence"},
 	{"RegisterCatalogVersion", "version", "tc_content_versions tc_catalog_managed tc_catalog_subjects tc_catalog_observations tc_catalog_registrations tc_catalog_registration_sources tc_catalog_registration_support tc_catalog_review_states_v2 tc_catalog_order_states_v2 tc_catalog_order_state_versions_v2", "bytes events observations support"},
@@ -1771,7 +1771,7 @@ func combinedAccountingObservationFixture(t *testing.T) supersessionFixture {
 	edges := int((needed + 65) / 66)
 	evidenceLeft := needed - 2*uint64(edges)
 	aggregate, supersessionRevision := uint64(5), uint64(2)
-	old, err := domain.NewContentVersion(catalogQueryVersion(t, 103), f.command.Content, f.command.New.Fingerprint(), domain.UnknownVersionOrderEvidence())
+	old, err := domain.NewContentVersion(catalogQueryVersion(t, 102), f.command.Content, f.command.New.Fingerprint(), domain.UnknownVersionOrderEvidence())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1816,15 +1816,32 @@ func combinedAccountingObservationFixture(t *testing.T) supersessionFixture {
 func TestSupersessionSQLiteCombinedWriterObservations(t *testing.T) {
 	seed := combinedAccountingObservationFixture(t)
 	for _, writer := range combinedAccountingWriters {
-		if writer.kind != "version" {
+		if writer.kind != "version" && writer.kind != "review" && writer.kind != "order" && writer.kind != "supersession" {
 			continue
 		}
 		for _, count := range []int{2, 3} {
 			t.Run(fmt.Sprintf("%s/observations_%d", writer.name, count), func(t *testing.T) {
 				f := combinedAccountingClone(t, seed)
+				if writer.kind == "supersession" {
+					// The observation filler extended 102's chain. Extend its
+					// terminal to the still-isolated 103, rather than merging.
+					var terminal string
+					if err := f.owner.database.db.QueryRowContext(t.Context(), "SELECT new_version_id FROM tc_catalog_supersessions ORDER BY result_supersession DESC LIMIT 1").Scan(&terminal); err != nil {
+						t.Fatal(err)
+					}
+					id, err := identity.ParseContentVersionID(terminal)
+					if err != nil {
+						t.Fatal(err)
+					}
+					f.command.New, err = domain.NewContentVersion(id, f.command.Content, f.command.New.Fingerprint(), domain.UnknownVersionOrderEvidence())
+					if err != nil {
+						t.Fatal(err)
+					}
+				}
 				fence := &combinedAccountingFence{owner: f.owner}
 				write := combinedAccountingPending(t, f, writer, fence, count)
 				before := catalogRecoveryRows(t, f.owner.database.db)
+				beforeUsage := combinedAccountingUsage(t, f.owner.database.db, f.command.Content)
 				result, err := write()
 				if count == 3 {
 					var limit domain.LimitError
@@ -1841,8 +1858,13 @@ func TestSupersessionSQLiteCombinedWriterObservations(t *testing.T) {
 				}
 				after := catalogRecoveryRows(t, f.owner.database.db)
 				combinedAccountingAssertRows(t, writer, before, after, count)
-				if u := combinedAccountingUsage(t, f.owner.database.db, f.command.Content); u.observations != 4096 {
-					t.Fatal("observation charge duplicated or lost", u)
+				usage := combinedAccountingUsage(t, f.owner.database.db, f.command.Content)
+				wantLinks := beforeUsage.links
+				if writer.kind != "review" {
+					wantLinks += uint64(count)
+				}
+				if usage.observations != domain.RetainedObservations.Maximum() || usage.events != beforeUsage.events+1 || usage.links != wantLinks {
+					t.Fatal("combined observation charges duplicated or lost", beforeUsage, usage)
 				}
 				for table, rows := range before {
 					if !slices.Contains(strings.Fields(writer.tables+" tc_catalog_sources tc_catalog_source_claims tc_catalog_batches tc_catalog_records"), table) && !reflect.DeepEqual(rows, after[table]) {
@@ -1974,5 +1996,39 @@ func TestSupersessionSQLiteCombinedRegisterContentBytes(t *testing.T) {
 				t.Fatal("initial content replay changed result or rows", err)
 			}
 		})
+	}
+}
+
+func TestSupersessionSQLiteForeignKeyRecheck(t *testing.T) {
+	f := combinedAccountingFixture(t)
+	before := catalogRecoveryRows(t, f.owner.database.db)
+	err := f.owner.WithinCatalogTransaction(t.Context(), func(repository app.CatalogRepository) error {
+		r := repository.(*catalogRepository)
+		bindings := domain.CatalogPersistenceBindings{AllowUnbound: true}
+		if _, err := r.readSupersession(t.Context(), f.command.Content, bindings); err != nil {
+			return err
+		}
+		// Deliberate corruption only: an orphan outside this Content's joins
+		// must be caught after an earlier successful graph read in this lease.
+		id := registrationIntegrationCommandID(t)
+		for _, query := range []string{"PRAGMA query_only=OFF", "PRAGMA defer_foreign_keys=ON"} {
+			if _, err := r.transaction.ExecContext(t.Context(), query); err != nil {
+				return err
+			}
+		}
+		if _, err := r.transaction.ExecContext(t.Context(), "INSERT INTO tc_catalog_supersession_support VALUES (?,?)", id.String(), f.command.Support[0].String()); err != nil {
+			return err
+		}
+		if _, err := r.transaction.ExecContext(t.Context(), "PRAGMA query_only=ON"); err != nil {
+			return err
+		}
+		_, err := r.readSupersession(t.Context(), f.command.Content, bindings)
+		if !errors.Is(err, app.ErrRepositoryUnavailable) {
+			t.Fatal("post-write FK corruption was not rejected", err)
+		}
+		return err
+	})
+	if !errors.Is(err, app.ErrRepositoryUnavailable) || !reflect.DeepEqual(before, catalogRecoveryRows(t, f.owner.database.db)) {
+		t.Fatal("FK rejection changed database", err)
 	}
 }

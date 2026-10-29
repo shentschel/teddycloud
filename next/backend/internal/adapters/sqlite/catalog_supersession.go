@@ -929,7 +929,10 @@ func (r *catalogRepository) readSupersessionUncached(ctx context.Context, conten
 	}
 	reviews := map[domain.CatalogSubject][]catalogStoredState{}
 	for _, s := range subjects {
-		states, _, e := r.readStatesRaw(ctx, content, s, false, bindings)
+		// The order read above checked all database FKs. Nothing in this
+		// reconstruction writes, so repeating that global scan for every
+		// subject checks the same snapshot without adding validation.
+		states, _, e := r.readStatesRawWithForeignKeys(ctx, content, s, false, bindings, true)
 		if e != nil {
 			return zero, e
 		}

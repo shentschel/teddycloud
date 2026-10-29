@@ -402,13 +402,22 @@ func (r *catalogRepository) readStatesWithGraph(ctx context.Context, content ide
 // Raw envelope validation never calls the graph reader. The graph reader uses
 // these immutable snapshots to validate historical fences without recursion.
 func (r *catalogRepository) readStatesRaw(ctx context.Context, content identity.ContentID, subject domain.CatalogSubject, order bool, bindings domain.CatalogPersistenceBindings) ([]catalogStoredState, domain.CatalogRevision, error) {
+	return r.readStatesRawWithForeignKeys(ctx, content, subject, order, bindings, false)
+}
+
+// Only a caller that has already checked this unchanged SQLite snapshot may
+// reuse that database-wide FK result. Every envelope is still fully validated;
+// no result survives a write or a separate reconstruction.
+func (r *catalogRepository) readStatesRawWithForeignKeys(ctx context.Context, content identity.ContentID, subject domain.CatalogSubject, order bool, bindings domain.CatalogPersistenceBindings, foreignKeysChecked bool) ([]catalogStoredState, domain.CatalogRevision, error) {
 	id, key := content.String(), catalogSubjectKey(subject)
-	var corrupt bool
-	if err := r.transaction.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM pragma_foreign_key_check LIMIT 1)").Scan(&corrupt); err != nil {
-		return nil, domain.CatalogRevision{}, repositoryError(ctx, err)
-	}
-	if corrupt {
-		return nil, domain.CatalogRevision{}, app.ErrRepositoryUnavailable
+	if !foreignKeysChecked {
+		var corrupt bool
+		if err := r.transaction.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM pragma_foreign_key_check LIMIT 1)").Scan(&corrupt); err != nil {
+			return nil, domain.CatalogRevision{}, repositoryError(ctx, err)
+		}
+		if corrupt {
+			return nil, domain.CatalogRevision{}, app.ErrRepositoryUnavailable
+		}
 	}
 	var aggregate, protected uint64
 	err := r.transaction.QueryRowContext(ctx, "SELECT aggregate_revision,protected_custom FROM tc_catalog_managed WHERE content_id=?", id).Scan(&aggregate, &protected)
