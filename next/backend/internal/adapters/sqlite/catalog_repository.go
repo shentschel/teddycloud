@@ -429,7 +429,24 @@ type catalogVersionRow struct {
 	Size    uint64
 }
 
+// Retain one Content's validated manifest only for this leased transaction.
+// SQLite's connection-local change counter also catches writes made directly
+// by callback code; the schema cookie catches DDL. No explicit writer-side
+// invalidation is needed, and no cached authority or graph crosses a callback.
+type catalogVersionSnapshot struct {
+	content         identity.ContentID
+	changes, schema int64
+	rows            []catalogVersionRow
+}
+
 func (r *catalogRepository) catalogVersions(ctx context.Context, content identity.ContentID) ([]catalogVersionRow, error) {
+	changes, schema, err := r.catalogSnapshotStamp(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if cached := r.versions; cached != nil && cached.content == content && cached.changes == changes && cached.schema == schema {
+		return append([]catalogVersionRow(nil), cached.rows...), nil
+	}
 	var count uint64
 	if err := r.transaction.QueryRowContext(ctx, "SELECT count(*) FROM tc_content_versions WHERE content_id=?", content.String()).Scan(&count); err != nil {
 		return nil, repositoryError(ctx, err)
@@ -524,7 +541,37 @@ func (r *catalogRepository) catalogVersions(ctx context.Context, content identit
 	if err := rows.Err(); err != nil {
 		return nil, repositoryError(ctx, err)
 	}
+	r.versions = &catalogVersionSnapshot{content: content, changes: changes, schema: schema, rows: append([]catalogVersionRow(nil), result...)}
 	return result, nil
+}
+
+func (r *catalogRepository) catalogSnapshotStamp(ctx context.Context) (changes, schema int64, err error) {
+	err = r.transaction.QueryRowContext(ctx, "SELECT total_changes(),schema_version FROM pragma_schema_version").Scan(&changes, &schema)
+	if err != nil {
+		err = repositoryError(ctx, err)
+	}
+	return
+}
+
+type catalogForeignKeySnapshot struct{ changes, schema int64 }
+
+func (r *catalogRepository) catalogForeignKeys(ctx context.Context) error {
+	changes, schema, err := r.catalogSnapshotStamp(ctx)
+	if err != nil {
+		return err
+	}
+	if checked := r.foreignKeys; checked != nil && checked.changes == changes && checked.schema == schema {
+		return ctx.Err()
+	}
+	var corrupt bool
+	if err := r.transaction.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM pragma_foreign_key_check LIMIT 1)").Scan(&corrupt); err != nil {
+		return repositoryError(ctx, err)
+	}
+	if corrupt {
+		return app.ErrRepositoryUnavailable
+	}
+	r.foreignKeys = &catalogForeignKeySnapshot{changes: changes, schema: schema}
+	return nil
 }
 
 // catalogFields reads normalized history in revision order, never source/arrival

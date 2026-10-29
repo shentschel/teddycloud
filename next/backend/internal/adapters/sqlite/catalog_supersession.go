@@ -11,6 +11,7 @@ import (
 	"errors"
 	"io"
 	"math"
+	"slices"
 	"time"
 
 	app "github.com/shentschel/teddycloud/next/backend/internal/application/catalog"
@@ -766,12 +767,21 @@ func (r *catalogRepository) supersessionProvenance(ctx context.Context, c domain
 type catalogReadCacheKey struct{}
 
 // A query holds one immutable SQLite snapshot. Cache only its current Content,
-// never a map of all Contents or any state across callbacks. Writer contexts
-// never carry this private key, so every writer validation remains uncached.
+// never a map of all Contents or any state across callbacks.
 type catalogReadCache struct {
 	repository *catalogRepository
 	state      domain.CatalogSupersessionState
 	valid      bool
+}
+
+// A service alternates its exact trusted bindings with an unbound Load call.
+// Keep only those two complete reconstructions, keyed by SQLite's mutation
+// stamp and exact binding handles. Writes (including callback SQL) invalidate
+// both automatically; live authorization is still checked by every port call.
+type catalogGraphSnapshot struct {
+	changes, schema int64
+	bindings        domain.CatalogPersistenceBindings
+	state           domain.CatalogSupersessionState
 }
 
 func (r *catalogRepository) readSupersession(ctx context.Context, content identity.ContentID, bindings domain.CatalogPersistenceBindings) (domain.CatalogSupersessionState, error) {
@@ -780,10 +790,26 @@ func (r *catalogRepository) readSupersession(ctx context.Context, content identi
 	if use && cache.valid && cache.state.Content() == content {
 		return cache.state, ctx.Err()
 	}
+	changes, schema, err := r.catalogSnapshotStamp(ctx)
+	if err != nil {
+		return domain.CatalogSupersessionState{}, err
+	}
+	for _, retained := range r.graphs {
+		if retained != nil && retained.changes == changes && retained.schema == schema && retained.state.Content() == content && retained.bindings.AllowUnbound == bindings.AllowUnbound && slices.Equal(retained.bindings.Sources, bindings.Sources) && slices.Equal(retained.bindings.Namespaces, bindings.Namespaces) && slices.Equal(retained.bindings.Reviewers, bindings.Reviewers) {
+			return retained.state, ctx.Err()
+		}
+	}
 	state, err := r.readSupersessionUncached(ctx, content, bindings)
-	if use && err == nil {
-		cache.state = state
-		cache.valid = true
+	if err == nil {
+		bindings.Sources = slices.Clone(bindings.Sources)
+		bindings.Namespaces = slices.Clone(bindings.Namespaces)
+		bindings.Reviewers = slices.Clone(bindings.Reviewers)
+		r.graphs[1] = r.graphs[0]
+		r.graphs[0] = &catalogGraphSnapshot{changes: changes, schema: schema, bindings: bindings, state: state}
+		if use {
+			cache.state = state
+			cache.valid = true
+		}
 	}
 	return state, err
 }
@@ -829,11 +855,12 @@ func (r *catalogRepository) readSupersessionUncached(ctx context.Context, conten
 		}
 		return domain.NewCatalogSupersessionState(content, nil)
 	}
-	orders, _, err := r.readStatesRaw(ctx, content, domain.CatalogSubject{}, true, bindings)
+	versions, err := r.catalogVersions(ctx, content)
 	if err != nil {
 		return zero, err
 	}
-	versions, err := r.catalogVersions(ctx, content)
+	matches := make(map[string]bool)
+	orders, _, err := r.readStatesRawWithForeignKeys(ctx, content, domain.CatalogSubject{}, true, bindings, false, versions, matches)
 	if err != nil {
 		return zero, err
 	}
@@ -898,7 +925,6 @@ func (r *catalogRepository) readSupersessionUncached(ctx context.Context, conten
 	for _, s := range resolved.Sources {
 		seen[s.ID().String()+s.Revision().String()] = true
 	}
-	matches := make(map[string]bool)
 	for _, p := range pairs {
 		sources, e := r.supersessionProjectMatches(ctx, p.command, false, matches)
 		if e != nil {
@@ -930,9 +956,9 @@ func (r *catalogRepository) readSupersessionUncached(ctx context.Context, conten
 	reviews := map[domain.CatalogSubject][]catalogStoredState{}
 	for _, s := range subjects {
 		// The order read above checked all database FKs. Nothing in this
-		// reconstruction writes, so repeating that global scan for every
-		// subject checks the same snapshot without adding validation.
-		states, _, e := r.readStatesRawWithForeignKeys(ctx, content, s, false, bindings, true)
+		// reconstruction writes, so repeating that global scan or reloading
+		// the full media manifest for each subject adds no validation.
+		states, _, e := r.readStatesRawWithForeignKeys(ctx, content, s, false, bindings, true, versions, matches)
 		if e != nil {
 			return zero, e
 		}

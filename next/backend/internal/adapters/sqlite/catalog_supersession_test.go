@@ -7,16 +7,22 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/shentschel/teddycloud/next/backend/internal/adapters/contentfs"
 	app "github.com/shentschel/teddycloud/next/backend/internal/application/catalog"
+	"github.com/shentschel/teddycloud/next/backend/internal/application/contentstore"
 	domain "github.com/shentschel/teddycloud/next/backend/internal/domain/catalog"
+	"github.com/shentschel/teddycloud/next/backend/internal/domain/content"
 	"github.com/shentschel/teddycloud/next/backend/internal/domain/evidence"
 	"github.com/shentschel/teddycloud/next/backend/internal/domain/identity"
+	"github.com/shentschel/teddycloud/next/backend/internal/testutil/taffixture"
 )
 
 // This fence observes an authored prospective transaction and can roll it back
@@ -69,7 +75,7 @@ var combinedAccountingWriters = []combinedAccountingWriter{
 	{"SupersedeVersion", "supersession", "tc_catalog_managed tc_catalog_supersessions tc_catalog_supersession_evidence tc_catalog_supersession_support", "bytes events observations support"},
 }
 
-func combinedAccountingAssertRows(t *testing.T, writer combinedAccountingWriter, before, after map[string][][]any, observations int) {
+func combinedAccountingAssertRows(t *testing.T, writer combinedAccountingWriter, before, after map[string][][]any, observations int, adopted ...bool) {
 	t.Helper()
 	want := map[string]int{"tc_catalog_sources": 1, "tc_catalog_source_claims": 5, "tc_catalog_batches": 1, "tc_catalog_records": 1}
 	switch writer.kind {
@@ -105,6 +111,13 @@ func combinedAccountingAssertRows(t *testing.T, writer combinedAccountingWriter,
 		want["tc_catalog_supersession_evidence"], want["tc_catalog_supersession_support"] = observations, observations
 	default:
 		t.Fatal("unmapped row charges", writer.name)
+	}
+	if len(adopted) != 0 && adopted[0] {
+		// Adopted review subjects retain v1 envelopes after version growth.
+		if writer.kind == "review" || writer.kind == "decision" {
+			want["tc_catalog_review_states"] = want["tc_catalog_review_states_v2"]
+			delete(want, "tc_catalog_review_states_v2")
+		}
 	}
 	for table, rows := range before {
 		if delta := len(after[table]) - len(rows); delta != want[table] {
@@ -159,7 +172,7 @@ func combinedAccountingPending(t *testing.T, f supersessionFixture, writer combi
 	}
 	id, _ := domain.NewCatalogCommandID()
 	var aggregate, reviewRevision, orderRevision uint64
-	if err := f.owner.database.db.QueryRowContext(t.Context(), `SELECT aggregate_revision,(SELECT review_revision FROM tc_catalog_subjects WHERE subject_id=?1),(SELECT max(order_revision) FROM tc_catalog_order_states_v2 WHERE content_id=?1) FROM tc_catalog_managed WHERE content_id=?1`, f.command.Content.String()).Scan(&aggregate, &reviewRevision, &orderRevision); err != nil {
+	if err := f.owner.database.db.QueryRowContext(t.Context(), `SELECT aggregate_revision,(SELECT review_revision FROM tc_catalog_subjects WHERE subject_id=?1),(SELECT max(order_revision) FROM (SELECT content_id,order_revision FROM tc_catalog_order_states UNION ALL SELECT content_id,order_revision FROM tc_catalog_order_states_v2) WHERE content_id=?1) FROM tc_catalog_managed WHERE content_id=?1`, f.command.Content.String()).Scan(&aggregate, &reviewRevision, &orderRevision); err != nil {
 		t.Fatal(err)
 	}
 	expectedAggregate, _ := domain.NewCatalogRevision(aggregate)
@@ -1874,6 +1887,309 @@ func TestSupersessionSQLiteCombinedWriterObservations(t *testing.T) {
 				replay, err := write()
 				if err != nil || !reflect.DeepEqual(result, replay) || !reflect.DeepEqual(after, catalogRecoveryRows(t, f.owner.database.db)) {
 					t.Fatal("observation replay changed result or rows", err)
+				}
+			})
+		}
+	}
+}
+
+// Import real media before adoption: unreviewed baseline subjects avoid storing
+// a registration bootstrap in every later review revision. Every database row
+// comes from Save, Import, AdoptBaseline or a catalog command, never fixture SQL.
+func combinedAccountingEventFixture(t *testing.T) supersessionFixture {
+	t.Helper()
+	started := time.Now()
+	f := supersessionFixture{registrationFixture: newRegistrationFixture(t)}
+	cid := f.registrationFixture.command.Subject.ContentID()
+	baseline, err := domain.NewContent(cid, domain.NewContentFacts("e", domain.ProductIdentifiers{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.owner.WithinTransaction(t.Context(), func(r app.ContentRepository) error { return r.Save(t.Context(), baseline) }); err != nil {
+		t.Fatal(err)
+	}
+	parent := os.Getenv("TEDDYCLOUD_CONTENTFS_TEST_ROOT")
+	if parent == "" {
+		parent = "/var/tmp"
+	}
+	root, err := os.MkdirTemp(parent, "tc-event-media-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(root) })
+	store, err := contentfs.Open(t.Context(), root, content.DefaultTAFOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	media, err := contentstore.NewService(t.Context(), f.owner, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	taf, err := taffixture.New(8193, 123, []uint32{0, 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pair := blobCommand(t, 1, false).Version().Fingerprint()
+	const subjects = 192
+	versions := make([]domain.ContentVersion, subjects+3)
+	for i := 3; i < len(versions); i++ {
+		versions[i], err = domain.NewContentVersion(catalogQueryVersion(t, 101+i), cid, pair, domain.UnknownVersionOrderEvidence())
+		if err != nil {
+			t.Fatal(err)
+		}
+		c, err := content.NewImportCommand(versions[i], content.NewBlobID(taf.BlobDigest()), taf.CompleteBytes(), content.TAFProfileV1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Publish and verify the shared immutable media once. Subsequent
+		// RecordImport commands satisfy that port's durable-media precondition
+		// without retaining a redundant staging copy for each version.
+		if i == 3 {
+			_, err = media.Import(t.Context(), blobKey(t, i+1), c, taf.Open(), content.FiniteTAFSource)
+		} else {
+			_, err = blobRecord(t, f.owner, blobKey(t, i+1), c)
+		}
+		if err != nil {
+			t.Fatal("author baseline media", i, err)
+		}
+	}
+	adoption := newRegistrationIntegrationSource(t, f.review.Reviewer(), domain.BaselineSnapshot)
+	adopter, err := app.NewService(f.owner, adoption.source, adoption.review, adoption.space)
+	if err != nil {
+		t.Fatal(err)
+	}
+	read, revision, err := adopter.ReadBaseline(t.Context(), cid)
+	if err != nil {
+		t.Fatal("read media baseline", err)
+	}
+	if _, err := adopter.AdoptBaseline(t.Context(), app.AdoptionCommand{ID: registrationIntegrationCommandID(t), Content: cid, ExpectedAggregate: revision, BaselineSHA256: read.SHA256(), Reason: "e"}); err != nil {
+		t.Fatal("adopt media baseline", err)
+	}
+	// F02 requires explicitly accepted fingerprint/ownership on its target.
+	// Register just its three endpoints; the other subjects remain adopted.
+	for i := 0; i < 3; i++ {
+		c := f.version(t, 101+i, uint64(i+1))
+		if _, err := f.service.RegisterCatalogVersion(t.Context(), c); err != nil {
+			t.Fatal("register F02 endpoint", i, err)
+		}
+		versions[i], err = domain.NewContentVersion(c.Subject.VersionID(), cid, c.Observations[0].Input().Claim.Fingerprint(), domain.UnknownVersionOrderEvidence())
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The content observation is also the pending AcceptSupport's real support.
+	one, _ := domain.NewCatalogRevision(1)
+	four, _ := domain.NewCatalogRevision(4)
+	if _, err := f.base.RecordObservations(t.Context(), app.ReviewCommand{ID: registrationIntegrationCommandID(t), Subject: f.registrationFixture.command.Subject, ExpectedAggregate: four, ExpectedReview: one, Observations: f.registrationFixture.command.Observations, Reason: "e"}); err != nil {
+		t.Fatal("record content support", err)
+	}
+	aggregate := uint64(5)
+	// Leave 101/102/103 unreviewed for the pending supersession endpoint fences.
+	// Reserve the last seed event for F02, making all five count pairs shared.
+	const target = uint64(1023) // aggregate 1023 means 1022 events after adoption.
+	remaining := target - aggregate
+	claim, _ := domain.OwnershipClaim(cid)
+	coordinate := f.registrationFixture.command.Observations[0].Input().Coordinate
+	var slowest time.Duration
+	for i, version := range versions[3:] {
+		subject, _ := domain.VersionSubject(cid, version.ID())
+		state, err := domain.NewCatalogReviewState(subject, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		o := f.observation(t, subject, claim)
+		input := o.Input()
+		input.Coordinate = coordinate
+		o, err = domain.NewCatalogObservation(f.ingest, f.source, input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		count := remaining / uint64(subjects-i)
+		for j := uint64(0); j < count; j++ {
+			a, _ := domain.NewCatalogRevision(aggregate)
+			r, _ := domain.NewCatalogRevision(j + 1)
+			c := domain.CatalogReviewCommand{ID: registrationIntegrationCommandID(t), Subject: subject, Source: f.source, Expected: r, Reason: "e", Kind: domain.AcceptSupport}
+			began := time.Now()
+			if j == 0 {
+				c.Kind, c.Observations = domain.RecordObservations, []domain.CatalogObservation{o}
+			} else {
+				c.Key, c.Support = domain.OwnershipClaimKey, []evidence.ID{o.ID()}
+			}
+			next, decision, err := state.Apply(f.review, c)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resultRevision, _ := domain.NewCatalogRevision(aggregate + 1)
+			// The command port independently reconstructs and validates both
+			// states. Avoid the service's redundant lookup/load while authoring
+			// the seed; every exact/+1 assertion below uses the real services.
+			if err := f.owner.WithinCatalogTransaction(t.Context(), func(repository app.CatalogRepository) error {
+				return repository.CommitReview(t.Context(), app.ReviewOperation{ExpectedAggregate: a, Capability: f.review, Command: c}, next, app.ReviewResult{AggregateRevision: resultRevision, Decision: decision})
+			}); err != nil {
+				t.Fatal("author event fixture", i, aggregate, time.Since(started), err)
+			}
+			state = next
+			slowest = max(slowest, time.Since(began))
+			aggregate++
+		}
+		remaining -= count
+		if (i+1)%32 == 0 {
+			t.Logf("authored %d events in %s; slowest command %s", aggregate-1, time.Since(started), slowest)
+		}
+	}
+	f.cap, err = domain.NewCatalogSupersessionCapability(f.review)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.sup, err = app.NewSupersessionService(f.base, f.cap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.command = f.link(t, versions[0], versions[1], aggregate, 1)
+	began := time.Now()
+	if _, err := f.sup.SupersedeVersion(t.Context(), f.command); err != nil {
+		t.Fatal("author shared F02 seed event", time.Since(began), err)
+	}
+	slowest = max(slowest, time.Since(began))
+	u := combinedAccountingUsage(t, f.owner.database.db, cid)
+	if remaining != 0 || aggregate != target || u.events != 1023 || u.bytes >= domain.RetainedBytes.Maximum() || u.observations >= domain.RetainedObservations.Maximum() || u.links >= domain.RetainedSupportLinks.Maximum() {
+		t.Fatal("compact event fixture", aggregate, remaining, u)
+	}
+	t.Logf("event seed: %+v; authored in %s; slowest command %s", u, time.Since(started), slowest)
+	return f
+}
+
+func TestSupersessionSQLiteSnapshotMutation(t *testing.T) {
+	for _, mutation := range []string{"manifest", "schema", "foreign key"} {
+		t.Run(mutation, func(t *testing.T) {
+			f := newSupersessionFixture(t)
+			before := catalogRecoveryRows(t, f.owner.database.db)
+			rollback := errors.New("rollback deliberate snapshot mutation")
+			err := f.owner.WithinCatalogTransaction(t.Context(), func(repository app.CatalogRepository) error {
+				r := repository.(*catalogRepository)
+				bindings := domain.CatalogPersistenceBindings{AllowUnbound: true}
+				if _, err := r.readSupersession(t.Context(), f.command.Content, bindings); err != nil {
+					return err
+				}
+				if _, err := r.transaction.ExecContext(t.Context(), "PRAGMA query_only=OFF"); err != nil {
+					return err
+				}
+				if mutation == "schema" {
+					if _, err := r.transaction.ExecContext(t.Context(), "ALTER TABLE tc_content_versions RENAME TO hidden_versions"); err != nil {
+						return err
+					}
+					if _, err := r.catalogVersions(t.Context(), f.command.Content); !errors.Is(err, app.ErrRepositoryUnavailable) {
+						t.Fatal("DDL reused an obsolete manifest", err)
+					}
+				} else if mutation == "foreign key" {
+					if _, err := r.transaction.ExecContext(t.Context(), "PRAGMA defer_foreign_keys=ON"); err != nil {
+						return err
+					}
+					if _, err := r.transaction.ExecContext(t.Context(), "INSERT INTO tc_content_versions VALUES (?,?,123,?,0,NULL,NULL)", catalogQueryVersion(t, 999).String(), catalogQueryContent(t, 999).String(), bytes.Repeat([]byte{0x11}, 20)); err != nil {
+						return err
+					}
+					if err := r.catalogForeignKeys(t.Context()); !errors.Is(err, app.ErrRepositoryUnavailable) {
+						t.Fatal("DML reused an obsolete FK check", err)
+					}
+				} else {
+					// Deliberately omit the corresponding order growth: both the
+					// changed manifest and the now-invalid graph must be observed.
+					if _, err := r.transaction.ExecContext(t.Context(), "INSERT INTO tc_content_versions VALUES (?,?,123,?,0,NULL,NULL)", catalogQueryVersion(t, 999).String(), f.command.Content.String(), bytes.Repeat([]byte{0x11}, 20)); err != nil {
+						return err
+					}
+					if versions, err := r.catalogVersions(t.Context(), f.command.Content); err != nil || len(versions) != 3 {
+						t.Fatal("DML reused an obsolete manifest", len(versions), err)
+					}
+				}
+				if _, err := r.readSupersession(t.Context(), f.command.Content, bindings); !errors.Is(err, app.ErrRepositoryUnavailable) {
+					t.Fatal("mutation reused an obsolete graph", err)
+				}
+				return rollback
+			})
+			if !errors.Is(err, rollback) || !reflect.DeepEqual(before, catalogRecoveryRows(t, f.owner.database.db)) {
+				t.Fatal("snapshot mutation did not roll back completely", err)
+			}
+		})
+	}
+}
+
+func TestSupersessionSQLiteCombinedWriterEvents(t *testing.T) {
+	seed := combinedAccountingEventFixture(t)
+	// A distinct, command-authored event supplies the one-over starting state.
+	over := combinedAccountingClone(t, seed)
+	id, err := domain.NewCatalogCommandID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, _ := domain.NewCatalogRevision(1024)
+	two, _ := domain.NewCatalogRevision(2)
+	if _, err := over.base.AcceptSupport(t.Context(), app.ReviewCommand{ID: id, Subject: over.registrationFixture.command.Subject, ExpectedAggregate: a, ExpectedReview: two, Key: domain.TitleClaimKey, Support: []evidence.ID{over.registrationFixture.command.Observations[0].ID()}, Reason: "e"}); err != nil {
+		t.Fatal("author one-over starting state", err)
+	}
+	for _, writer := range combinedAccountingWriters {
+		if writer.kind != "version" && writer.kind != "review" && writer.kind != "decision" && writer.kind != "order" && writer.kind != "supersession" {
+			continue
+		}
+		for _, extra := range []uint64{0, 1} {
+			t.Run(fmt.Sprintf("%s/over_%d", writer.name, extra), func(t *testing.T) {
+				starting := seed
+				if extra == 1 {
+					starting = over
+				}
+				f := combinedAccountingClone(t, starting)
+				fence := &combinedAccountingFence{owner: f.owner}
+				write := combinedAccountingPending(t, f, writer, fence)
+				beforeUsage := combinedAccountingUsage(t, f.owner.database.db, f.command.Content)
+				if beforeUsage.events+1 != domain.RetainedDecisions.Maximum()+extra {
+					t.Fatal("event pair is not exact", beforeUsage, extra)
+				}
+				before := catalogRecoveryRows(t, f.owner.database.db)
+				started := time.Now()
+				result, err := write()
+				t.Logf("writer took %s", time.Since(started))
+				if extra == 1 {
+					var limit domain.LimitError
+					if !errors.Is(err, app.ErrLimitExceeded) || !errors.As(fence.failure, &limit) || limit.Resource != domain.RetainedDecisions {
+						t.Fatal("event rejection", err, fence.failure)
+					}
+					if !reflect.DeepEqual(before, catalogRecoveryRows(t, f.owner.database.db)) || combinedAccountingUsage(t, f.owner.database.db, f.command.Content) != beforeUsage {
+						t.Fatal("event rejection leaked rows/accounting")
+					}
+					return
+				}
+				if err != nil {
+					t.Fatal("exact combined event bound", err, fence.failure)
+				}
+				after := catalogRecoveryRows(t, f.owner.database.db)
+				n := 1
+				if writer.kind == "version" {
+					n = 2
+				}
+				combinedAccountingAssertRows(t, writer, before, after, n, true)
+				usage := combinedAccountingUsage(t, f.owner.database.db, f.command.Content)
+				wantObservations, wantLinks := beforeUsage.observations, beforeUsage.links
+				if writer.kind != "decision" {
+					wantObservations += uint64(n)
+				}
+				if writer.kind != "review" {
+					wantLinks += uint64(n)
+				}
+				if usage.events != domain.RetainedDecisions.Maximum() || usage.bytes <= beforeUsage.bytes || usage.bytes >= domain.RetainedBytes.Maximum() || usage.observations != wantObservations || usage.links != wantLinks {
+					t.Fatal("combined event charges duplicated or lost", beforeUsage, usage)
+				}
+				tables := writer.tables
+				if writer.kind == "review" || writer.kind == "decision" {
+					tables = strings.ReplaceAll(tables, "tc_catalog_review_states_v2", "tc_catalog_review_states")
+				}
+				for table, rows := range before {
+					if !slices.Contains(strings.Fields(tables+" tc_catalog_sources tc_catalog_source_claims tc_catalog_batches tc_catalog_records"), table) && !reflect.DeepEqual(rows, after[table]) {
+						t.Fatal("event writer changed unrelated rows", table)
+					}
+				}
+				replay, err := write()
+				if err != nil || !reflect.DeepEqual(result, replay) || !reflect.DeepEqual(after, catalogRecoveryRows(t, f.owner.database.db)) || combinedAccountingUsage(t, f.owner.database.db, f.command.Content) != usage {
+					t.Fatal("event replay changed result/rows/accounting", err)
 				}
 			})
 		}

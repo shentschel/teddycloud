@@ -321,6 +321,11 @@ func (r *catalogRepository) CommitRegistration(ctx context.Context, op app.Regis
 			return result, err
 		}
 	}
+	// Check prospective charges before replay reconstruction, which treats
+	// an already-retained over-limit history as corruption on read paths.
+	if err = r.registrationAccounting(call, id); err != nil {
+		return result, err
+	}
 	if _, found, e := r.lookupRegistration(call, op, canonical, sources); e != nil || !found {
 		if e != nil {
 			return result, e

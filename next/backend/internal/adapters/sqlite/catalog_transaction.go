@@ -137,6 +137,9 @@ type catalogRepository struct {
 	wrote         bool
 	authorize     []func() error
 	statements    map[string]*sql.Stmt
+	versions      *catalogVersionSnapshot
+	graphs        [2]*catalogGraphSnapshot
+	foreignKeys   *catalogForeignKeySnapshot
 }
 
 func (r *catalogRepository) statement(ctx context.Context, query string) (*sql.Stmt, error) {
@@ -402,21 +405,18 @@ func (r *catalogRepository) readStatesWithGraph(ctx context.Context, content ide
 // Raw envelope validation never calls the graph reader. The graph reader uses
 // these immutable snapshots to validate historical fences without recursion.
 func (r *catalogRepository) readStatesRaw(ctx context.Context, content identity.ContentID, subject domain.CatalogSubject, order bool, bindings domain.CatalogPersistenceBindings) ([]catalogStoredState, domain.CatalogRevision, error) {
-	return r.readStatesRawWithForeignKeys(ctx, content, subject, order, bindings, false)
+	return r.readStatesRawWithForeignKeys(ctx, content, subject, order, bindings, false, nil, nil)
 }
 
 // Only a caller that has already checked this unchanged SQLite snapshot may
-// reuse that database-wide FK result. Every envelope is still fully validated;
-// no result survives a write or a separate reconstruction.
-func (r *catalogRepository) readStatesRawWithForeignKeys(ctx context.Context, content identity.ContentID, subject domain.CatalogSubject, order bool, bindings domain.CatalogPersistenceBindings, foreignKeysChecked bool) ([]catalogStoredState, domain.CatalogRevision, error) {
+// reuse that database-wide FK result and fully validated version manifest.
+// Every envelope is still fully validated; neither result survives a write or
+// a separate reconstruction.
+func (r *catalogRepository) readStatesRawWithForeignKeys(ctx context.Context, content identity.ContentID, subject domain.CatalogSubject, order bool, bindings domain.CatalogPersistenceBindings, foreignKeysChecked bool, versions []catalogVersionRow, matches map[string]bool) ([]catalogStoredState, domain.CatalogRevision, error) {
 	id, key := content.String(), catalogSubjectKey(subject)
 	if !foreignKeysChecked {
-		var corrupt bool
-		if err := r.transaction.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM pragma_foreign_key_check LIMIT 1)").Scan(&corrupt); err != nil {
-			return nil, domain.CatalogRevision{}, repositoryError(ctx, err)
-		}
-		if corrupt {
-			return nil, domain.CatalogRevision{}, app.ErrRepositoryUnavailable
+		if err := r.catalogForeignKeys(ctx); err != nil {
+			return nil, domain.CatalogRevision{}, err
 		}
 	}
 	var aggregate, protected uint64
@@ -517,9 +517,11 @@ func (r *catalogRepository) readStatesRawWithForeignKeys(ctx context.Context, co
 	if !managed {
 		return nil, revision, app.ErrRepositoryUnavailable
 	}
-	versions, err := r.catalogVersions(ctx, content)
-	if err != nil {
-		return nil, revision, app.ErrRepositoryUnavailable
+	if versions == nil {
+		versions, err = r.catalogVersions(ctx, content)
+		if err != nil {
+			return nil, revision, app.ErrRepositoryUnavailable
+		}
 	}
 	if !order && !subject.VersionID().IsZero() {
 		found := false
@@ -566,12 +568,17 @@ func (r *catalogRepository) readStatesRawWithForeignKeys(ctx context.Context, co
 	if uint64(len(states)) != count || !order && states[len(states)-1].revision != expected {
 		return nil, revision, app.ErrRepositoryUnavailable
 	}
+	// All envelopes below observe the same read-only snapshot. Cache only
+	// successful exact SQL predicates; still parse and replay every envelope.
+	if matches == nil {
+		matches = make(map[string]bool)
+	}
 	for i := range states {
 		if err := ctx.Err(); err != nil {
 			return nil, revision, err
 		}
 		s := &states[i]
-		projection := catalogStateReader{raw: s.raw, repository: r, ctx: ctx, content: id, subject: key, order: order, sources: make(map[string]domain.SourceRegistration)}
+		projection := catalogStateReader{raw: s.raw, repository: r, ctx: ctx, content: id, subject: key, order: order, sources: make(map[string]domain.SourceRegistration), matches: matches}
 		if err := projection.checkEnvelope(s, versions, i == len(states)-1); err != nil {
 			return nil, revision, err
 		}
@@ -718,7 +725,20 @@ func (d *catalogStateReader) match(query string, args ...any) {
 	if d.matches != nil {
 		raw := registrationFrame(nil, []byte(query))
 		for _, arg := range args {
-			raw = registrationFrame(raw, []byte(fmt.Sprintf("%T:%#v", arg, arg)))
+			// Preserve exact argument types and framing without formatting
+			// canonical BLOBs into much larger decimal byte lists.
+			switch value := arg.(type) {
+			case string:
+				raw = registrationFrame(append(raw, 's'), []byte(value))
+			case []byte:
+				tag := byte('b')
+				if value == nil {
+					tag = 'n'
+				}
+				raw = registrationFrame(append(raw, tag), value)
+			default:
+				raw = registrationFrame(append(raw, 'v'), []byte(fmt.Sprintf("%T:%#v", arg, arg)))
+			}
 		}
 		key = string(raw)
 		if d.matches[key] {
@@ -1182,11 +1202,13 @@ func (r *catalogRepository) CommitReview(ctx context.Context, operation app.Revi
 	if err != nil {
 		return repositoryError(call, err)
 	}
-	// Read back through exactly the existing corruption/binding checks.
-	if _, _, err = r.readStates(call, command.Subject.ContentID(), command.Subject, false, bindings); err != nil {
+	// Admit prospective rows before reconstruction can classify an over-limit
+	// history as corrupt. Rejection still rolls back the complete transaction.
+	if err = r.registrationAccounting(call, command.Subject.ContentID()); err != nil {
 		return err
 	}
-	if err = r.registrationAccounting(call, command.Subject.ContentID()); err != nil {
+	// Read back through exactly the existing corruption/binding checks.
+	if _, _, err = r.readStates(call, command.Subject.ContentID(), command.Subject, false, bindings); err != nil {
 		return err
 	}
 	r.wrote = true
@@ -1326,10 +1348,10 @@ func (r *catalogRepository) CommitOrder(ctx context.Context, operation app.Order
 	if err = projection.checkEnvelope(&stored, versions, true); err != nil {
 		return err
 	}
-	if _, _, err = r.readStates(call, command.Content, domain.CatalogSubject{}, true, bindings); err != nil {
+	if err = r.registrationAccounting(call, command.Content); err != nil {
 		return err
 	}
-	if err = r.registrationAccounting(call, command.Content); err != nil {
+	if _, _, err = r.readStates(call, command.Content, domain.CatalogSubject{}, true, bindings); err != nil {
 		return err
 	}
 	r.wrote = true
