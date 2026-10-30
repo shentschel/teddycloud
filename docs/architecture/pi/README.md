@@ -53,13 +53,17 @@ Current execution artifacts:
 - [PI-08/B2 acceptance audit](pi-08-b2-acceptance-audit.md)
 - [PI-08/T independent audit checkpoint](pi-08-t-audit-checkpoint.md)
 - [PI08-T-F01 registration contract](pi-08-f01-registration-contract.md)
-- [PI08-T-F02 supersession contract: refined/implementation-ready](pi-08-f02-supersession-contract.md)
+- [PI08-T-F02 supersession contract: D2j acceptance blocked](pi-08-f02-supersession-contract.md)
 - PI-08/R, A, B1 and B2 are accepted software checkpoints. Independent T found
   and published PI08-T-F01/F02; the fixture-only F03 is resolved. The parent
   reports F01-D accepted at `abe0c956e8f38c20aaae966faafe4115feb409e4` with
-  exact-head Next CI 40056183655 green. F02 is refined/implementation-ready;
-  implementation and independent acceptance remain open under existing #28.
-  T and the versioned-catalog-query milestone remain undelivered.
+  exact-head Next CI 40056183655 green. F02 A/B/C/D evidence is implemented at
+  `fbc8f9996e2cd8d9842048002f67dbf5a2cda2c5`; exact-head Next CI 40989601324
+  is independently verified green. The D2j audit accepts support-count byte
+  dominance but retains Medium findings for old-writer pre-write accounting and
+  the original repeat-all/race gate versus the delivered CI tier. F02 remains
+  blocked under existing #28; T and the versioned-catalog-query milestone remain
+  unaccepted. See the linked audit for individual gates and validation limits.
 
 - [PI-07 plan checkpoint](pi-07-plan.md)
 - [PI-07 budget checkpoint](pi-07-budget.md)

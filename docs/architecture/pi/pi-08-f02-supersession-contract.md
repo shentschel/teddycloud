@@ -1,7 +1,9 @@
 # PI08-T-F02 immutable version-supersession contract
 
-Status: **refined/implementation-ready**; implementation and independent
-acceptance remain open under [PI08-T-F02 #28](https://github.com/shentschel/teddycloud/issues/28).
+Status: **implemented; independent acceptance blocked (D2j, 2026-10-30)**.
+The exact-head audit and support-dominance disposition below supersede the
+refinement status, not the unchanged normative limits. Delivery remains open
+under [PI08-T-F02 #28](https://github.com/shentschel/teddycloud/issues/28).
 Request: `pi08-t-f02-refinement-20261024`, 2026-10-24.
 Inspected base: `abe0c956e8f38c20aaae966faafe4115feb409e4`, branch
 `docs/pi-00-r-charter`. This document does not complete F02, PI-08/T or PI-08.
@@ -535,6 +537,97 @@ permits F02, PI-08/T or milestone acceptance. Hardware, production migration,
 deployment, public V3/auth APIs, legacy/provider import expansion, automatic
 assignment changes, cross-Content reconciliation and relation retraction remain
 explicitly outside this contract.
+
+## D2j independent acceptance checkpoint, 2026-10-30
+
+Inspected implementation: `fbc8f9996e2cd8d9842048002f67dbf5a2cda2c5`.
+[Exact-head Next CI 40989601324](https://github.com/shentschel/teddycloud/actions/runs/40989601324)
+is independently verified green, but **F02, PI-08/T and the milestone remain
+unaccepted**. The [audit checkpoint](pi-08-t-audit-checkpoint.md#f02-d2j-independent-acceptance-checkpoint-2026-10-30)
+disposes the four original D2 gaps, every test-family/D gate, and the transaction
+caches. It records two Medium contract/acceptance findings: combined accounting
+before enabling writes is missing in old writers, and the delivered CI tier does
+not literally implement the original repeat-all/race gate. No High, security or
+data-loss defect was confirmed in the inspected scope. No feature exposure or
+production migration is authorized by this checkpoint.
+
+### Support-count boundary: accepted dominance proof, not a limit change
+
+The command-authored SQLite support-count exact/+1 scenarios are unreachable
+under the unchanged encoding and 8,388,608-byte aggregate budget. For this one
+boundary, a proof of nonexistence discharges the impossible fixture obligation;
+it does not discharge byte-boundary tests, independent counter checks, corruption
+checks or the remaining acceptance gates. The 16,384-link check stays mandatory.
+
+An independent conservative proof at the inspected SHA is as follows. Let `L`
+be cumulative links for one Content, `O` the order links (including order-command
+`Supersedes`), and `B` its charged retained bytes. These counts are exactly those
+assembled by `adapters/sqlite/catalog_registration.go:814-986`; F02 additions
+are in `catalog_supersession.go:608-633`. No SQLite page-size estimate is used.
+
+* Every non-order link costs at least 650 bytes. A selected review observation
+  has a conservative 464-byte encoding floor: ID 38, subject 46, claim 40,
+  source 168, coordinate 128, origin/time/confidence 44. Empty optional text and
+  empty inactive fields are allowed in this lower estimate. The five additional
+  support-ID copies cost 190 bytes: typed/canonical command and result in its
+  review snapshot, plus the separately stored canonical command and result.
+  Thus even this deliberately loose floor gives 654 > 650. Reuse across review
+  decisions does not share their newly persisted snapshots. See
+  `domain/catalog/decisions.go:154-193,482-634` and
+  `domain/catalog/registration.go:512-525`. Registration retains its selected
+  observation in both canonical command and review bootstrap; F02 retains its
+  relation plus command/result support, normalized evidence and support row.
+  Both also exceed 650. These charges occupy different BLOBs/rows from order.
+* Each order command adds at most 256 links, including `Supersedes`
+  (`domain/catalog/order.go:331-369`). Every added link contributes at least one
+  framed ID of 38 bytes to that command's immutable canonical bytes (superseded
+  command IDs actually cost 40). Every later order snapshot still includes it,
+  even after superseding a decision. Both v1's `encodeOrderState` and v2's
+  `encodeGrowthState` retain that history (`order.go:638-737`,
+  `registration.go:731-773`). The accounting sums all physical snapshots, not
+  just the latest one. Registration growth and other overhead only add bytes.
+* Packing links into the latest possible commands minimizes those copies. With
+  `O = 256*q + r`, `0 <= r < 256`, at least
+  `S(O) = 256*q*(q+1)/2 + (q+1)*r` copies remain. Consequently
+  `B >= 650*(L-O) + 38*S(O)`, for every integer `0 <= O <= L`.
+  This relaxation ignores other caps and all additional positive charges, so
+  its minimum is a valid lower bound, not a claim that a minimizing fixture exists.
+
+The marginal order cost is `38*ceil(O/256)`. It is below 650 through block 17
+(646) and above it from block 18 (684); hence for these `L` the minimum is at
+`O=4352`. Exhaustive integer minimization independently gives:
+
+| Cumulative links L | Minimum retained bytes | Excess over 8 MiB |
+| --- | ---: | ---: |
+| 16,129 | 9,143,434 | 754,826 |
+| 16,384 | 9,309,184 | 920,576 |
+| 16,385 | 9,309,834 | 921,226 |
+
+These stronger lower bounds independently corroborate the earlier conservative
+8,413,526 / 8,556,006-byte impossibility claims; neither is an actual storage-size
+measurement. A writer adds at most 256 links, so reaching 16,385 would require an
+already invalid prestate of at least 16,129 links. Reaching 16,384 is itself
+invalid. RegisterContent starts absent; adoption adds no support; observation-only
+and import operations cannot reach this boundary by increasing links.
+
+Reproducible arithmetic, with no repository writes:
+
+```python
+for L in (16129, 16384, 16385):
+    def bound(O):
+        q, r = divmod(O, 256)
+        return 650*(L-O) + 38*(256*q*(q+1)//2 + (q+1)*r)
+    print(L, min((bound(O), O) for O in range(L+1)))
+```
+
+The proof applies to valid complete retained histories, including supported v8
+histories upgraded to v9; forged counters, missing snapshots and malformed
+storage remain corruption cases, never admissible fixtures. Counter checks in
+`TestSupersessionSQLiteAccounting` and inherited domain limit tests remain in
+place. The six byte exact/+1 writer pairs remain required. Any future encoding,
+retention, accounting or limit change must reopen this proof before acceptance.
+No user decision to change a numeric limit or encoding is needed for this
+boundary. This disposition does not waive either D2j finding.
 
 ## Refinement publication and proposed issue #28 body
 
