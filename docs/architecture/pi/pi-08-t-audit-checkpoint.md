@@ -1,8 +1,13 @@
 # PI-08/T independent audit checkpoint
 
-Status: **D2j checkpoint recorded; F02, T and the milestone are not accepted**.
-Latest inspected implementation: `fbc8f9996e2cd8d9842048002f67dbf5a2cda2c5`;
-exact-head CI is green. Earlier sections below are historical checkpoints.
+Status: **D2j-M2 closed by D2l contract disposition; F02, T and the milestone
+remain unaccepted pending a separate independent final review**.
+Current supplied implementation: `fae704ab5365c20da4af590f27429266833cdaa1`;
+M1 remediation is implemented with pre-mutation evidence and exact-head
+[Next CI 41070315658](https://github.com/shentschel/teddycloud/actions/runs/41070315658)
+green, as supplied by the D2l request. No new independent M1/implementation audit
+is claimed. See the [current D2l disposition](#f02-d2l-ci-tier-contract-disposition-2026-10-30).
+The earlier checkpoints, including D2j at `fbc8f999`, are historical evidence.
 
 The independent audit at
 [`a9909431`](https://github.com/shentschel/teddycloud/commit/a99094313a6d1dce53000406b9856768c7dc130c)
@@ -41,6 +46,8 @@ is unchanged.
 
 ## F02 refinement checkpoint, 2026-10-24
 
+Historical status at that checkpoint:
+
 Status: **F02 refined/implementation-ready**. F02 implementation, independent
 acceptance, PI-08/T and the milestone remain open.
 
@@ -63,6 +70,10 @@ F02 and final independent T acceptance still block the milestone; no hardware,
 deployment or production migration evidence is claimed.
 
 ## F02 D2j independent acceptance checkpoint, 2026-10-30
+
+Historical record: all findings, source line references, gate dispositions and
+fresh-test claims in this section refer to `fbc8f999`, before M1 remediation
+and the D2l contract decision. The current status is given above and in D2l below.
 
 **Verdict: blocked, not full acceptance.** Reviewed the implementation from the
 F01 base `abe0c956e8f38c20aaae966faafe4115feb409e4` through the exact clean head
@@ -223,7 +234,49 @@ Documentation closeout runs `python3 scripts/check_architecture_docs.py`
 (including relative links), `python3 next/tools/check_workspace_boundaries.py`,
 `git diff --check`, `git diff --cached --check`, and exact three-file scope review.
 Only this audit, the F02 contract and PI README are changed. The support proof is
-an accepted unreachable-boundary disposition; remaining decisions are M1's scoped
-implementation follow-up and M2's explicit delivery-tier disposition. Existing
-accepted F01/R/A/B checkpoints are not reopened. No issue, status, workflow,
+an accepted unreachable-boundary disposition; at that checkpoint, remaining
+decisions were M1's scoped implementation follow-up and M2's explicit delivery-tier
+disposition. Existing accepted F01/R/A/B checkpoints are not reopened. No issue, status, workflow,
 production or test file is changed; no push, deployment or production migration.
+
+## F02 D2l CI-tier contract disposition, 2026-10-30
+
+Request: `pi08-t-f02-d2l-ci-tier-contract-disposition-20261030`.
+Basis: `fae704ab5365c20da4af590f27429266833cdaa1`.
+**D2j-M2: closed.** The explicit user decision accepts the exact existing
+[D2l normative CI tier](pi-08-f02-supersession-contract.md#d2l-accepted-ci-tier-disposition-2026-10-30)
+as a bounded risk-based allocation. The mandatory uncached non-race one-shot
+runs all four command-authored accounting fixtures (Bytes, Observations, Events,
+RegisterContentBytes). Only observation/event fixtures are excluded from SQLite
+`-count=10`; only those four fixtures are excluded from the uncached race lane.
+Both byte fixtures still repeat ten times. All other SQLite tests retain tenfold
+and race coverage, with unchanged selectors, assertions and operation deadlines.
+The contract records the exact commands, package set and unchanged other gates.
+
+The accepted residual risk is lower repetition evidence for observation/event
+boundaries and absent race instrumentation of the four complete large-fixture
+paths. Intermittent or path-specific races may escape; ordinary owner/concurrency/
+cache race tests and focused evidence do not prove those large paths race-free.
+No test, accounting limit, normative 10s/5s deadline or functional gate is waived.
+Expanding the exclusions requires a new explicit disposition.
+
+**D2j-M1: remediation implemented; exact-head CI green.** The request supplies
+pre-mutation evidence and implementation at `fae704ab5365c20da4af590f27429266833cdaa1`
+with successful [Next CI 41070315658](https://github.com/shentschel/teddycloud/actions/runs/41070315658).
+This updates the historical open-implementation status; this docs task neither
+repeats the implementation review nor independently closes M1 acceptance.
+
+**Remaining blocker:** separate independent final F02/PI-08/T and milestone
+acceptance under existing #28. M2 is no longer a blocker. The D2j gate tables and
+line-number findings above describe the old inspected head and must not be read
+as current M1/M2 status. Accepted F01/R/A/B evidence remains intact.
+
+This closeout uses architecture documentation/relative-link validation,
+workspace-boundary validation, unstaged/staged diff checks and exact three-file
+scope review. `go test -count=1 ./backend/internal/architecture` also passes in
+a read-only Go 1.27.1 container (2.647s package time). No full backend, SQLite
+matrix, fuzz or CI rerun is needed for this disposition. Optimize context/polling
+and avoid duplicate full validation; observe the contract's limit of at most
+2–3 complete jobs per 5h window and budget reserve. Only this
+audit, the F02 contract and PI README are committed. No push or GitHub issue edit;
+CI 41070315658 belongs to the basis implementation, not this new docs commit.

@@ -1,8 +1,13 @@
 # PI08-T-F02 immutable version-supersession contract
 
-Status: **implemented; independent acceptance blocked (D2j, 2026-10-30)**.
-The exact-head audit and support-dominance disposition below supersede the
-refinement status, not the unchanged normative limits. Delivery remains open
+Status: **implemented; D2j-M2 closed by D2l disposition (2026-10-30);
+independent F02/T acceptance remains pending**.
+M1 remediation is implemented at `fae704ab5365c20da4af590f27429266833cdaa1`
+with exact-head Next CI 41070315658 green, as supplied by the D2l request.
+The [D2l disposition](#d2l-accepted-ci-tier-disposition-2026-10-30) supersedes
+only the unqualified repeat-all/race wording and current M2 status. Historical
+refinement/D2j findings remain below; normative limits are unchanged.
+Delivery remains open
 under [PI08-T-F02 #28](https://github.com/shentschel/teddycloud/issues/28).
 Request: `pi08-t-f02-refinement-20261024`, 2026-10-24.
 Inspected base: `abe0c956e8f38c20aaae966faafe4115feb409e4`, branch
@@ -529,8 +534,11 @@ migration fixtures and deliberate corruption, not milestone authoring. Fuzz boun
 supersession decoding and transitions with named `FuzzCatalogSupersessionState`.
 
 Delivery checks follow the plan's package/full-backend/vet/race and `make -C next
-check` gates; repeat `TestSupersession` SQLite tests ten times, run the new fuzz
-target for 10s/parallel=2, preserve existing F01 and qualified-filesystem jobs.
+check` gates. SQLite repetition and race MUST use the exact accepted
+[D2l CI tier](#d2l-accepted-ci-tier-disposition-2026-10-30) below; it replaces
+the original unqualified tenfold `TestSupersession`/race requirement only for
+the explicitly named fixtures. Run the new fuzz target for 10s/parallel=2;
+preserve existing F01 and qualified-filesystem jobs.
 Independent T must review the exact implementation commit and all negative cases;
 green tests alone do not close #28. No unresolved High/security/data-loss finding
 permits F02, PI-08/T or milestone acceptance. Hardware, production migration,
@@ -539,6 +547,10 @@ assignment changes, cross-Content reconciliation and relation retraction remain
 explicitly outside this contract.
 
 ## D2j independent acceptance checkpoint, 2026-10-30
+
+Historical checkpoint: the findings and acceptance status in this section
+refer to `fbc8f9996e2cd8d9842048002f67dbf5a2cda2c5`. For M1 remediation
+and M2 closure, use the subsequent D2l disposition; this audit is not rerun here.
 
 Inspected implementation: `fbc8f9996e2cd8d9842048002f67dbf5a2cda2c5`.
 [Exact-head Next CI 40989601324](https://github.com/shentschel/teddycloud/actions/runs/40989601324)
@@ -627,9 +639,86 @@ storage remain corruption cases, never admissible fixtures. Counter checks in
 place. The six byte exact/+1 writer pairs remain required. Any future encoding,
 retention, accounting or limit change must reopen this proof before acceptance.
 No user decision to change a numeric limit or encoding is needed for this
-boundary. This disposition does not waive either D2j finding.
+boundary. At the D2j checkpoint, this support-boundary disposition did not
+waive either finding; subsequent M1 remediation and M2 disposition are below.
+
+## D2l accepted CI-tier disposition, 2026-10-30
+
+Request: `pi08-t-f02-d2l-ci-tier-contract-disposition-20261030`.
+Basis: `fae704ab5365c20da4af590f27429266833cdaa1`. The user explicitly
+accepts the already delivered D2e/D2i tier as a risk-based test allocation.
+**D2j-M2 is closed by this normative contract decision.** This is a bounded
+exception to fixture repetition/instrumentation, with no reduction of assertions,
+limits, normative 10s/5s operation deadlines or functional acceptance gates.
+
+The authoritative selectors are those in repository-root
+[`.github/workflows/next-ci.yml`](../../../.github/workflows/next-ci.yml),
+job `sqlite-persistence`, at the basis commit. Commands below run from `next/`.
+All steps MUST remain mandatory; the four named fixtures MUST run uncached
+non-race with `-count=1`, even when other lanes also select them.
+
+| Lane | Exact accepted allocation |
+| --- | --- |
+| Mandatory accounting one-shot | `TestSupersessionSQLiteCombinedWriterBytes`, `TestSupersessionSQLiteCombinedWriterObservations`, `TestSupersessionSQLiteCombinedWriterEvents`, `TestSupersessionSQLiteCombinedRegisterContentBytes`; `-count=1`, non-race, no skipped assertions. |
+| Focused SQLite/architecture regression | Skip only the observation/event fixtures explicitly run above. Tag/tagregistry regression remains required. |
+| Ordinary SQLite repetition | `-timeout=20m -count=10`; skip only `TestSupersessionSQLiteCombinedWriterObservations` and `TestSupersessionSQLiteCombinedWriterEvents`. Every other SQLite test, including both byte fixtures, retains ten repetitions. |
+| Persistence/domain race | Uncached `-count=1 -timeout=25m -race`; skip only the four named accounting fixtures. All other SQLite tests and all six companion packages retain their existing race coverage. |
+
+The exact commands, including anchored selectors and race package set, are:
+
+```sh
+go test -count=1 -run '^TestSupersessionSQLiteCombined(WriterBytes|WriterObservations|WriterEvents|RegisterContentBytes)$' ./backend/internal/adapters/sqlite
+go test -skip '^TestSupersessionSQLiteCombinedWriter(Observations|Events)$' ./backend/internal/adapters/sqlite ./backend/internal/architecture
+go test ./backend/internal/domain/tag ./backend/internal/application/tagregistry
+go test -timeout=20m -count=10 -skip '^TestSupersessionSQLiteCombinedWriter(Observations|Events)$' ./backend/internal/adapters/sqlite
+go test -count=1 -timeout=25m -race -skip '^TestSupersessionSQLiteCombined(WriterBytes|WriterObservations|WriterEvents|RegisterContentBytes)$' ./backend/internal/adapters/sqlite ./backend/internal/architecture ./backend/internal/domain/tag ./backend/internal/domain/content ./backend/internal/application/tagregistry ./backend/internal/testutil/taffixture ./backend/internal/adapters/contentfs
+```
+
+The persistence job's 45-minute timeout and other package/job timeouts stay
+unchanged. Qualified Linux contentfs `-count=10`, Darwin boundary compilation,
+package/full-backend/vet, `make -C next check`, fuzz, deterministic build/smoke
+and reproducibility gates remain required. Existing advisory semantics remain
+unchanged. No workflow or test implementation is changed by this disposition.
+
+Every reachable exact/+1 assertion, typed rejection, pre-mutation admission
+check, complete rollback/leak comparison and zero-charge replay check remains
+required. The independent support-count dominance proof above retains its
+original limited scope. Owner/callback lifecycle, cross-writer concurrency,
+cache invalidation/FK recheck and other ordinary SQLite tests retain repetition
+and race coverage. Previously supplied focused domain/application race and
+boundary evidence is retained; no new execution is claimed here.
+
+Residual risk is explicitly accepted: observation/event full-boundary fixtures
+are not rebuilt ten times in the repetition lane; none of the four full-boundary
+fixtures runs under the race detector. Intermittent failures and races unique to
+those complete large-fixture paths may therefore escape this tier. A mandatory
+uncached one-shot proves their assertions for that execution, not repeatability
+or race freedom. Ordinary concurrency/cache/owner race evidence does not fully
+substitute for instrumenting these exact large paths. Any expanded exclusion or
+change to the named fixtures' coverage requires a new explicit disposition;
+this decision authorizes no broader weakening.
+
+The request supplies M1's pre-mutation evidence and implementation at the basis
+SHA, plus green [exact-head Next CI 41070315658](https://github.com/shentschel/teddycloud/actions/runs/41070315658).
+This records M1 as implemented and exact-head-CI-green; it does not perform an
+independent M1 re-audit. M2's wording mismatch is closed. Full F02, PI-08/T and
+milestone acceptance under #28 remain reserved for a separate independent final
+review of the implementation and evidence. This docs commit has no new remote
+CI claim, and authorizes no push, issue edit, exposure or production migration.
+
+Execution policy: optimize context and polling, reuse identified exact-head
+evidence and avoid duplicate full validation. Limit each 5h window to at most
+2–3 substantively complete jobs; total work including parent review, integration,
+CI and delay must fit within 95% of that window and the remaining 40% weekly
+budget, keeping 5% of the window free. Budget pressure cannot waive a mandatory
+fixture or functional gate; defer further work instead. This disposition needs
+only architecture/link/workspace/diff checks and the exact three-file commit.
 
 ## Refinement publication and proposed issue #28 body
+
+The following is the unchanged 2026-10-24 publication proposal, not the current
+delivery status or authorization to push this D2l commit. Current status and
+execution scope are defined above.
 
 For this documentation-only request run from repository root:
 
