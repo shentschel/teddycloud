@@ -1,13 +1,15 @@
 # PI-08/T independent audit checkpoint
 
-Status: **D2j-M2 closed by D2l contract disposition; F02, T and the milestone
-remain unaccepted pending a separate independent final review**.
-Current supplied implementation: `fae704ab5365c20da4af590f27429266833cdaa1`;
-M1 remediation is implemented with pre-mutation evidence and exact-head
-[Next CI 41070315658](https://github.com/shentschel/teddycloud/actions/runs/41070315658)
-green, as supplied by the D2l request. No new independent M1/implementation audit
-is claimed. See the [current D2l disposition](#f02-d2l-ci-tier-contract-disposition-2026-10-30).
-The earlier checkpoints, including D2j at `fbc8f999`, are historical evidence.
+Status: **F02, PI-08/T and the versioned-catalog-query milestone accepted as
+software checkpoints by independent D2m review (2026-10-30)**.
+Reviewed basis: `8a4764a53541c36cb121fdde904db5b902a60eb7`, including M1
+implementation/tests at `fae704ab5365c20da4af590f27429266833cdaa1` and the
+normative D2l CI-tier disposition. **No open High, Medium, security or data-loss
+finding in this acceptance scope.** M1 and M2 are independently closed; see
+[D2m evidence and limits](#f02-d2m-final-independent-acceptance-2026-10-30).
+Hardware, deployment, production migration and physical power-loss remain
+explicitly unverified. Earlier D2j/D2l acceptance restrictions below are historical;
+accepted F01/R/A/B evidence and the bounded D2l residual risk remain intact.
 
 The independent audit at
 [`a9909431`](https://github.com/shentschel/teddycloud/commit/a99094313a6d1dce53000406b9856768c7dc130c)
@@ -73,7 +75,7 @@ deployment or production migration evidence is claimed.
 
 Historical record: all findings, source line references, gate dispositions and
 fresh-test claims in this section refer to `fbc8f999`, before M1 remediation
-and the D2l contract decision. The current status is given above and in D2l below.
+and the D2l contract decision. The current status is given above and in D2m below.
 
 **Verdict: blocked, not full acceptance.** Reviewed the implementation from the
 F01 base `abe0c956e8f38c20aaae966faafe4115feb409e4` through the exact clean head
@@ -241,6 +243,9 @@ production or test file is changed; no push, deployment or production migration.
 
 ## F02 D2l CI-tier contract disposition, 2026-10-30
 
+Historical acceptance status: D2m below completes the independent review reserved
+here. The normative CI allocation and its accepted residual risk remain binding.
+
 Request: `pi08-t-f02-d2l-ci-tier-contract-disposition-20261030`.
 Basis: `fae704ab5365c20da4af590f27429266833cdaa1`.
 **D2j-M2: closed.** The explicit user decision accepts the exact existing
@@ -280,3 +285,128 @@ and avoid duplicate full validation; observe the contract's limit of at most
 2–3 complete jobs per 5h window and budget reserve. Only this
 audit, the F02 contract and PI README are committed. No push or GitHub issue edit;
 CI 41070315658 belongs to the basis implementation, not this new docs commit.
+
+## F02 D2m final independent acceptance, 2026-10-30
+
+Request: `pi08-t-f02-d2m-final-independent-acceptance-20261030`.
+Basis: `8a4764a53541c36cb121fdde904db5b902a60eb7` (clean at review start).
+**Verdict: F02, PI-08/T and the versioned-catalog-query milestone are accepted
+as software checkpoints.** The only outstanding D2j findings, M1 and M2, are
+closed independently below. This bounded review inspected `6f9f181e..fae704ab`
+and the D2l documentation change; it does not repeat D2j's accepted gates.
+
+### Findings by severity and disposition
+
+- **High / security / data loss:** no open finding in the reviewed delta and
+  its consistency with the accepted D2j evidence.
+- **Medium D2j-M1: closed.** Prospective combined admission precedes write
+  enablement and the first mutation; actual persisted accounting remains required.
+- **Medium D2j-M2: closed.** The exact delivered CI allocation matches the
+  explicitly accepted D2l contract, including its residual risk. No exclusions
+  are broadened.
+- **Low:** no additional finding in this bounded review.
+
+### M1 independent implementation and evidence review
+
+Paths here are relative to `next/backend/internal/adapters/sqlite/`.
+`catalog_registration.go`'s `registrationAccountingProspective` sums the existing
+F01 SQL charges, existing F02 usage and the complete pending delta. It selects
+pending order logical usage instead of adding it to the old logical usage;
+physical order snapshots and v2 manifest rows remain additive. Registration's
+order advance counts once, through the registration event. The shared helper
+still supports schema 8 and adds F02 persisted usage only for schema 9.
+
+| Writer / concern | Independently verified disposition |
+| --- | --- |
+| `CommitRegistration` | Before `query_only=OFF`, admits canonical command/result, initial review and order snapshots, all registration source/support index charges, new normalized observations, the complete pending v2 version manifest, one event and selected links. The precomputed manifest includes the newly registered version and is the same set written afterward. Both registration APIs retain the final `registrationAccounting` check before replay reconstruction. |
+| `CommitReview` | Validates the successor against domain Apply, then decodes it without a repository or write projector. Charges the new snapshot and this command's exact canonical command/result slices, one event, distinct selected support and absent observations. All applicable sources/coordinates are included before enabling writes; final persisted accounting precedes readback. |
+| `CommitOrder` | Charges the entire new physical snapshot and each applicable v2 manifest row, one event and absent provenance. Pending canonical order history supplies the complete deduplicated logical observation/support counters; prior logical usage is replaced, not charged twice. Final persisted accounting remains before readback. |
+| Dedup and encoding | Sources use `(source_id, registration_revision)`, batches their ID, records `(batch_id, record_index)`, observations their ID, both within the command and against the leased snapshot. Record reuse requires exact locator/snapshot equality, preventing a smaller conflicting input from understating charges. Ordinary text charges preserve SQLite `length(TEXT)` Unicode-character semantics; canonical BLOB lengths remain byte lengths. Registration syntax rejects duplicate observation/selection IDs; review support and order evidence retain their canonical dedup semantics. |
+| Adoption / import | Adoption admits an absent source, one new batch and both record snapshots globally before writes. It initializes bounded revision-1 review/order state without decisions, observations or support, and retains the final per-Content/global check. Import is byte-for-byte unchanged: it pre-admits source/batch and artifact/report/record bytes, checks persisted global usage afterward and creates no Content event. Neither path is treated as a support-growing writer. |
+| Replay / final check | Exact replay branches precede prospective growth and write enablement. The driver observer positively detects accepted writes, then proves replay attempts no write and preserves the complete snapshot. Deliberate trigger-induced growth after successful admission is rejected by final persisted accounting with full rollback for all eight writer cases. |
+
+`TestSupersessionSQLitePrewriteObserver` covers eight writer cases: both
+registrations, RecordObservations, AcceptSupport, DecideOrder, adoption, import
+and supersession. `PrewriteProvenance` checks reachable exact/+1 global budgets
+with typed errors, zero write attempts on rejection and complete row/schema
+comparisons; its unrelated global occupancy is explicit SQL test data, not
+command-authored milestone evidence. `PrewriteReuse` checks full-budget reuse,
+duplicate observations/support/sequence evidence, Unicode and conflicting record
+snapshots. `PrewritePersistedRecheck` proves final checks remain effective.
+The four existing combined-boundary fixtures now assert zero write enablements
+and zero DML attempts on over-limit rejection as well as typed errors, complete
+rollback and replay. Their existing reachable-boundary assertions are retained.
+
+No concrete counterevidence reopens D2j's accepted authority, canonical identity,
+cache/FK, graph/query, concurrency, migration/recovery, media/assignment,
+command-authored milestone or support-count dominance dispositions. Closing M1
+completes D2j's C/accounting gate; closing M2 completes its delivery-tier gate.
+Existing F01/R/A/B acceptance remains unchanged.
+
+### M2 and exact-head CI
+
+All five commands in the [normative D2l tier](pi-08-f02-supersession-contract.md#d2l-accepted-ci-tier-disposition-2026-10-30)
+were compared verbatim with `.github/workflows/next-ci.yml`. All four accounting
+fixtures remain mandatory uncached non-race one-shots. Only observations/events
+leave SQLite tenfold repetition; only the four named fixtures leave race. Both
+byte fixtures and the new Prewrite tests remain in tenfold and race coverage.
+The 10s/5s operation deadlines, package/job timeouts and other gates are unchanged.
+The expressly accepted risk remains intermittent failures in the two unrepeated
+full-boundary paths and races unique to the four uninstrumented large paths.
+Ordinary race/concurrency coverage does not eliminate that limitation. Further
+exclusions require a new explicit disposition.
+
+Live GitHub run metadata was read at **2026-10-30 19:59:11 UTC**. Both runs were
+already completed successfully, attempt 1; no queued result is treated as green
+and no repeat status polling was needed.
+
+| Run | Exact head and verified result |
+| --- | --- |
+| [41070315658](https://github.com/shentschel/teddycloud/actions/runs/41070315658) | `fae704ab5365c20da4af590f27429266833cdaa1`; **TeddyCloud Next CI**, success, run metadata updated 14:54:19 UTC. All four jobs succeeded, including the otherwise nonblocking advisory job. |
+| [41119529097](https://github.com/shentschel/teddycloud/actions/runs/41119529097) | `8a4764a53541c36cb121fdde904db5b902a60eb7`; **Check architecture documentation**, success, run metadata updated 19:58:23 UTC. The check job and its six validation/checkout steps succeeded. This is documentation CI, not a second Next CI run. |
+
+Both inspected Next job logs contain the exact implementation checkout SHA.
+Persistence job `124112369060` records the mandatory four-fixture one-shot
+(146.546s), SQLite tenfold lane (1075.455s), SQLite race lane (812.468s), qualified
+contentfs tenfold run (55.538s) and successful Darwin compilation. Deterministic
+job `124112369067` records `make -C next check`, vet and full backend tests
+(SQLite 242.982s), browser smoke and artifact checks. Reproducibility also passed.
+The diff from the M1 head to the D2l head changes only these three documents;
+production, tests and the Next workflow are identical. CI evidence therefore
+covers the reviewed implementation and D2l documentation separately. It is not
+claimed as remote CI for this subsequent, unpushed D2m documentation commit.
+
+### Focused local validation and closeout
+
+Fresh validation used Go 1.27.1 in the same read-only `/src` container setup and
+qualified `/testtmp` volume described in D2j above, from `/src/next`:
+
+```sh
+go test -count=1 -json -run '^TestSupersessionSQLite(Prewrite(Observer|Provenance|PersistedRecheck|Reuse)|Combined(WriterBytes|WriterObservations|WriterEvents|RegisterContentBytes))$' ./backend/internal/adapters/sqlite
+go test -count=1 ./backend/internal/architecture
+```
+
+All eight selected top-level SQLite tests passed, with no failures or skips;
+package duration **281.109s**. Architecture tests passed in **1.236s**.
+
+| SQLite test suffix | Duration |
+| --- | --- |
+| `PrewriteObserver` | 0.88s |
+| `PrewriteProvenance` | 50.13s |
+| `PrewritePersistedRecheck` | 0.92s |
+| `PrewriteReuse` | 3.59s |
+| `CombinedWriterBytes` | 9.15s |
+| `CombinedWriterObservations` | 120.84s |
+| `CombinedWriterEvents` | 94.57s |
+| `CombinedRegisterContentBytes` | 1.01s |
+
+No full backend, race matrix, fuzz or previously accepted D2j gate was rerun.
+Architecture documentation/relative links, internal links added by D2m,
+workspace boundaries, unstaged/staged whitespace checks and the exact three-file
+write scope pass. Only this audit, the F02 contract and PI README are committed;
+production, tests, workflow, issue #28 and status files are unchanged. No push.
+
+Acceptance is limited to the reviewed software checkpoint. Hardware behavior,
+deployment, production migration and physical power-loss remain explicitly
+unverified. Existing process-crash/restore evidence does not establish physical
+power-loss safety. D2l's exact residual repetition/race risk remains accepted.

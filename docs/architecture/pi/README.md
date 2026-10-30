@@ -53,22 +53,27 @@ Current execution artifacts:
 - [PI-08/B2 acceptance audit](pi-08-b2-acceptance-audit.md)
 - [PI-08/T independent audit checkpoint](pi-08-t-audit-checkpoint.md)
 - [PI08-T-F01 registration contract](pi-08-f01-registration-contract.md)
-- [PI08-T-F02 supersession contract: D2l M2 closed; final acceptance pending](pi-08-f02-supersession-contract.md)
-- PI-08/R, A, B1 and B2 are accepted software checkpoints. Independent T found
-  and published PI08-T-F01/F02; the fixture-only F03 is resolved. The parent
-  reports F01-D accepted at `abe0c956e8f38c20aaae966faafe4115feb409e4` with
-  exact-head Next CI 40056183655 green. F02 A/B/C/D evidence and M1 remediation
-  are implemented at `fae704ab5365c20da4af590f27429266833cdaa1`; the D2l request
-  supplies pre-mutation evidence and green exact-head
-  [Next CI 41070315658](https://github.com/shentschel/teddycloud/actions/runs/41070315658).
-  D2l closes D2j-M2 through the explicit normative CI-tier disposition: mandatory
-  uncached non-race accounting one-shot; only observation/event fixtures leave
-  tenfold repetition, and only the four accounting fixtures leave race. Assertions,
-  limits, operation deadlines and other functional gates remain unchanged; the
-  residual repetition/race risk is recorded in the contract. D2j findings at
-  `fbc8f999` remain historical. Full F02/T and versioned-catalog-query milestone
-  acceptance under existing #28 still requires a separate independent final review;
-  this docs task does not re-audit M1 or claim CI for its new commit.
+- [PI08-T-F02 supersession contract: accepted software checkpoint](pi-08-f02-supersession-contract.md)
+- **F02, PI-08/T and the versioned-catalog-query milestone are accepted software
+  checkpoints** by [independent D2m review](pi-08-t-audit-checkpoint.md#f02-d2m-final-independent-acceptance-2026-10-30)
+  at basis `8a4764a53541c36cb121fdde904db5b902a60eb7`. D2j-M1 (prospective
+  combined admission) and D2j-M2 (explicit CI-tier disposition) are closed;
+  no open High, Medium, security or data-loss finding remains in this scope.
+  Accepted D2j gates and F01/R/A/B evidence are retained; fixture-only F03
+  remains resolved. F01-D remains accepted
+  at `abe0c956e8f38c20aaae966faafe4115feb409e4` with Next CI 40056183655.
+  M1 implementation/tests at `fae704ab5365c20da4af590f27429266833cdaa1` have
+  independently verified green [Next CI 41070315658](https://github.com/shentschel/teddycloud/actions/runs/41070315658).
+  D2l head `8a4764a53541c36cb121fdde904db5b902a60eb7` has independently verified
+  green [architecture CI 41119529097](https://github.com/shentschel/teddycloud/actions/runs/41119529097);
+  production, tests and the Next workflow are unchanged between the two heads.
+  All eight targeted M1/combined-boundary test families pass locally. D2l's exact
+  exceptions remain: only observation/event fixtures leave tenfold repetition;
+  only four named accounting fixtures leave race; all four remain mandatory
+  uncached non-race one-shots. The explicitly accepted residual risk is retained.
+  **Hardware, deployment, production migration and physical power-loss remain
+  unverified.** Issue #28 and status files are unchanged. The D2m documentation
+  commit is local, unpushed and has no new remote CI claim.
 
 - [PI-07 plan checkpoint](pi-07-plan.md)
 - [PI-07 budget checkpoint](pi-07-budget.md)

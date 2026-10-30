@@ -1,17 +1,21 @@
 # PI08-T-F02 immutable version-supersession contract
 
-Status: **implemented; D2j-M2 closed by D2l disposition (2026-10-30);
-independent F02/T acceptance remains pending**.
-M1 remediation is implemented at `fae704ab5365c20da4af590f27429266833cdaa1`
-with exact-head Next CI 41070315658 green, as supplied by the D2l request.
-The [D2l disposition](#d2l-accepted-ci-tier-disposition-2026-10-30) supersedes
-only the unqualified repeat-all/race wording and current M2 status. Historical
-refinement/D2j findings remain below; normative limits are unchanged.
-Delivery remains open
-under [PI08-T-F02 #28](https://github.com/shentschel/teddycloud/issues/28).
-Request: `pi08-t-f02-refinement-20261024`, 2026-10-24.
-Inspected base: `abe0c956e8f38c20aaae966faafe4115feb409e4`, branch
-`docs/pi-00-r-charter`. This document does not complete F02, PI-08/T or PI-08.
+Status: **F02, PI-08/T and the versioned-catalog-query milestone accepted as
+software checkpoints by independent D2m review (2026-10-30)**.
+Reviewed basis: `8a4764a53541c36cb121fdde904db5b902a60eb7`; implementation/tests:
+`fae704ab5365c20da4af590f27429266833cdaa1`. D2j-M1 and D2j-M2 are closed;
+no open High, Medium, security or data-loss finding remains in this acceptance
+scope. See [D2m acceptance](#d2m-independent-software-acceptance-2026-10-30).
+The [D2l tier](#d2l-accepted-ci-tier-disposition-2026-10-30), its expressly accepted
+residual risk and unchanged limits remain normative. Hardware, deployment,
+production migration and physical power-loss remain explicitly unverified.
+The existing delivery issue is [PI08-T-F02 #28](https://github.com/shentschel/teddycloud/issues/28);
+its external status is unchanged by this documentation-only acceptance.
+
+Original refinement request: `pi08-t-f02-refinement-20261024`, 2026-10-24.
+Original inspected base: `abe0c956e8f38c20aaae966faafe4115feb409e4`, branch
+`docs/pi-00-r-charter`. Earlier refinement and D2j/D2l acceptance restrictions
+below are historical; D2m records the current software acceptance.
 
 ## Evidence, precedence and scope
 
@@ -550,7 +554,7 @@ explicitly outside this contract.
 
 Historical checkpoint: the findings and acceptance status in this section
 refer to `fbc8f9996e2cd8d9842048002f67dbf5a2cda2c5`. For M1 remediation
-and M2 closure, use the subsequent D2l disposition; this audit is not rerun here.
+and M2 closure, use the subsequent D2l/D2m dispositions; D2j is not rerun here.
 
 Inspected implementation: `fbc8f9996e2cd8d9842048002f67dbf5a2cda2c5`.
 [Exact-head Next CI 40989601324](https://github.com/shentschel/teddycloud/actions/runs/40989601324)
@@ -644,6 +648,10 @@ waive either finding; subsequent M1 remediation and M2 disposition are below.
 
 ## D2l accepted CI-tier disposition, 2026-10-30
 
+This CI-tier decision remains normative. Its request-specific execution policy
+and reservation of final independent acceptance are historical; D2m below
+completes that review without expanding the accepted exceptions.
+
 Request: `pi08-t-f02-d2l-ci-tier-contract-disposition-20261030`.
 Basis: `fae704ab5365c20da4af590f27429266833cdaa1`. The user explicitly
 accepts the already delivered D2e/D2i tier as a risk-based test allocation.
@@ -714,10 +722,46 @@ budget, keeping 5% of the window free. Budget pressure cannot waive a mandatory
 fixture or functional gate; defer further work instead. This disposition needs
 only architecture/link/workspace/diff checks and the exact three-file commit.
 
+## D2m independent software acceptance, 2026-10-30
+
+Request: `pi08-t-f02-d2m-final-independent-acceptance-20261030`.
+Basis: `8a4764a53541c36cb121fdde904db5b902a60eb7`.
+**F02, PI-08/T and the versioned-catalog-query milestone are accepted as software
+checkpoints. No open High, Medium, security or data-loss finding remains in the
+bounded acceptance scope.** The [independent D2m audit](pi-08-t-audit-checkpoint.md#f02-d2m-final-independent-acceptance-2026-10-30)
+records the source review, exact-head CI and fresh focused test evidence.
+
+M1 is independently closed: registration, review and order admit their complete
+prospective physical/logical deltas before enabling writes; normalized provenance
+is deduplicated, pending order logical usage replaces the old usage, and actual
+persisted totals are checked afterward. Exact replay adds no writes or charges.
+Adoption pre-admits applicable global provenance while preserving revision-1
+initialization without a decision event; import's existing pre-write/global-only
+semantics are unchanged. Driver-boundary tests prove rejection before attempted
+writes, full snapshots and replay; post-admission drift proves final checks.
+
+M2 is independently closed: the five D2l commands match the actual workflow;
+the explicit residual repetition/race risk and exact exception set are retained.
+D2j's already accepted gates and support-count dominance proof stand without
+repetition or extension. Existing F01/R/A/B acceptance remains unchanged.
+
+Live verification confirms [Next CI 41070315658](https://github.com/shentschel/teddycloud/actions/runs/41070315658)
+success at `fae704ab5365c20da4af590f27429266833cdaa1`, and
+[architecture CI 41119529097](https://github.com/shentschel/teddycloud/actions/runs/41119529097)
+success at `8a4764a53541c36cb121fdde904db5b902a60eb7`. The latter is documentation
+CI; production, tests and the Next workflow are identical between these heads.
+All eight targeted M1/combined-boundary test families and architecture checks
+pass locally. This new D2m documentation commit has no remote CI claim and is
+not pushed. Issue/status files remain unchanged.
+
+Hardware, deployment, production migration and physical power-loss remain
+explicitly unverified. Software-checkpoint acceptance grants no additional
+operational or publication authorization.
+
 ## Refinement publication and proposed issue #28 body
 
 The following is the unchanged 2026-10-24 publication proposal, not the current
-delivery status or authorization to push this D2l commit. Current status and
+delivery status or authorization to push this D2m commit. Current status and
 execution scope are defined above.
 
 For this documentation-only request run from repository root:
