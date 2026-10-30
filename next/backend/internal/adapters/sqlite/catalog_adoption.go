@@ -190,6 +190,17 @@ func (r *catalogRepository) AdoptBaseline(ctx context.Context, op app.AdoptionOp
 	if keyUsed {
 		return result, domain.ErrCatalogCommandConflict
 	}
+	if r.schemaVersion >= 8 {
+		// Adoption's two provenance records and batch are new; it creates no
+		// decision event. Admit only its applicable global provenance growth.
+		admission := newCatalogAdmission(r, call)
+		if err = admission.source(command.Source); err != nil {
+			return result, err
+		}
+		if err = r.registrationProvenanceAccounting(call, admission.addSources, 1, uint64(len(baseline.Bytes())+len(canonical))); err != nil {
+			return result, err
+		}
+	}
 	if _, err = r.transaction.ExecContext(call, "PRAGMA query_only=OFF"); err != nil {
 		return result, repositoryError(call, err)
 	}

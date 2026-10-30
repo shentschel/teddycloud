@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"io"
+	"unicode/utf8"
 
 	app "github.com/shentschel/teddycloud/next/backend/internal/application/catalog"
 	domain "github.com/shentschel/teddycloud/next/backend/internal/domain/catalog"
@@ -241,6 +242,40 @@ func (r *catalogRepository) CommitRegistration(ctx context.Context, op app.Regis
 	if err != nil {
 		return result, err
 	}
+	admission := newCatalogAdmission(r, call)
+	admission.added = supersessionUsage{bytes: uint64(len(canonical) + len(resultRaw) + len(reviewRaw) + len(orderRaw)), events: 1, links: uint64(len(command.Selections))}
+	for _, source := range sources {
+		if err = admission.source(source); err != nil {
+			return result, err
+		}
+		admission.added.bytes += uint64(5*8 + len(command.ID.String()) + len(source.ID().String()) + len(source.Revision().String()) + len(op.Capability.Reviewer().String()))
+	}
+	for _, observation := range command.Observations {
+		if err = admission.observation(observation); err != nil {
+			return result, err
+		}
+	}
+	for _, selection := range command.Selections {
+		for _, observation := range command.Observations {
+			if observation.ID() == selection.Observation {
+				source := observation.Input().Coordinate.Artifact().Source()
+				admission.added.bytes += uint64(6*8 + len(command.ID.String()) + len(selection.Observation.String()) + len(subject) + len(source.ID().String()) + len(source.Revision().String()))
+			}
+		}
+	}
+	versions, err := r.catalogVersions(call, id)
+	if err != nil {
+		return result, err
+	}
+	if command.Kind == domain.RegisterCatalogVersion {
+		versions = append(versions, catalogVersionRow{Version: version})
+	}
+	for _, v := range versions {
+		admission.added.bytes += uint64(3*8 + len(id.String()) + len(v.Version.ID().String()))
+	}
+	if err = admission.check(id, orderRaw); err != nil {
+		return result, err
+	}
 	if _, err = r.transaction.ExecContext(call, "PRAGMA query_only=OFF"); err != nil {
 		return result, repositoryError(call, err)
 	}
@@ -312,17 +347,12 @@ func (r *catalogRepository) CommitRegistration(ctx context.Context, op app.Regis
 	if err = exec("INSERT INTO tc_catalog_order_states_v2 VALUES (?,?,?,2,?,?,?)", id.String(), result.AggregateRevision.Uint64(), result.OrderRevision.Uint64(), orderRaw, len(orderRaw), sum[:]); err != nil {
 		return result, err
 	}
-	versions, e := r.catalogVersions(call, id)
-	if e != nil {
-		return result, e
-	}
 	for _, v := range versions {
 		if err = exec("INSERT INTO tc_catalog_order_state_versions_v2 VALUES (?,?,?)", id.String(), result.OrderRevision.Uint64(), v.Version.ID().String()); err != nil {
 			return result, err
 		}
 	}
-	// Check prospective charges before replay reconstruction, which treats
-	// an already-retained over-limit history as corruption on read paths.
+	// Recheck actual persisted charges before replay reconstruction and commit.
 	if err = r.registrationAccounting(call, id); err != nil {
 		return result, err
 	}
@@ -812,6 +842,12 @@ func (r *catalogRepository) registrationAccounting(ctx context.Context, content 
 }
 
 func (r *catalogRepository) registrationAccountingWith(ctx context.Context, content identity.ContentID, added supersessionUsage) error {
+	return r.registrationAccountingProspective(ctx, content, added, nil)
+}
+
+// A pending order envelope replaces the latest logical order counters, while
+// its physical bytes and manifest rows are additive. A nil envelope reads disk.
+func (r *catalogRepository) registrationAccountingProspective(ctx context.Context, content identity.ContentID, added supersessionUsage, orderRaw []byte) error {
 	if r.schemaVersion < 8 {
 		return nil
 	}
@@ -838,15 +874,20 @@ func (r *catalogRepository) registrationAccountingWith(ctx context.Context, cont
 		if err != nil {
 			return err
 		}
-		bytesRetained += usage.bytes + added.bytes
-		observations += usage.observations + added.observations
-		links += usage.links + added.links
-		events += usage.events + added.events
+		bytesRetained += usage.bytes
+		observations += usage.observations
+		links += usage.links
+		events += usage.events
 	}
-	var orderRaw []byte
-	err = r.transaction.QueryRowContext(ctx, `SELECT CASE WHEN length(state)<=8388608 THEN state END FROM (SELECT order_revision,state FROM tc_catalog_order_states WHERE content_id=?1 UNION ALL SELECT order_revision,state FROM tc_catalog_order_states_v2 WHERE content_id=?1) ORDER BY order_revision DESC LIMIT 1`, content.String()).Scan(&orderRaw)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return repositoryError(ctx, err)
+	bytesRetained += added.bytes
+	observations += added.observations
+	links += added.links
+	events += added.events
+	if orderRaw == nil {
+		err = r.transaction.QueryRowContext(ctx, `SELECT CASE WHEN length(state)<=8388608 THEN state END FROM (SELECT order_revision,state FROM tc_catalog_order_states WHERE content_id=?1 UNION ALL SELECT order_revision,state FROM tc_catalog_order_states_v2 WHERE content_id=?1) ORDER BY order_revision DESC LIMIT 1`, content.String()).Scan(&orderRaw)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return repositoryError(ctx, err)
+		}
 	}
 	if err == nil {
 		orderLinks, orderObservations, e := registrationOrderUsage(orderRaw)
@@ -868,19 +909,122 @@ func (r *catalogRepository) registrationAccountingWith(ctx context.Context, cont
 			return err
 		}
 	}
+	return r.registrationProvenanceAccounting(ctx, 0, 0, 0)
+}
+
+func (r *catalogRepository) registrationProvenanceAccounting(ctx context.Context, addSources, addBatches, addBytes uint64) error {
 	var sources, batches, staged uint64
 	if err := r.transaction.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM tc_catalog_sources),(SELECT count(*) FROM tc_catalog_batches),(SELECT COALESCE(sum(length(snapshot)),0) FROM tc_catalog_records)+(SELECT COALESCE(sum(length(artifact)+length(report)),0) FROM tc_catalog_imports)`).Scan(&sources, &batches, &staged); err != nil {
 		return repositoryError(ctx, err)
 	}
 	for _, check := range []struct {
-		resource domain.Resource
-		count    uint64
-	}{{domain.SourceRegistrations, sources}, {domain.StagingBatches, batches}, {domain.StagingBytes, staged}} {
-		if err := domain.CheckLimit(check.resource, 0, check.count); err != nil {
+		resource       domain.Resource
+		current, added uint64
+	}{{domain.SourceRegistrations, sources, addSources}, {domain.StagingBatches, batches, addBatches}, {domain.StagingBytes, staged, addBytes}} {
+		if err := domain.CheckLimit(check.resource, check.current, check.added); err != nil {
 			return err
 		}
 	}
 	return ctx.Err()
+}
+
+// Admission counts only absent normalized rows. Shared coordinates and sources
+// are deduplicated within the command and against the leased SQLite snapshot.
+type catalogAdmission struct {
+	repository                       *catalogRepository
+	ctx                              context.Context
+	added                            supersessionUsage
+	sources, batches, observations   map[string]bool
+	records                          map[string]domain.RecordCoordinate
+	addSources, addBatches, addBytes uint64
+}
+
+func newCatalogAdmission(r *catalogRepository, ctx context.Context) *catalogAdmission {
+	return &catalogAdmission{repository: r, ctx: ctx, sources: make(map[string]bool), batches: make(map[string]bool), records: make(map[string]domain.RecordCoordinate), observations: make(map[string]bool)}
+}
+
+func (a *catalogAdmission) source(source domain.SourceRegistration) error {
+	key := source.ID().String() + source.Revision().String()
+	if a.sources[key] {
+		return nil
+	}
+	var exists bool
+	if err := a.repository.transaction.QueryRowContext(a.ctx, "SELECT EXISTS(SELECT 1 FROM tc_catalog_sources WHERE source_id=? AND registration_revision=?)", source.ID().String(), source.Revision().String()).Scan(&exists); err != nil {
+		return repositoryError(a.ctx, err)
+	}
+	if !exists {
+		a.addSources++
+	}
+	a.sources[key] = true
+	return nil
+}
+
+func (a *catalogAdmission) coordinate(c domain.RecordCoordinate) error {
+	if err := a.source(c.Artifact().Source()); err != nil {
+		return err
+	}
+	key := c.Artifact().Facts().ID.String()
+	var exists bool
+	if !a.batches[key] {
+		if err := a.repository.transaction.QueryRowContext(a.ctx, "SELECT EXISTS(SELECT 1 FROM tc_catalog_batches WHERE batch_id=?)", key).Scan(&exists); err != nil {
+			return repositoryError(a.ctx, err)
+		}
+		if !exists {
+			a.addBatches++
+		}
+		a.batches[key] = true
+	}
+	record := key + string(binary.BigEndian.AppendUint64(nil, c.Index()))
+	if previous, seen := a.records[record]; seen {
+		if previous != c {
+			return app.ErrRepositoryUnavailable
+		}
+	} else {
+		var count uint64
+		var matched bool
+		// Per-observation bytes join this physical snapshot. Admit its input
+		// length only after checking exact reuse, as the write projector does.
+		if err := a.repository.transaction.QueryRowContext(a.ctx, "SELECT count(*),COALESCE(max(locator=? AND snapshot=?),0) FROM tc_catalog_records WHERE batch_id=? AND record_index=?", c.Locator(), c.Snapshot().Bytes(), key, c.Index()).Scan(&count, &matched); err != nil {
+			return repositoryError(a.ctx, err)
+		}
+		if count != 0 && !matched {
+			return app.ErrRepositoryUnavailable
+		}
+		if count == 0 {
+			a.addBytes += uint64(len(c.Snapshot().Bytes()))
+		}
+		a.records[record] = c
+	}
+	return nil
+}
+
+func (a *catalogAdmission) observation(o domain.CatalogObservation) error {
+	i := o.Input()
+	if err := a.coordinate(i.Coordinate); err != nil {
+		return err
+	}
+	key := o.ID().String()
+	if a.observations[key] {
+		return nil
+	}
+	var exists bool
+	if err := a.repository.transaction.QueryRowContext(a.ctx, "SELECT EXISTS(SELECT 1 FROM tc_catalog_observations WHERE observation_id=?)", key).Scan(&exists); err != nil {
+		return repositoryError(a.ctx, err)
+	}
+	if !exists {
+		a.added.observations++
+		// Preserve F01's SQL length(TEXT) charge, which counts Unicode runes.
+		a.added.bytes += uint64(utf8.RuneCountInString(i.Claim.Text()) + len(i.Coordinate.Snapshot().Bytes()) + 512)
+	}
+	a.observations[key] = true
+	return nil
+}
+
+func (a *catalogAdmission) check(content identity.ContentID, orderRaw []byte) error {
+	if err := a.repository.registrationAccountingProspective(a.ctx, content, a.added, orderRaw); err != nil {
+		return err
+	}
+	return a.repository.registrationProvenanceAccounting(a.ctx, a.addSources, a.addBatches, a.addBytes)
 }
 
 // Order evidence has no separate observation/support table. Count the current

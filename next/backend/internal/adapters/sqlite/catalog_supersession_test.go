@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"fmt"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -23,19 +25,25 @@ import (
 	"github.com/shentschel/teddycloud/next/backend/internal/domain/evidence"
 	"github.com/shentschel/teddycloud/next/backend/internal/domain/identity"
 	"github.com/shentschel/teddycloud/next/backend/internal/testutil/taffixture"
+	sqliteDriver "modernc.org/sqlite"
 )
 
 // This fence observes an authored prospective transaction and can roll it back
 // for measurement. It never changes rows or bypasses a writer's admission checks.
 type combinedAccountingFence struct {
-	owner   *LifecycleOwner
-	after   func(*catalogRepository) error
-	failure error
+	owner    *LifecycleOwner
+	after    func(*catalogRepository) error
+	failure  error
+	observer *combinedAccountingWriteObserver
 }
 
 func (f *combinedAccountingFence) WithinCatalogTransaction(ctx context.Context, operation func(app.CatalogRepository) error) error {
 	f.failure = nil
 	return f.owner.WithinCatalogTransaction(ctx, func(repository app.CatalogRepository) error {
+		if f.observer != nil {
+			f.observer.active.Store(true)
+			defer f.observer.active.Store(false)
+		}
 		if err := operation(repository); err != nil {
 			f.failure = err
 			return err
@@ -45,6 +53,374 @@ func (f *combinedAccountingFence) WithinCatalogTransaction(ctx context.Context, 
 		}
 		return nil
 	})
+}
+
+// Observe the real driver's write boundary, including attempted writes which
+// would later roll back. Only the callback is armed; owner connection cleanup
+// legitimately restores query_only after the callback has returned.
+type combinedAccountingWriteObserver struct {
+	active             atomic.Bool
+	enables, mutations atomic.Int32
+	block              bool
+}
+
+func (o *combinedAccountingWriteObserver) observe(query string) error {
+	if !o.active.Load() {
+		return nil
+	}
+	q := strings.ToUpper(strings.TrimSpace(query))
+	write := false
+	if q == "PRAGMA QUERY_ONLY=OFF" {
+		o.enables.Add(1)
+		write = true
+	}
+	for _, prefix := range []string{"INSERT ", "UPDATE ", "DELETE ", "REPLACE ", "CREATE ", "DROP ", "ALTER "} {
+		if strings.HasPrefix(q, prefix) {
+			o.mutations.Add(1)
+			write = true
+			break
+		}
+	}
+	if write && o.block {
+		return errors.New("unexpected write before admission")
+	}
+	return nil
+}
+
+func (o *combinedAccountingWriteObserver) assertNoWrites(t *testing.T) {
+	t.Helper()
+	if o.enables.Load() != 0 || o.mutations.Load() != 0 {
+		t.Fatalf("attempted writes: query_only=OFF %d, mutations %d", o.enables.Load(), o.mutations.Load())
+	}
+}
+
+type combinedAccountingConnector struct {
+	driver.Connector
+	observer *combinedAccountingWriteObserver
+}
+
+func (c combinedAccountingConnector) Connect(ctx context.Context) (driver.Conn, error) {
+	conn, err := c.Connector.Connect(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &combinedAccountingConn{Conn: conn, observer: c.observer}, nil
+}
+
+type combinedAccountingConn struct {
+	driver.Conn
+	observer *combinedAccountingWriteObserver
+}
+
+func (c *combinedAccountingConn) BeginTx(ctx context.Context, options driver.TxOptions) (driver.Tx, error) {
+	return c.Conn.(driver.ConnBeginTx).BeginTx(ctx, options)
+}
+
+func (c *combinedAccountingConn) ExecContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
+	if err := c.observer.observe(query); err != nil {
+		return nil, err
+	}
+	return c.Conn.(driver.ExecerContext).ExecContext(ctx, query, args)
+}
+
+func (c *combinedAccountingConn) Prepare(query string) (driver.Stmt, error) {
+	stmt, err := c.Conn.Prepare(query)
+	if err != nil {
+		return nil, err
+	}
+	return &combinedAccountingStmt{Stmt: stmt, observer: c.observer, query: query}, nil
+}
+
+type combinedAccountingStmt struct {
+	driver.Stmt
+	observer *combinedAccountingWriteObserver
+	query    string
+}
+
+func (s *combinedAccountingStmt) Exec(args []driver.Value) (driver.Result, error) {
+	if err := s.observer.observe(s.query); err != nil {
+		return nil, err
+	}
+	return s.Stmt.Exec(args)
+}
+
+func combinedAccountingObserveWrites(t *testing.T, owner *LifecycleOwner, block bool) *combinedAccountingWriteObserver {
+	t.Helper()
+	dsn, _, err := connectionDSN(owner.config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	connector, err := sqliteDriver.NewConnector(dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := owner.database.db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	o := &combinedAccountingWriteObserver{block: block}
+	db := sql.OpenDB(combinedAccountingConnector{Connector: connector, observer: o})
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+	owner.database.db = db
+	return o
+}
+
+func TestSupersessionSQLitePrewriteObserver(t *testing.T) {
+	seed := combinedAccountingFixture(t)
+	for _, writer := range combinedAccountingWriters {
+		t.Run(writer.name, func(t *testing.T) {
+			f := combinedAccountingClone(t, seed)
+			fence := &combinedAccountingFence{owner: f.owner}
+			write := combinedAccountingPending(t, f, writer, fence)
+			fence.observer = combinedAccountingObserveWrites(t, f.owner, false)
+			result, err := write()
+			if err != nil || fence.observer.enables.Load() != 1 || fence.observer.mutations.Load() == 0 {
+				t.Fatal("observer missed accepted writes", err, fence.observer.enables.Load(), fence.observer.mutations.Load())
+			}
+			after := catalogRecoveryRows(t, f.owner.database.db)
+			fence.observer.enables.Store(0)
+			fence.observer.mutations.Store(0)
+			fence.observer.block = true
+			replay, err := write()
+			fence.observer.assertNoWrites(t)
+			if err != nil || !reflect.DeepEqual(result, replay) || !reflect.DeepEqual(after, catalogRecoveryRows(t, f.owner.database.db)) {
+				t.Fatal("replay attempted writes or changed complete snapshot", err)
+			}
+		})
+	}
+}
+
+func combinedAccountingProvenanceUsage(t *testing.T, db interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}) [3]uint64 {
+	t.Helper()
+	var usage [3]uint64
+	if err := db.QueryRowContext(t.Context(), `SELECT (SELECT count(*) FROM tc_catalog_sources),(SELECT count(*) FROM tc_catalog_batches),(SELECT COALESCE(sum(length(snapshot)),0) FROM tc_catalog_records)+(SELECT COALESCE(sum(length(artifact)+length(report)),0) FROM tc_catalog_imports)`).Scan(&usage[0], &usage[1], &usage[2]); err != nil {
+		t.Fatal(err)
+	}
+	return usage
+}
+
+// Physical, unrelated global occupancy, as in the import budget tests. These
+// are stored rows/BLOBs, never injected accounting counters or Content events.
+func combinedAccountingFillProvenance(t *testing.T, f supersessionFixture, dimension int, target uint64) {
+	t.Helper()
+	u := combinedAccountingProvenanceUsage(t, f.owner.database.db)
+	if target < u[dimension] {
+		t.Fatal("global occupancy would shrink", u, target)
+	}
+	remaining := target - u[dimension]
+	if dimension == 0 {
+		for range remaining {
+			key, _ := domain.NewSourceID()
+			catalogSchemaExec(t, f.owner.database.db, `INSERT INTO tc_catalog_sources SELECT ?,registration_revision,issuer_principal,adapter,adapter_version,scope,acquisition,revoked FROM tc_catalog_sources LIMIT 1`, key.String())
+		}
+	} else {
+		for remaining > 0 {
+			key, _ := domain.NewBatchID()
+			catalogSchemaExec(t, f.owner.database.db, `INSERT INTO tc_catalog_batches VALUES (?,?,?,randomblob(32),1,1,'global-occupancy','')`, key.String(), f.source.ID().String(), f.source.Revision().String())
+			if dimension == 1 {
+				remaining--
+				continue
+			}
+			// All test deltas are small, so each chunk has >=2 bytes and
+			// respects both persisted import BLOB length constraints.
+			n := min(remaining, uint64(9<<20))
+			if remaining-n == 1 {
+				n--
+			}
+			artifact := min(n-1, uint64(1<<20))
+			catalogSchemaExec(t, f.owner.database.db, `INSERT INTO tc_catalog_imports VALUES (?,zeroblob(?),zeroblob(?),?)`, key.String(), artifact, n-artifact, n)
+			remaining -= n
+		}
+	}
+	if got := combinedAccountingProvenanceUsage(t, f.owner.database.db); got[dimension] != target {
+		t.Fatal("global occupancy is not exact", got, target)
+	}
+}
+
+func TestSupersessionSQLitePrewriteProvenance(t *testing.T) {
+	seed := combinedAccountingFixture(t)
+	resources := []domain.Resource{domain.SourceRegistrations, domain.StagingBatches, domain.StagingBytes}
+	for _, writer := range combinedAccountingWriters {
+		t.Run(writer.name, func(t *testing.T) {
+			beforeUsage := combinedAccountingProvenanceUsage(t, seed.owner.database.db)
+			var prospective [3]uint64
+			fence := &combinedAccountingFence{owner: seed.owner}
+			write := combinedAccountingPending(t, seed, writer, fence)
+			fence.after = func(r *catalogRepository) error {
+				prospective = combinedAccountingProvenanceUsage(t, r.transaction)
+				return errors.New("rollback global calibration")
+			}
+			if _, err := write(); !errors.Is(err, app.ErrRepositoryUnavailable) || prospective[0] == 0 {
+				t.Fatal("global calibration", err)
+			}
+			for dimension, resource := range resources {
+				delta := prospective[dimension] - beforeUsage[dimension]
+				if delta == 0 {
+					continue // A support-only fact decision grows no provenance.
+				}
+				for _, extra := range []uint64{0, 1} {
+					t.Run(fmt.Sprintf("resource_%d/over_%d", resource, extra), func(t *testing.T) {
+						f := combinedAccountingClone(t, seed)
+						fence := &combinedAccountingFence{owner: f.owner}
+						write := combinedAccountingPending(t, f, writer, fence)
+						combinedAccountingFillProvenance(t, f, dimension, resource.Maximum()-delta+extra)
+						fence.observer = combinedAccountingObserveWrites(t, f.owner, false)
+						before := catalogRecoveryRows(t, f.owner.database.db)
+						result, err := write()
+						if extra == 1 {
+							fence.observer.assertNoWrites(t)
+							var limit domain.LimitError
+							if !errors.Is(err, app.ErrLimitExceeded) || !errors.As(fence.failure, &limit) || limit.Resource != resource || !reflect.DeepEqual(before, catalogRecoveryRows(t, f.owner.database.db)) {
+								t.Fatal("global rejection or complete snapshot", err, fence.failure)
+							}
+							return
+						}
+						if err != nil || combinedAccountingProvenanceUsage(t, f.owner.database.db)[dimension] != resource.Maximum() {
+							t.Fatal("exact global admission", err, fence.failure)
+						}
+						after := catalogRecoveryRows(t, f.owner.database.db)
+						fence.observer.enables.Store(0)
+						fence.observer.mutations.Store(0)
+						fence.observer.block = true
+						replay, err := write()
+						fence.observer.assertNoWrites(t)
+						if err != nil || !reflect.DeepEqual(result, replay) || !reflect.DeepEqual(after, catalogRecoveryRows(t, f.owner.database.db)) {
+							t.Fatal("global-bound replay changed result or snapshot", err)
+						}
+					})
+				}
+			}
+		})
+	}
+}
+
+func TestSupersessionSQLitePrewritePersistedRecheck(t *testing.T) {
+	seed := combinedAccountingFixture(t)
+	for _, writer := range combinedAccountingWriters {
+		t.Run(writer.name, func(t *testing.T) {
+			f := combinedAccountingClone(t, seed)
+			fence := &combinedAccountingFence{owner: f.owner}
+			write := combinedAccountingPending(t, f, writer, fence)
+			table := "tc_catalog_review_states_v2"
+			switch writer.kind {
+			case "order":
+				table = "tc_catalog_order_states_v2"
+			case "adoption":
+				table = "tc_catalog_order_states"
+			case "import":
+				table = "tc_catalog_imports"
+			case "supersession":
+				table = "tc_catalog_supersessions"
+			}
+			// Deliberate post-admission corruption: a trigger introduces 256
+			// extra sources after the accepted write. The final actual check
+			// must still see them and reject the entire transaction.
+			catalogSchemaExec(t, f.owner.database.db, `CREATE TRIGGER admission_drift AFTER INSERT ON `+table+` BEGIN
+ INSERT INTO tc_catalog_sources SELECT printf('%032x',n),registration_revision,issuer_principal,adapter,adapter_version,scope,acquisition,revoked
+ FROM (WITH RECURSIVE seq(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM seq WHERE n<256) SELECT n FROM seq)
+ CROSS JOIN (SELECT * FROM tc_catalog_sources LIMIT 1); END`)
+			fence.observer = combinedAccountingObserveWrites(t, f.owner, false)
+			before := catalogRecoveryRows(t, f.owner.database.db)
+			_, err := write()
+			var limit domain.LimitError
+			if !errors.Is(err, app.ErrLimitExceeded) || !errors.As(fence.failure, &limit) || limit.Resource != domain.SourceRegistrations || fence.observer.mutations.Load() == 0 {
+				t.Fatal("post-admission drift escaped actual accounting", err, fence.failure)
+			}
+			if !reflect.DeepEqual(before, catalogRecoveryRows(t, f.owner.database.db)) {
+				t.Fatal("post-admission drift leaked rows or schema")
+			}
+		})
+	}
+}
+
+func TestSupersessionSQLitePrewriteReuse(t *testing.T) {
+	f := combinedAccountingFixture(t)
+	// Leave no global headroom. Exact reuse must still admit new Content
+	// events, while retaining each normalized observation/coordinate once.
+	for dimension := 2; dimension >= 0; dimension-- {
+		resource := []domain.Resource{domain.SourceRegistrations, domain.StagingBatches, domain.StagingBytes}[dimension]
+		combinedAccountingFillProvenance(t, f, dimension, resource.Maximum())
+	}
+	global := combinedAccountingProvenanceUsage(t, f.owner.database.db)
+	fence := &combinedAccountingFence{owner: f.owner}
+	base, err := app.NewService(fence, f.source, f.review, f.namespace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := combinedAccountingUsage(t, f.owner.database.db, f.command.Content)
+	input := f.registrationFixture.command.Observations[0].Input()
+	input.ID, _ = evidence.ParseID(registrationIntegrationID(t, "obs"))
+	input.Claim, _ = domain.TitleClaim("Grüße 🐻")
+	o, err := domain.NewCatalogObservation(f.ingest, f.source, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	aggregate, _ := domain.NewCatalogRevision(5)
+	one, _ := domain.NewCatalogRevision(1)
+	result, err := base.RecordObservations(t.Context(), app.ReviewCommand{ID: registrationIntegrationCommandID(t), Subject: input.Subject, ExpectedAggregate: aggregate, ExpectedReview: one, Observations: []domain.CatalogObservation{o, o}, Reason: "reuse existing provenance"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	after := combinedAccountingUsage(t, f.owner.database.db, f.command.Content)
+	if after.observations != before.observations+1 || after.events != before.events+1 || after.links != before.links {
+		t.Fatal("duplicate ordinary observations charged twice", before, after)
+	}
+	decision, err := base.AcceptSupport(t.Context(), app.ReviewCommand{ID: registrationIntegrationCommandID(t), Subject: input.Subject, ExpectedAggregate: result.AggregateRevision, ExpectedReview: result.Decision.Revision, Key: domain.TitleClaimKey, Support: []evidence.ID{o.ID(), o.ID()}, Reason: "deduplicate support"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	current := combinedAccountingUsage(t, f.owner.database.db, f.command.Content)
+	if current.links != after.links+1 || current.observations != after.observations || current.events != after.events+1 {
+		t.Fatal("duplicate selected support charged twice", after, current)
+	}
+	sequence, err := domain.NewCatalogSequenceEvidence(f.ingest, f.namespace, domain.CatalogSequenceInput{ID: o.ID(), Content: f.command.Content, Version: f.command.New.ID(), Position: 1, Coordinate: input.Coordinate})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var revision uint64
+	if err := f.owner.database.db.QueryRowContext(t.Context(), "SELECT max(order_revision) FROM tc_catalog_order_states_v2 WHERE content_id=?", f.command.Content.String()).Scan(&revision); err != nil {
+		t.Fatal(err)
+	}
+	orderRevision, _ := domain.NewCatalogRevision(revision)
+	for i := 0; i < 2; i++ {
+		result, err := base.DecideOrder(t.Context(), app.OrderCommand{ID: registrationIntegrationCommandID(t), Content: f.command.Content, ExpectedAggregate: decision.AggregateRevision, ExpectedOrder: orderRevision, Evidence: []domain.CatalogSequenceEvidence{sequence, sequence}, Entries: []domain.CatalogOrderEntry{{Version: f.command.New.ID(), Position: 1, Support: []evidence.ID{o.ID(), o.ID()}}}, Reason: "reuse sequence provenance"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		after := combinedAccountingUsage(t, f.owner.database.db, f.command.Content)
+		addedObservations := uint64(0)
+		if i == 0 {
+			addedObservations = 1
+		}
+		if after.observations != current.observations+addedObservations || after.links != current.links+1 || after.events != current.events+1 {
+			t.Fatal("logical sequence usage duplicated or lost", current, after)
+		}
+		current, decision.AggregateRevision, orderRevision = after, result.AggregateRevision, result.Decision.View.Revision
+	}
+	// A conflicting snapshot under an existing record key cannot supply its
+	// smaller input length to prospective accounting, even at full staging.
+	snapshot, _ := domain.NewRecordSnapshot([]byte(`{}`))
+	input.Coordinate, err = domain.NewRecordCoordinate(input.Coordinate.Artifact(), input.Coordinate.Index(), input.Coordinate.Locator(), snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	input.ID, _ = evidence.ParseID(registrationIntegrationID(t, "obs"))
+	conflict, err := domain.NewCatalogObservation(f.ingest, f.source, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fence.observer = combinedAccountingObserveWrites(t, f.owner, false)
+	rows := catalogRecoveryRows(t, f.owner.database.db)
+	_, err = base.RecordObservations(t.Context(), app.ReviewCommand{ID: registrationIntegrationCommandID(t), Subject: input.Subject, ExpectedAggregate: decision.AggregateRevision, ExpectedReview: decision.Decision.Revision, Observations: []domain.CatalogObservation{conflict}, Reason: "conflicting reused record"})
+	fence.observer.assertNoWrites(t)
+	if !errors.Is(err, app.ErrRepositoryUnavailable) || !reflect.DeepEqual(rows, catalogRecoveryRows(t, f.owner.database.db)) {
+		t.Fatal("conflicting record attempted writes or leaked rows", err)
+	}
+	if got := combinedAccountingProvenanceUsage(t, f.owner.database.db); got != global {
+		t.Fatal("reused provenance charged again", global, got)
+	}
 }
 
 type combinedAccountingWriter struct {
@@ -177,7 +553,7 @@ func combinedAccountingPending(t *testing.T, f supersessionFixture, writer combi
 	}
 	expectedAggregate, _ := domain.NewCatalogRevision(aggregate)
 	expectedReview, _ := domain.NewCatalogRevision(reviewRevision)
-	claim, _ := domain.TitleClaim("matrix evidence")
+	claim, _ := domain.TitleClaim("matrix évidence")
 	o := w.observation(t, w.command.Subject, claim)
 	count := 1
 	if writer.kind == "version" {
@@ -1707,9 +2083,13 @@ func TestSupersessionSQLiteCombinedWriterBytes(t *testing.T) {
 					if usage.bytes+delta != domain.RetainedBytes.Maximum()+extra {
 						t.Fatal("fixture is not exact", usage, delta, extra)
 					}
+					if extra == 1 {
+						fence.observer = combinedAccountingObserveWrites(t, f.owner, false)
+					}
 					before := catalogRecoveryRows(t, f.owner.database.db)
 					result, err := write()
 					if extra == 1 {
+						fence.observer.assertNoWrites(t)
 						var limit domain.LimitError
 						if !errors.Is(err, app.ErrLimitExceeded) || !errors.As(fence.failure, &limit) || limit.Resource != domain.RetainedBytes {
 							t.Fatal("byte rejection", err, fence.failure)
@@ -1853,10 +2233,14 @@ func TestSupersessionSQLiteCombinedWriterObservations(t *testing.T) {
 				}
 				fence := &combinedAccountingFence{owner: f.owner}
 				write := combinedAccountingPending(t, f, writer, fence, count)
+				if count == 3 {
+					fence.observer = combinedAccountingObserveWrites(t, f.owner, false)
+				}
 				before := catalogRecoveryRows(t, f.owner.database.db)
 				beforeUsage := combinedAccountingUsage(t, f.owner.database.db, f.command.Content)
 				result, err := write()
 				if count == 3 {
+					fence.observer.assertNoWrites(t)
 					var limit domain.LimitError
 					if !errors.Is(err, app.ErrLimitExceeded) || !errors.As(fence.failure, &limit) || limit.Resource != domain.RetainedObservations {
 						t.Fatal("combined observation rejection", err, fence.failure)
@@ -2144,11 +2528,15 @@ func TestSupersessionSQLiteCombinedWriterEvents(t *testing.T) {
 				if beforeUsage.events+1 != domain.RetainedDecisions.Maximum()+extra {
 					t.Fatal("event pair is not exact", beforeUsage, extra)
 				}
+				if extra == 1 {
+					fence.observer = combinedAccountingObserveWrites(t, f.owner, false)
+				}
 				before := catalogRecoveryRows(t, f.owner.database.db)
 				started := time.Now()
 				result, err := write()
 				t.Logf("writer took %s", time.Since(started))
 				if extra == 1 {
+					fence.observer.assertNoWrites(t)
 					var limit domain.LimitError
 					if !errors.Is(err, app.ErrLimitExceeded) || !errors.As(fence.failure, &limit) || limit.Resource != domain.RetainedDecisions {
 						t.Fatal("event rejection", err, fence.failure)
@@ -2283,9 +2671,13 @@ func TestSupersessionSQLiteCombinedRegisterContentBytes(t *testing.T) {
 			clone := combinedAccountingClone(t, f)
 			fence := &combinedAccountingFence{owner: clone.owner}
 			write := combinedAccountingContentBytes(t, clone, fence, int(padding), int(locatorPadding), int(reason))
+			if extra == 1 {
+				fence.observer = combinedAccountingObserveWrites(t, clone.owner, false)
+			}
 			before := catalogRecoveryRows(t, clone.owner.database.db)
 			result, err := write()
 			if extra == 1 {
+				fence.observer.assertNoWrites(t)
 				var limit domain.LimitError
 				if !errors.Is(err, app.ErrLimitExceeded) || !errors.As(fence.failure, &limit) || limit.Resource != domain.RetainedBytes {
 					t.Fatal("initial content byte rejection", err, fence.failure)

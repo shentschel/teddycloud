@@ -1153,6 +1153,45 @@ func (r *catalogRepository) CommitReview(ctx context.Context, operation app.Revi
 	if exists {
 		return domain.ErrCatalogCommandConflict
 	}
+	if r.schemaVersion >= 8 {
+		// Decode the already-validated successor without a repository: this
+		// exposes its exact command/result slices without projecting SQL rows.
+		pending := catalogStoredState{revision: next.Revision().Uint64(), encoding: states[len(states)-1].encoding}
+		reader := catalogStateReader{raw: raw, content: command.Subject.ContentID().String(), subject: catalogSubjectKey(command.Subject)}
+		if err = reader.checkEnvelope(&pending, nil, false); err != nil {
+			return err
+		}
+		admission := newCatalogAdmission(r, call)
+		support := make(map[string]bool)
+		for _, id := range command.Support {
+			support[id.String()] = true
+		}
+		admission.added = supersessionUsage{bytes: uint64(len(raw)), events: 1, links: uint64(len(support))}
+		found := false
+		for _, d := range pending.decisions {
+			if d.id == command.ID.String() {
+				if found {
+					return app.ErrRepositoryUnavailable
+				}
+				admission.added.bytes += uint64(len(d.command) + len(d.result))
+				found = true
+			}
+		}
+		if !found {
+			return app.ErrRepositoryUnavailable
+		}
+		if err = admission.source(command.Source); err != nil {
+			return err
+		}
+		for _, o := range command.Observations {
+			if err = admission.observation(o); err != nil {
+				return err
+			}
+		}
+		if err = admission.check(command.Subject.ContentID(), nil); err != nil {
+			return err
+		}
+	}
 	if _, err = r.transaction.ExecContext(call, "PRAGMA query_only=OFF"); err != nil {
 		return repositoryError(call, err)
 	}
@@ -1202,8 +1241,7 @@ func (r *catalogRepository) CommitReview(ctx context.Context, operation app.Revi
 	if err != nil {
 		return repositoryError(call, err)
 	}
-	// Admit prospective rows before reconstruction can classify an over-limit
-	// history as corrupt. Rejection still rolls back the complete transaction.
+	// Recheck actual persisted charges before reconstruction and commit.
 	if err = r.registrationAccounting(call, command.Subject.ContentID()); err != nil {
 		return err
 	}
@@ -1316,6 +1354,27 @@ func (r *catalogRepository) CommitOrder(ctx context.Context, operation app.Order
 	versions, err := r.catalogVersions(call, command.Content)
 	if err != nil {
 		return err
+	}
+	if r.schemaVersion >= 8 {
+		admission := newCatalogAdmission(r, call)
+		admission.added = supersessionUsage{bytes: uint64(len(raw)), events: 1}
+		probe := catalogStateReader{raw: raw}
+		if probe.text() == "pi08-order-state/2" {
+			for _, v := range versions {
+				admission.added.bytes += uint64(3*8 + len(command.Content.String()) + len(v.Version.ID().String()))
+			}
+		}
+		if err = admission.source(source); err != nil {
+			return err
+		}
+		for _, e := range command.Evidence {
+			if err = admission.coordinate(e.Input().Coordinate); err != nil {
+				return err
+			}
+		}
+		if err = admission.check(command.Content, raw); err != nil {
+			return err
+		}
 	}
 	if _, err = r.transaction.ExecContext(call, "PRAGMA query_only=OFF"); err != nil {
 		return repositoryError(call, err)
