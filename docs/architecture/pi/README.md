@@ -22,6 +22,15 @@ assumed.
 
 Current execution artifacts:
 
+- [PI-09 assignment, original and custom policy](pi-09-assignment-policy.md)
+- [PI-09 execution plan](pi-09-plan.md)
+- [PI-09 budget and admission](pi-09-budget.md)
+- **PI-09/R contract is complete** at baseline
+  `90301bfe2b5badd684229c3d5d140fa975842d91`; A/B/T and the milestone
+  **Assignments have one authoritative service** remain pending. This is
+  architecture/refinement only: no runtime/schema/workflow change, issue creation,
+  independent delivery acceptance, hardware, deployment or production migration.
+
 - [PI-08/R1 catalog source and compatibility inventory](pi-08-r1-catalog-inventory.md)
 - [PI-08 execution plan and R acceptance gate](pi-08-plan.md)
 - [PI-08 budget method](pi-08-budget.md)
