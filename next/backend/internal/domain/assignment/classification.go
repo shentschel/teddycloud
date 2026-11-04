@@ -168,13 +168,21 @@ const (
 	reviewResolution
 )
 
-// ReviewAuthority is an opaque, process-local core capability. There is no
-// exported issuer, string parser or wire reconstruction. A1a intentionally
-// cannot activate a public writer. Future A1 core binding owns trusted issuance;
-// it must not expose newReviewAuthority to request-controlled actor/permissions.
+// ReviewAuthority is an opaque, process-local core capability. It has no
+// parser, serialization or wire reconstruction. Only the trusted application/core
+// caller may obtain it through BindAuthenticatedReviewAuthority.
 type ReviewAuthority struct {
 	actor       string
 	permissions reviewPermission
+}
+
+// BindAuthenticatedReviewAuthority binds an already-authenticated actor reference
+// to the fixed, full review capability required by the assignment review service.
+// Authentication is the application/core caller's responsibility; this function
+// only validates the bounded actor text and binds it to the complete capability.
+// The caller must not use request-controlled actor or permissions as authority.
+func BindAuthenticatedReviewAuthority(authenticatedActor string) (ReviewAuthority, error) {
+	return newReviewAuthority(authenticatedActor, reviewClassification|reviewOriginalTarget|reviewResolution)
 }
 
 func newReviewAuthority(actor string, permissions reviewPermission) (ReviewAuthority, error) {

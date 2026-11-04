@@ -44,7 +44,7 @@ func reviewRequest(t *testing.T, n int, revision uint64) ReviewRequest {
 
 func reviewCore(t *testing.T) ReviewAuthority {
 	t.Helper()
-	a, err := newReviewAuthority("core-reviewer", reviewClassification|reviewOriginalTarget|reviewResolution)
+	a, err := BindAuthenticatedReviewAuthority("core-reviewer")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -326,6 +326,88 @@ func TestAssignmentIndependentReviewDimensions(t *testing.T) {
 	}
 	if got, ok := s.OriginalBaseline(); ok || got != (OriginalTarget{}) {
 		t.Fatal("physical resolution supplied a fallback target")
+	}
+}
+
+func TestAssignmentAuthenticatedReviewAuthorityFullCapability(t *testing.T) {
+	const actor = "authenticated-reviewer"
+	authority, err := BindAuthenticatedReviewAuthority(actor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := emptyEvidence(t)
+	a, b := baselineTarget(t, 1, 1), baselineTarget(t, 1, 2)
+	for i, class := range []PhysicalClassification{Original, CustomCard} {
+		s, err = s.AdmitClassification(authority, reviewRequest(t, i+1, s.Revision()), claimEvidence(t, s.Subject(), i+1, AcceptedEvidence), class)
+		want := Original
+		if i == 1 {
+			want = Conflict
+		}
+		if err != nil || s.Revision() != uint64(i+1) || s.Classification() != want {
+			t.Fatalf("classification claim %d: state %v, error %v", i+1, s.Classification(), err)
+		}
+	}
+	for i, target := range []OriginalTarget{a, b} {
+		s, err = s.AdmitOriginalTarget(authority, reviewRequest(t, i+3, s.Revision()), claimEvidence(t, s.Subject(), i+3, AcceptedEvidence), target)
+		if err != nil || s.Revision() != uint64(i+3) {
+			t.Fatalf("original-target claim %d: %v", i+1, err)
+		}
+	}
+	if s.Classification() != Conflict || s.OriginalState() != OriginalTargetConflict {
+		t.Fatal("full capability did not retain conflicting claims")
+	}
+	s, err = s.ResolveClassification(authority, reviewRequest(t, 5, 4), Original, []EvidenceID{evidenceID(t, 1)})
+	if err != nil || s.Classification() != Original || s.OriginalState() != OriginalTargetConflict {
+		t.Fatalf("classification resolution: %v", err)
+	}
+	s, err = s.ResolveOriginalTarget(authority, reviewRequest(t, 6, 5), a, []EvidenceID{evidenceID(t, 3)})
+	if target, ok := s.OriginalBaseline(); err != nil || !ok || target != a || s.Classification() != Original || s.Revision() != 6 {
+		t.Fatalf("original-target resolution: %v", err)
+	}
+	wantKinds := []ReviewKind{ClassificationClaim, ClassificationClaim, OriginalTargetClaim, OriginalTargetClaim, ClassificationResolution, OriginalTargetResolution}
+	records := s.Records()
+	if len(records) != len(wantKinds) {
+		t.Fatal("full capability lost review records")
+	}
+	for i, r := range records {
+		if r.Kind != wantKinds[i] || r.Provenance.Actor != actor || r.Provenance.Revision != uint64(i+1) {
+			t.Fatalf("record %d lost review kind or authenticated provenance", i+1)
+		}
+	}
+}
+
+func TestAssignmentAuthenticatedReviewAuthorityActorBounds(t *testing.T) {
+	for _, tc := range []struct {
+		name, actor string
+	}{
+		{"empty", ""},
+		{"blank", "   "},
+		{"unicode blank", "\u2003\u00a0"},
+		{"newline", "reviewer\nspoof"},
+		{"NUL", "reviewer\x00"},
+		{"DEL", "reviewer\x7f"},
+		{"C1 control", "reviewer\u0085"},
+		{"invalid UTF-8", string([]byte{0xff})},
+		{"oversized ASCII", strings.Repeat("a", MaxReviewReferenceBytes+1)},
+		{"oversized UTF-8", strings.Repeat("é", MaxReviewReferenceBytes/2) + "a"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			authority, err := BindAuthenticatedReviewAuthority(tc.actor)
+			if err != ErrReviewAuthority || authority != (ReviewAuthority{}) {
+				t.Fatalf("invalid actor produced authority: %v", err)
+			}
+		})
+	}
+	for _, actor := range []string{"core-reviewer", " authenticated-reviewer ", strings.Repeat("a", MaxReviewReferenceBytes), strings.Repeat("é", MaxReviewReferenceBytes/2)} {
+		authority, err := BindAuthenticatedReviewAuthority(actor)
+		if err != nil {
+			t.Fatal(err)
+		}
+		s := emptyEvidence(t)
+		s, err = s.AdmitClassification(authority, reviewRequest(t, 1, 0), claimEvidence(t, s.Subject(), 1, AcceptedEvidence), Original)
+		if err != nil || s.Revision() != 1 || s.Records()[0].Provenance.Actor != actor {
+			t.Fatalf("valid actor was rejected or changed: %v", err)
+		}
 	}
 }
 
