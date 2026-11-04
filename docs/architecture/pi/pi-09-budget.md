@@ -1,6 +1,7 @@
 # PI-09 budget and admission
 
-Status: R-only contract complete; no A/B/T budget or milestone acceptance follows.
+Status: R, A1 and staged A2a complete; A2b replan only. No A2b implementation
+budget admission or milestone acceptance follows.
 Request `pi09-r-assignment-semantics-contract-20261031`.
 Use the exact [active roadmap policy](../teddycloud-next-pi-roadmap.md#admission-by-window-active-policy)
 and [model routing](../task-model-routing.md).
@@ -69,7 +70,10 @@ safe remaining capacity, close a reviewable checkpoint before expansion.
 | Later checkpoint | Model / work class | Estimate requirement before dispatch |
 | --- | --- | --- |
 | A1 | Sol 6.1 high; domain/application | Independent integrated B5/BW intervals for exact [A1 manifest](pi-09-plan.md), golden vectors, tests, parent review and uncertainty. |
-| A2a / A2b | Sol 6.1 high; staged schema / persistence activation | Re-estimate from A1 plus migration/owner/restore evidence, never copy A1 cost or omit activation tests. |
+| A2a | Sol 6.1 high; staged schema, complete | Historical actuals remain charged; no new A2a allocation. |
+| PI09-A2b.1 | Sol 6.1 high; inert repository | Independently estimate the two-file read/reconstruction checkpoint, canonical fixtures, five focused tests, common gates and closeout. |
+| PI09-A2b.2 | Sol 6.1 high; inert transaction components | Independently estimate the four-file checkpoint, real SQLite race/fault/scope fixtures and required regression gates. |
+| PI09-A2b.3 | Sol 6.1 high; coordinated activation | Independently estimate the entire final manifest, exact v9/v10/v11 matrix, real owner/bypass tests, restart/restore smoke and inherited regressions. No split activation admission. |
 | B1 | Sol 6.1 high; pure URI admission | Include parser vectors, fuzzing, old-receipt compatibility and review. |
 | B2 | Sol 6.1 high; history/recovery | Include real helper processes, failure diagnosis and retained-data verification; split before unsafe admission. |
 | T | Astra high; independent audit/consolidation | Re-estimate before A/B admission; preserve weekly mandatory reserve once. Initial 4-point R-only placeholder is not a full-delivery T estimate. |
@@ -102,3 +106,59 @@ reset times and private ledger values stay session-only for this request: its
 four-file write scope forbids updating the ignored automation ledger. Report
 measured start/end deltas and limitations in the handoff; do not claim a persisted
 ledger. Quota compliance is separate from technical acceptance and remote CI.
+
+## A2b bounded-replan admission and sequential accounting
+
+Request `pi09-a2b-bounded-replan-20261104`, baseline commit
+`88d27472b927baf90cdd6d69488f74cdd9ee80cd`, requests Astra high for this docs-only
+replan. Its target is **at most 18 incremental five-hour points and 8 weekly
+points**, including evidence review, editing, review, checks, commit, handoff and
+delayed accounting. This is separate from the historical R envelope above and
+admits no implementation. Retain the supplied live baseline in session; entry
+measurement does not reset it. Check near 60% total five-hour use, before commit
+and at closeout. Before edits, reserve enough for a clean reviewed commit; if it
+cannot fit, stop without edits. The global stop is **95% in each window**,
+including parent work, other commitments and delayed accounting. No reset credits,
+API billing, bought credits or presumed reset capacity.
+
+The [three sequential manifests](pi-09-plan.md#a2b-checkpoint-rules) partition
+A2b's work, not the A2 sprint ceiling. A2a actuals plus all A2b checkpoint actuals
+still count against the inherited A2 ceiling (<=1.9 B5). The A2b parent has no
+additional implementation or generic CI allowance. Replan actuals are recorded
+once as replan/parent work; do not copy them into every child. Personal readings
+and account data remain session-only; no status JSON or automation ledger edit.
+
+Before each dispatch, record the exact accepted dependency SHA, file manifest,
+test selection and runner, then independent B5/BW lower/upper estimates for:
+
+| Integrated component, counted once | Dispatch-specific scope |
+| --- | --- |
+| Implementation and fixtures | Only that checkpoint's exact manifest and acceptance criteria. |
+| Verification and repair | Focused tests plus required inherited/common gates, runner setup, CI diagnosis if authorized; preserve PI-08 exceptions. |
+| Parent review/integration | Manifest/diff review and acceptance of this slice, including any authorized CI observation. |
+| Closeout and uncertainty | Commit, handoff, delayed accounting and bounded runner/fix risk. |
+
+Sum these components once per window and admit the upper bound. Parent-run checks
+and child-run checks must be assigned to one executor/cost entry each; one CI run
+is not charged again as parent CI. Necessary later regression runs are new work
+in the later slice, not a second charge for the earlier run. Do not schedule a
+redundant A2b umbrella integration job; final composition verification belongs to
+PI09-A2b.3. Remote exact-head CI remains separately evidenced, never inferred
+from local checks or assumed green without a run.
+
+At dispatch, apply both live-window inequalities above using this integrated
+checkpoint estimate instead of historical R cost. Retain outstanding commitments,
+remaining mandatory weekly T reserve and delayed usage exactly once. Re-estimate
+that T reserve for delivery; the old four-point R placeholder is not sufficient
+evidence of full-delivery coverage. Later A2b slices receive fresh admission only
+after their prerequisite is accepted; reserve no speculative future five-hour
+windows and invent no numeric implementation allocation from this docs replan.
+
+With fewer than three comparable complete samples, use the largest relevant
+observed integrated delta plus explicit uncertainty; otherwise mark the estimate
+uncalibrated. Missing weekly data is not zero. The first eligible dispatch is
+**PI09-A2b.1**, exactly the two repository files and five named focused tests in
+the plan, plus common regression gates. This is eligibility, not quota admission.
+If even that complete checkpoint cannot fit with closeout, wait for verified
+capacity. If PI09-A2b.3 later cannot fit, replan inert prerequisites before writing;
+never activate a subset of its schema/owner/gates/public-port boundary.

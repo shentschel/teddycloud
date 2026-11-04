@@ -1,6 +1,6 @@
 # PI-09 execution plan
 
-Status: **R complete as a source-backed contract**; A/B/T and the milestone
+Status: **R, A1 and staged A2a complete**; A2b/B/T and the milestone
 **Assignments have one authoritative service** remain pending. No independent
 review, remote CI, hardware, deployment or production-migration acceptance is
 implied. Request `pi09-r-assignment-semantics-contract-20261031`; baseline
@@ -32,7 +32,7 @@ No push/publication or delivery implementation is included in R.
 | Pure URI admission | D4 closed HTTPS metadata profile, no I/O/authority; B1. |
 | History, replay and concurrency | D3/D5 append-only events, derived intervals, canonical replay, CAS and ownership; A1/A2/B2. |
 | Compatibility and migration | D6, inherited PI-06/07/08 boundaries and D7 deferrals; B2. |
-| Ordered bounded delivery | A1 -> A2a -> A2b -> B1 -> B2 -> independent T below. |
+| Ordered bounded delivery | A1 -> A2a -> A2b.1 -> A2b.2 -> A2b.3 -> B1 -> B2 -> independent T below. |
 | Budget and exact 5% reserve | Integrated independent-window estimates in budget; no parent double count. |
 | Honest status | README links only R completion; delivery tests below are specifications, not results. |
 
@@ -102,20 +102,24 @@ These files currently contain v9-specific behavior/expectations; blanket widenin
 would be unsafe. No existing migration checksum, receipt codec or catalog/Tag
 semantic change is admitted.
 
-Split A2 into separately admitted sequential checkpoints: **A2a** owns only
-`assignment_schema.go` and `assignment_schema_test.go`, with the migration staged
-and tested explicitly, never appended to SchemaMigrations. **A2b** owns the rest
-of the exact A2 manifest plus integration fixes to those two A2a files. A2a is a
-schema-foundation checkpoint, not activated assignment delivery. A2b integrates
-owner/repository writes and all enumerated v9/v10 gates together. The schema and
-restrictive-reference tests are A2a gates; all remaining A2 tests below are A2b
-gates. Both share A2's sprint ceiling, without counting parent work twice.
+A2a owns only `assignment_schema.go` and `assignment_schema_test.go`. Accepted
+commit `88d27472b927baf90cdd6d69488f74cdd9ee80cd` stages migration **10 /
+0010-assignment-ledger**, without appending it to `SchemaMigrations`; the active
+schema remains v9. A1 is complete at this baseline. A2a is a schema foundation,
+not activated assignment delivery.
 
-Before implementation bind candidate migration 10 (if still free), identifier,
-exact schema gates and additive table/FK/index/immutable-trigger manifest. Activate
-schema and port together in A2b, not a staged A2a table advertised as
-usable delivery. Test supported v9/v10 catalog behavior plus rejection of a
-synthetic v11 ledger, retaining current registration/supersession/accounting checks. A larger activation touch set requires a smaller replan first.
+The required smaller replan, request `pi09-a2b-bounded-replan-20261104`, replaces
+one-job A2b with **PI09-A2b.1 -> PI09-A2b.2 -> PI09-A2b.3** below. These stable
+IDs are sequential acceptance checkpoints, not parallel jobs. A2b remains the
+parent scope, not an additional implementation or CI budget. This replan writes
+only this plan and `docs/architecture/pi/pi-09-budget.md`; existing README links
+already reach both, so no README edit or new checkpoint document is needed.
+
+Schema activation, LifecycleOwner wiring, exact v9/v10 compatibility gates,
+synthetic-v11 rejection and public assignment port activation belong together in
+PI09-A2b.3. No earlier checkpoint can advertise usable v10, production assignment
+authority or durable delivery. All existing migration checksums, codecs, catalog
+registration/supersession/accounting checks and the full A2 criteria remain binding.
 Implement one-owner reference reads and dependency revision fences in the same
 transaction, atomic ledger/projection/command storage and direct-writer guards.
 Persist history from the first assignment; B does not backfill missing A history.
@@ -133,6 +137,188 @@ restart and pre-upgrade restore smoke evidence; B2 owns the complete failure mat
 Rollback: before activation source revert; afterwards verified pre-upgrade backup
 and fenced new-path exact-schema restore. Preserve post-upgrade DB/media and report
 lost newer history. No down migration, production rollout or dual writer.
+
+#### A2b checkpoint rules
+
+Each manifest below is exhaustive, relative to `next/backend/internal/adapters/sqlite/`.
+No implicit glob, application/domain change, workflow edit or unrelated integration
+fix is allowed. Shared files have explicit sequential ownership below. Evidence
+updates to the two replan documents require inclusion in the next dispatch's exact
+manifest and estimate; they are not a blanket four-document write grant. An
+out-of-manifest need stops that slice for replan before edits.
+
+PI09-A2b.1/.2 use real SQLite and explicitly staged migration fixtures only, via
+A2a's `assignmentSchemaMigrations()` test helper. Their production components
+must be private, with no exported constructor, LifecycleOwner method, runtime
+call site or production implementation wired to the public Transactor. Only
+`_test.go` harnesses may instantiate them. A private component may consume an
+already-owned SQL transaction; it must not open a nested transaction, invoke Tag
+or catalog transactors, offer unmanaged Save, or masquerade staged v10 as v9 to
+pass a catalog gate. Dependency reads must use that same transaction. Fixtures
+must establish real managed ownership/support, not treat A2a's synthetic blobs as
+canonical application receipts. Default `SchemaMigrations()` stays at v9 and
+normal runtime opens cannot create assignment tables. Both checkpoints verify
+these boundaries by tests and call-site/export review. Fixture persistence is
+component evidence only; live authority and delivery remain unaccepted.
+
+#### PI09-A2b.1: inert repository and exact reference reconstruction
+
+Depends on accepted A1/A2a and this replan. This is the **first safely dispatchable
+slice**, subject to fresh budget admission; no later slice is dispatched with it.
+Exact write manifest (two new files):
+
+- `assignment_repository.go`
+- `assignment_repository_test.go`
+
+Deliver bounded canonical snapshot/command readback and exact Tag/Content/version
+reference reconstruction on an injected transaction. Validate retained head,
+projection, event, evidence, support, command indices and usage; reject mismatches
+and foreign tuples. Keep writes and transaction ownership out of this checkpoint.
+A complete repository read contract is independently useful to the next slice;
+no partial writer is exposed.
+
+Acceptance: `TestAssignmentRepositoryRoundTrip`,
+`TestAssignmentRepositoryCorruption`, `TestAssignmentRepositoryInert`, plus the
+required A2 tests assigned in the coverage table. Use canonical A1-generated
+material seeded in the test harness, including first-event history, global command
+lookup, unbound/catalog-only versions, superseded exact targets, foreign tuples
+and genuine managed ownership support. Corrupt each retained structure and reject
+it; distinguish absent data from corrupt data. Inert test and source review prove
+v9 default schema and absence of production reachability.
+
+Exact focused commands from `next` (all five named tests must be discovered):
+
+```sh
+go test -list '^TestAssignment(RepositoryRoundTrip|RepositoryCorruption|RepositoryInert|NoCatalogRetarget|CatalogOnlyTarget)$' ./backend/internal/adapters/sqlite
+go test -count=1 -run '^TestAssignment(RepositoryRoundTrip|RepositoryCorruption|RepositoryInert|NoCatalogRetarget|CatalogOnlyTarget)$' ./backend/internal/adapters/sqlite
+go test -count=10 -run '^TestAssignment(RepositoryRoundTrip|RepositoryCorruption|RepositoryInert|NoCatalogRetarget|CatalogOnlyTarget)$' ./backend/internal/adapters/sqlite
+go test -race -count=1 -run '^TestAssignment(RepositoryRoundTrip|RepositoryCorruption|RepositoryInert|NoCatalogRetarget|CatalogOnlyTarget)$' ./backend/internal/adapters/sqlite
+```
+
+Then run the common A/B verification gates below, including the unchanged A2a
+schema tests. Rollback: revert these two inert files; no runtime database was
+upgraded. Non-claims: no atomic writer, owner fence, schema activation, production
+port or durable delivery. Handoff records the accepted commit, exact fixtures,
+checks/durations and remaining PI09-A2b.2/.3 obligations.
+
+#### PI09-A2b.2: inert atomic transaction components
+
+Depends on accepted PI09-A2b.1. Exact write manifest:
+
+- new `assignment_transaction.go`
+- new `assignment_transaction_test.go`
+- extend `assignment_repository.go` only for private guarded append/CAS and
+  atomic installation of the validated ledger, projection, command index and usage
+- extend `assignment_repository_test.go` only for those write/readback regressions
+
+Complete the private callback-scoped port mechanics over one supplied transaction,
+with authenticated actor input from the trusted harness, dependency revision fences,
+first-event history, global CommandID uniqueness, revocation and cancellation.
+The harness owns the transaction lifecycle; production LifecycleOwner dispatch and
+public Transactor implementation remain absent. Do not create a temporary second
+owner or an exported Save to make tests convenient.
+
+Acceptance: `TestAssignmentTransactionScope` and
+`TestAssignmentTransactionInert`, plus the required A2 tests in the coverage table.
+Use two real SQLite connections for same-revision commands; exactly one succeeds.
+Test concurrent Tag/catalog revision changes, global command collision across
+Tags, replay versus conflicting reuse, atomic failure injection before commit,
+callback errors/cancellation, retained-port reuse and nested-callback rejection.
+Prove ledger/projection/indices/usage roll back together and original
+Tag/catalog/media receipts remain unchanged. No timeout weakening or retrying the
+callback. Run focused uncached, tenfold and race tests, previous component/schema
+regressions and the common A/B gates.
+
+Rollback: revert this checkpoint while retaining the accepted read-only component;
+no default-schema upgrade or live write path exists. Non-claims: component CAS
+and rollback tests do not establish LifecycleOwner restore fencing, production
+assignment authority, usable v10 or durable delivery.
+
+#### PI09-A2b.3: coordinated activation and recovery smoke
+
+Depends on accepted PI09-A2b.2 and fresh admission of the entire following manifest.
+This is the smallest indivisible activation boundary; if it cannot fit, stop and
+replan inert prerequisites, never split schema, gates and authority into releases.
+Exact write manifest:
+
+- `schema.go`, `lifecycle_owner.go`, `database_test.go`, `lifecycle_owner_test.go`
+- `catalog_transaction.go`, `catalog_registration.go`, `catalog_supersession.go`,
+  `catalog_repository.go` (only exact schema-compatibility gates)
+- `tag_schema_test.go`, `catalog_audit_test.go`, `catalog_adoption_test.go`,
+  `catalog_recovery_test.go`, `catalog_registration_integration_test.go`,
+  `catalog_state_schema_test.go`, `catalog_supersession_schema_test.go`
+  (only exact-schema expectations and compatibility evidence)
+- new `assignment_integration_test.go`
+- `assignment_transaction.go`, `assignment_transaction_test.go`
+  (owner integration, production scope/restore fences and their regressions)
+- `assignment_repository.go`, `assignment_repository_test.go`
+  (only owner-integration corrections and their regressions)
+- `assignment_schema.go`, `assignment_schema_test.go`
+  (only required integration corrections and staged-to-active fixture expectations;
+  preserve accepted manifest and migration identity, never silently rewrite SQL)
+
+Append migration 10 to `SchemaMigrations`, implement/wire the public assignment
+Transactor through the single LifecycleOwner and activate its callback-scoped
+port in this one checkpoint. Coordinate all exact v9/v10 gates and synthetic-v11
+rejection; no broad `>=9` admission. Keep supported pre-v9 behavior unchanged.
+v9 catalog operations remain supported, assignment commands on v9 fail closed,
+v10 supports the accepted catalog behavior and assignment path, and synthetic v11
+is rejected without writes. Verify registration, supersession, accounting and
+receipt preservation across the matrix. Adapt A2a's helper to select v9 explicitly
+before adding staged v10, so activation neither appends migration 10 twice nor
+removes the historical v9 fixture. Retain frozen prior checksums and all schema
+constraints/manifest tests.
+
+Acceptance: required owner/bypass tests from the coverage table plus
+`TestAssignmentActivationCompatibility`, `TestAssignmentRestartSmoke` and
+`TestAssignmentPreUpgradeRestoreSmoke` in `assignment_integration_test.go`.
+Exercise the real application service through LifecycleOwner, a single connection
+and transaction for reference reads, dependency fences and atomic commit. Prove
+no nested Tag/catalog transactor, generic Save bypass or alternate writer; ports
+are revoked after callback, close and restore. Rerun every earlier A2 test through
+its retained fixture and run activation integration scenarios for exact targets,
+race, atomicity and replay through the real owner. Those integration regressions
+are final composition checks, not duplicate acceptance ownership or budgets.
+
+Restart must retain the first assignment, complete history and exact command
+readback/replay. Verify a pre-upgrade backup, preserve post-upgrade DB/media,
+restore into a fenced new path at exact v9, reject stale handles and assignment
+commands without read-triggered upgrade, and report lost newer history. B2 still
+owns the full failure/helper-process matrix. Run focused uncached/repeated/race
+assignment tests and the common A/B gates, including all existing catalog/Tag/media
+regressions with accepted PI-08 CI-tier exceptions intact.
+
+Rollback before activation: source revert. After any v10 write: fence commands,
+retain newer DB/media for reconciliation and use the verified pre-upgrade backup
+and exact-schema new-path restore; no source-only downgrade against v10, down
+migration or dual writer. Non-claims: this software activation is not B1/B2/T,
+whole-system legacy writer transfer, deployment, hardware, physical power-loss
+or production-migration acceptance. Durable software delivery may only be claimed
+after this entire checkpoint's tests and review pass, never at an intermediate
+file commit or from the inert fixtures.
+
+#### A2 required-test ownership
+
+Each original named A2 criterion has exactly one acceptance owner. A2a's completed
+gates remain mandatory regressions, not new work. Re-execution in a later slice
+preserves coverage and is charged only to that later slice's verification cost.
+
+| Original required test | Acceptance owner | Required evidence / file |
+| --- | --- | --- |
+| `TestAssignmentSchemaUpgrade` | A2a (complete) | `assignment_schema_test.go`; v9/staged-v10, upgrade/checksums; adapt fixture only at final activation. |
+| `TestAssignmentRestrictiveReferences` | A2a (complete) | `assignment_schema_test.go`; immutable/restrictive references retained. |
+| `TestAssignmentNoCatalogRetarget` | PI09-A2b.1 | `assignment_repository_test.go`; supersession never changes retained explicit target. |
+| `TestAssignmentCatalogOnlyTarget` | PI09-A2b.1 | `assignment_repository_test.go`; managed exact ownership/support, unbound versions allowed, foreign Content/version rejected. |
+| `TestAssignmentSameRevisionRace` | PI09-A2b.2 | `assignment_transaction_test.go`; real SQLite race, one winner, no partial loser state. |
+| `TestAssignmentCommitAtomicity` | PI09-A2b.2 | `assignment_transaction_test.go`; complete ledger/projection/command/usage atomicity and unchanged Tag/catalog/media receipts. |
+| `TestAssignmentSingleOwnerFence` | PI09-A2b.3 | `assignment_integration_test.go`; real owner, same-transaction dependency reads/revision fences, concurrent catalog change, restore/close revocation, no nesting. |
+| `TestAssignmentStorageBypassRejected` | PI09-A2b.3 | `assignment_integration_test.go`; no unmanaged Save, direct writer or unscoped public port. |
+
+The additional compatibility/restart/pre-upgrade-restore tests above bind the
+previously unnamed A2 obligations to PI09-A2b.3. They do not replace any original
+criterion. A2a's manifest, constraints, blob-envelope and migration-failure tests
+also remain mandatory. All new test names are specifications until implemented;
+this documentation replan claims no delivery test result.
 
 ### B1: pure source-URI admission and provenance integration
 
