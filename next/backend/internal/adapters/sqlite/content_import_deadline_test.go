@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -79,6 +80,63 @@ type importDeadlineMedia struct {
 	published bool
 }
 
+// delayedAfterContext holds context.AfterFunc propagation after its own
+// deadline. It deterministically models the parent/child cancellation seam.
+type delayedAfterContext struct {
+	context.Context
+	deadline    time.Time
+	done        chan struct{}
+	started     chan struct{}
+	release     chan struct{}
+	cancelOnce  sync.Once
+	startedOnce sync.Once
+	errMutex    sync.Mutex
+	err         error
+}
+
+func (c *delayedAfterContext) Deadline() (time.Time, bool) { return c.deadline, true }
+func (c *delayedAfterContext) Done() <-chan struct{}       { return c.done }
+func (c *delayedAfterContext) Err() error {
+	c.errMutex.Lock()
+	defer c.errMutex.Unlock()
+	return c.err
+}
+
+func (c *delayedAfterContext) expire() {
+	c.cancelOnce.Do(func() {
+		c.errMutex.Lock()
+		c.err = context.DeadlineExceeded
+		c.errMutex.Unlock()
+		close(c.done)
+	})
+}
+
+func (c *delayedAfterContext) AfterFunc(f func()) func() bool {
+	stopped := make(chan struct{})
+	var once sync.Once
+	go func() {
+		select {
+		case <-c.Done():
+			c.startedOnce.Do(func() { close(c.started) })
+		case <-stopped:
+			return
+		}
+		select {
+		case <-c.release:
+			f()
+		case <-stopped:
+		}
+	}()
+	return func() bool {
+		stoppedNow := false
+		once.Do(func() {
+			close(stopped)
+			stoppedNow = true
+		})
+		return stoppedNow
+	}
+}
+
 func (m *importDeadlineMedia) Publish(ctx context.Context, id content.BlobID, size uint64, source content.TAFSource, mode content.TAFSourceMode) (content.TAFEnvelope, error) {
 	deadline, ok := ctx.Deadline()
 	if !ok || !deadline.Equal(m.owner.deadline) {
@@ -120,7 +178,7 @@ func TestImportConfiguredDeadlineThroughCommit(t *testing.T) {
 				}
 				start := time.Now()
 				result, err := service.Import(ctx, key, command, fixture.Open(), content.FiniteTAFSource)
-				if !errors.Is(err, context.DeadlineExceeded) || result != (contentstore.ImportResult{}) {
+				if !errors.Is(err, context.DeadlineExceeded) || errors.Is(err, contentstore.ErrCommitUncertain) || result != (contentstore.ImportResult{}) {
 					t.Fatalf("expired import acknowledged: %+v %v", result, err)
 				}
 				if !media.published {
@@ -165,4 +223,48 @@ func TestImportConfiguredDeadlineThroughCommit(t *testing.T) {
 			})
 		}
 	}
+
+	t.Run("cancellation-at-commit-propagation", func(t *testing.T) {
+		owner := blobOwner(t)
+		command, key := blobCommand(t, 1, false), blobKey(t, 1)
+		err := owner.WithinContentOperation(t.Context(), func(_ context.Context, session contentstore.Session) error {
+			ctx := &delayedAfterContext{
+				Context:  t.Context(),
+				deadline: time.Now().Add(20 * time.Millisecond),
+				done:     make(chan struct{}),
+				started:  make(chan struct{}),
+				release:  make(chan struct{}),
+			}
+			contentSession := session.(*contentSession)
+			contentSession.beforeCommit = func() error {
+				timer := time.NewTimer(time.Until(ctx.deadline))
+				defer timer.Stop()
+				select {
+				case <-timer.C:
+					ctx.expire()
+				case <-t.Context().Done():
+					return t.Context().Err()
+				}
+				select {
+				case <-ctx.started:
+					return nil
+				case <-time.After(time.Second):
+					t.Fatal("caller cancellation did not reach the commit seam")
+					return contentstore.ErrUnavailable
+				}
+			}
+			return contentSession.WithinTransaction(ctx, func(repository contentstore.BlobRepository) error {
+				_, err := repository.RecordImport(ctx, key, command)
+				return err
+			})
+		})
+		if !errors.Is(err, context.DeadlineExceeded) || errors.Is(err, contentstore.ErrCommitUncertain) {
+			t.Fatalf("cancellation propagation committed or became uncertain: %v", err)
+		}
+		assertBlobCounts(t, owner, 0, 0, 0, 0)
+		if result, err := blobRecord(t, owner, key, command); err != nil || result != importResult(command) {
+			t.Fatalf("exact retry: %+v %v", result, err)
+		}
+		assertBlobCounts(t, owner, 1, 1, 1, 1)
+	})
 }

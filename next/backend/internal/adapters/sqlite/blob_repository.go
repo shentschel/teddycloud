@@ -59,7 +59,7 @@ func (s *contentSession) WithinTransaction(ctx context.Context, operation func(c
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	err := s.transact(txContext, func(repository contentstore.BlobRepository) error {
+	err := s.transact(txContext, ctx, func(repository contentstore.BlobRepository) error {
 		callbackErr := operation(repository)
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -75,7 +75,7 @@ func (s *contentSession) WithinTransaction(ctx context.Context, operation func(c
 	return contentBoundaryError(txContext, err)
 }
 
-func (s *contentSession) transact(ctx context.Context, operation func(contentstore.BlobRepository) error) (result error) {
+func (s *contentSession) transact(ctx, callerContext context.Context, operation func(contentstore.BlobRepository) error) (result error) {
 	// Invalidate before opening a SQL transaction. Any callback may mutate
 	// references; harmless read-only invalidation avoids filesystem I/O in SQL.
 	if err := s.owner.invalidateContentInventory(); err != nil {
@@ -124,8 +124,15 @@ func (s *contentSession) transact(ctx context.Context, operation func(contentsto
 			return contentBoundaryError(ctx, err)
 		}
 	}
-	// The test seam and real work immediately before commit may consume the
-	// remaining deadline. Never acknowledge or commit after cancellation.
+	// Cancellation closes a parent's Done channel before it propagates to child
+	// contexts. Check both sources directly so that propagation cannot race the
+	// final transaction-context check and commit.
+	if err := callerContext.Err(); err != nil {
+		return err
+	}
+	if err := s.ctx.Err(); err != nil {
+		return err
+	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
