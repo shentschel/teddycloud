@@ -25,18 +25,18 @@ import (
 	"github.com/shentschel/teddycloud/next/backend/internal/domain/identity"
 )
 
-// Only this harness owns transactions and persists A1-produced snapshots. This
-// is fixture authoring, not the A2b.2 writer: no CAS, concurrency or fault-atomic
-// acceptance is claimed. Every command/result/primitive and usage originates in
-// the real A1 Service, which validates repository readback on subsequent calls.
+// Only this harness owns transaction lifecycle. It drives the private A2b.2
+// scope and writer with A1-produced snapshots; production ownership remains
+// absent. Every command/result/primitive and usage originates in the real A1
+// Service, which validates repository readback on subsequent calls.
 type assignmentHarness struct {
-	t         *testing.T
 	db        *sql.DB
 	snapshots map[identity.TagID]app.Snapshot
+	scope     assignmentTransaction
 }
 type assignmentHarnessPort struct {
-	*assignmentRepository
-	harness *assignmentHarness
+	app.Port
+	pending map[identity.TagID]app.Snapshot
 }
 
 func (h *assignmentHarness) WithinAssignmentTransaction(ctx context.Context, operation func(app.Port) error) error {
@@ -45,24 +45,27 @@ func (h *assignmentHarness) WithinAssignmentTransaction(ctx context.Context, ope
 		return err
 	}
 	defer tx.Rollback()
-	p := &assignmentHarnessPort{assignmentRepository: &assignmentRepository{transaction: tx}, harness: h}
-	if err = operation(p); err != nil {
+	pending := make(map[identity.TagID]app.Snapshot)
+	actor := app.AuthenticatedActor{Reference: "fixture operator", Read: true, Decide: true, Review: true}
+	if err = h.scope.run(ctx, tx, actor, func(port app.Port) error {
+		return operation(&assignmentHarnessPort{Port: port, pending: pending})
+	}); err != nil {
 		return err
 	}
-	return tx.Commit()
-}
-func (p *assignmentHarnessPort) Authenticate(ctx context.Context) (app.AuthenticatedActor, error) {
-	return app.AuthenticatedActor{Reference: "fixture operator", Read: true, Decide: true, Review: true}, ctx.Err()
+	if err = tx.Commit(); err != nil {
+		return err
+	}
+	for tag, snapshot := range pending {
+		h.snapshots[tag] = snapshot
+	}
+	return nil
 }
 func (p *assignmentHarnessPort) Commit(ctx context.Context, expected uint64, snapshot app.Snapshot) error {
-	t := p.harness.t
-	t.Helper()
-	if uint64(len(snapshot.Events)) != expected+1 {
-		t.Fatal("invalid A1 fixture successor")
+	if err := p.Port.Commit(ctx, expected, snapshot); err != nil {
+		return err
 	}
-	assignmentSeedSnapshot(t, p.transaction, snapshot)
-	p.harness.snapshots[snapshot.TagID] = snapshot
-	return ctx.Err()
+	p.pending[snapshot.TagID] = assignmentCloneSnapshot(snapshot)
+	return nil
 }
 
 func assignmentMarshal(t *testing.T, value any) []byte {
@@ -97,6 +100,9 @@ func assignmentEncodeFixture(t *testing.T, event app.Event) ([]byte, []byte, []b
 }
 func assignmentSeedSnapshot(t *testing.T, tx *sql.Tx, snapshot app.Snapshot) {
 	t.Helper()
+	// Test-only historical reconstruction for NoCatalogRetarget. The accepted
+	// event predates the later catalog revision, so this is deliberately not a
+	// live Commit/backfill path and remains unreachable from production.
 	id, tag := snapshot.ID.String(), snapshot.TagID.String()
 	exec := func(query string, args ...any) {
 		t.Helper()
@@ -204,7 +210,7 @@ func newAssignmentRepositoryFixture(t *testing.T) *assignmentRepositoryFixture {
 	for _, n := range []int{1, 2, 3} {
 		catalogSchemaExec(t, db.db, `INSERT INTO tc_tags VALUES (?,?,1)`, catalogSchemaID("tag", n), bytes.Repeat([]byte{byte(n)}, 8))
 	}
-	f.harness = &assignmentHarness{t: t, db: db.db, snapshots: map[identity.TagID]app.Snapshot{}}
+	f.harness = &assignmentHarness{db: db.db, snapshots: map[identity.TagID]app.Snapshot{}}
 	f.service = app.New(f.harness)
 	return f
 }
@@ -702,9 +708,9 @@ func TestAssignmentRepositoryInert(t *testing.T) {
 			t.Fatal("repository owns authority/write", name)
 		}
 	}
-	// Review real production sources, not just this type's method set. An inert
-	// component must have no constructor, composite literal, new() or runtime
-	// reference outside its own file. Tests alone may construct it.
+	// Review real production sources, not just this type's method set. Only the
+	// accepted private transaction scope may construct the repository; no runtime
+	// owner, constructor or unrelated production reference may reach it.
 	files := token.NewFileSet()
 	err = filepath.WalkDir(filepath.Join("..", "..", ".."), func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
@@ -717,32 +723,38 @@ func TestAssignmentRepositoryInert(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		own := filepath.Base(path) == "assignment_repository.go"
+		base := filepath.Base(path)
+		own := base == "assignment_repository.go"
+		scope := base == "assignment_transaction.go"
 		ast.Inspect(source, func(node ast.Node) bool {
-			if id, ok := node.(*ast.Ident); ok && id.Name == "assignmentRepository" && !own {
+			if id, ok := node.(*ast.Ident); ok && id.Name == "assignmentRepository" && !own && !scope {
 				t.Errorf("production reachability: %s", files.Position(id.Pos()))
 			}
-			if !own {
+			if !own && !scope {
 				return true
 			}
 			if declaration, ok := node.(*ast.FuncDecl); ok && declaration.Recv == nil && declaration.Name.IsExported() {
 				t.Errorf("exported constructor/function: %s", declaration.Name.Name)
 			}
 			if literal, ok := node.(*ast.CompositeLit); ok {
-				if name, ok := literal.Type.(*ast.Ident); ok && name.Name == "assignmentRepository" {
+				if name, ok := literal.Type.(*ast.Ident); ok && name.Name == "assignmentRepository" && !scope {
 					t.Error("production repository instantiation")
 				}
 			}
 			if call, ok := node.(*ast.CallExpr); ok {
 				if name, ok := call.Fun.(*ast.Ident); ok && name.Name == "new" && len(call.Args) == 1 {
-					if name, ok := call.Args[0].(*ast.Ident); ok && name.Name == "assignmentRepository" {
+					if name, ok := call.Args[0].(*ast.Ident); ok && name.Name == "assignmentRepository" && !scope {
 						t.Error("production new repository")
 					}
 				}
 				if method, ok := call.Fun.(*ast.SelectorExpr); ok {
 					switch method.Sel.Name {
-					case "Begin", "BeginTx", "Commit", "Rollback", "Exec", "ExecContext", "Save", "WithinCatalogTransaction", "WithinTagTransaction", "WithinAssignmentTransaction":
+					case "Begin", "BeginTx", "Rollback", "Save", "WithinCatalogTransaction", "WithinTagTransaction", "WithinAssignmentTransaction":
 						t.Errorf("repository owns transaction/write: %s", method.Sel.Name)
+					case "Commit", "Exec", "ExecContext":
+						if scope {
+							t.Errorf("transaction scope owns lifecycle/write: %s", method.Sel.Name)
+						}
 					}
 				}
 			}

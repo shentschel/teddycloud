@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"reflect"
 	"time"
 
 	app "github.com/shentschel/teddycloud/next/backend/internal/application/assignment"
@@ -16,14 +17,16 @@ import (
 	c "github.com/shentschel/teddycloud/next/backend/internal/domain/catalog"
 	"github.com/shentschel/teddycloud/next/backend/internal/domain/evidence"
 	"github.com/shentschel/teddycloud/next/backend/internal/domain/identity"
+	sqliteDriver "modernc.org/sqlite"
+	sqlite3 "modernc.org/sqlite/lib"
 )
 
-// assignmentRepository is an inert, read-only component. Only test harnesses
-// instantiate it. The caller supplies and owns the transaction and its lifetime;
-// this type neither implements Port/Transactor nor grants write authority.
-// There is no runtime constructor or schema activation in this checkpoint.
-// Calls must be serialized by the transaction's owner. No dependency or decoded
-// state is cached across reads, including reads after writes by that owner.
+// assignmentRepository is an inert transaction-bound component. Only the private
+// callback scope and test harnesses instantiate it. The caller supplies and owns
+// the transaction and its lifetime; this type implements neither Port nor
+// Transactor and exposes no writer. There is no runtime constructor or schema
+// activation in this checkpoint. Calls must be serialized by the scope. No
+// dependency or decoded state is cached across reads or guarded appends.
 type assignmentRepository struct{ transaction *sql.Tx }
 
 func assignmentReadError(ctx context.Context, err error) error {
@@ -149,6 +152,40 @@ type assignmentProjection struct {
 	OriginalState           d.OriginalTargetState
 	Content, Version        string
 	Transitions             []assignmentTransition
+}
+
+func assignmentEncodeEvent(event app.Event) (command, result, raw []byte, err error) {
+	in := event.Command
+	input := assignmentInput{Format: "TCAS/1", Command: in.CommandID.String(), Assignment: in.AssignmentID.String(), Tag: in.TagID.String(), Kind: in.Kind, Expected: in.ExpectedRevision, TagRevision: in.ExpectedTagRevision, CatalogRevision: in.ExpectedCatalogRevision, Policy: in.PolicyRevision, Actor: event.Actor, Reason: in.Reason, Content: in.Target.ContentID().String(), Version: in.Target.VersionID().String(), Review: in.ReviewID.String(), Classification: in.Classification, Support: []string{}}
+	if !in.EffectiveAt.IsZero() {
+		input.Effective = in.EffectiveAt.Format(time.RFC3339Nano)
+	}
+	if in.Evidence != (d.Evidence{}) {
+		input.Evidence, err = in.Evidence.CanonicalBytes()
+		if err != nil {
+			return nil, nil, nil, app.ErrUnavailable
+		}
+	}
+	for _, id := range in.Support {
+		input.Support = append(input.Support, id.String())
+	}
+	command, err = json.Marshal(input)
+	if err != nil {
+		return nil, nil, nil, app.ErrUnavailable
+	}
+	result, err = json.Marshal(assignmentResult{event.Result.CommandID.String(), event.Result.AssignmentID.String(), event.Result.TagID.String(), event.Result.Revision, event.Result.PreviousCommand.String(), command})
+	if err != nil {
+		return nil, nil, nil, app.ErrUnavailable
+	}
+	raw, err = json.Marshal(assignmentEvent{command, result, event.RecordedAt.Format(time.RFC3339Nano), event.Primitive})
+	if err != nil {
+		return nil, nil, nil, app.ErrUnavailable
+	}
+	decoded, err := assignmentDecodeEvent(raw)
+	if err != nil || !reflect.DeepEqual(decoded, event) {
+		return nil, nil, nil, app.ErrUnavailable
+	}
+	return command, result, raw, nil
 }
 
 func assignmentJSON(raw []byte, v any) error {
@@ -645,6 +682,208 @@ func assignmentIndexBytes(snapshot app.Snapshot) uint64 {
 		}
 	}
 	return n
+}
+
+func assignmentCloneSnapshot(snapshot app.Snapshot) app.Snapshot {
+	snapshot.Events = append([]app.Event(nil), snapshot.Events...)
+	for i := range snapshot.Events {
+		snapshot.Events[i].Command.Support = append([]d.EvidenceID(nil), snapshot.Events[i].Command.Support...)
+		snapshot.Events[i].Primitive = append([]byte(nil), snapshot.Events[i].Primitive...)
+	}
+	return snapshot
+}
+
+func assignmentWriteError(ctx context.Context, err error) error {
+	if err == nil {
+		return nil
+	}
+	if ctx == nil {
+		return app.ErrInvalidInput
+	}
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	var driverError *sqliteDriver.Error
+	if errors.As(err, &driverError) {
+		if driverError.Code() == sqlite3.SQLITE_BUSY_SNAPSHOT {
+			return app.ErrRevisionConflict
+		}
+		if code := driverError.Code() & 0xff; code == sqlite3.SQLITE_BUSY || code == sqlite3.SQLITE_LOCKED {
+			return app.ErrContention
+		}
+	}
+	return app.ErrUnavailable
+}
+
+// commit is deliberately private and transaction-bound. Its caller owns the
+// supplied transaction and must roll it back on every returned error. The full
+// successor is replayed before the single new event and all derived material are
+// installed; no partial state is made visible before the caller commits.
+func (r *assignmentRepository) commit(ctx context.Context, expected uint64, snapshot app.Snapshot) error {
+	if err := r.check(ctx); err != nil {
+		return err
+	}
+	if expected >= d.MaxEvidenceEvents || uint64(len(snapshot.Events)) != expected+1 || snapshot.ID.IsZero() || snapshot.TagID.IsZero() {
+		return app.ErrInvalidInput
+	}
+	replay, err := newAssignmentReplay(snapshot.ID, snapshot.TagID)
+	if err != nil {
+		return app.ErrUnavailable
+	}
+	var prior app.Snapshot
+	var command, result, raw []byte
+	var delta d.EvidenceDelta
+	for i, event := range snapshot.Events {
+		command, result, raw, err = assignmentEncodeEvent(event)
+		if err != nil {
+			return err
+		}
+		delta, err = replay.append(event, raw)
+		if err != nil {
+			return app.ErrUnavailable
+		}
+		if uint64(i+1) == expected {
+			prior = assignmentCloneSnapshot(replay.snapshot)
+		}
+	}
+	if !reflect.DeepEqual(replay.snapshot, snapshot) {
+		return app.ErrUnavailable
+	}
+
+	if expected == 0 {
+		var conflicts uint64
+		err = r.transaction.QueryRowContext(ctx, `SELECT count(*) FROM tc_assignments WHERE assignment_id=? OR tag_id=?`, snapshot.ID.String(), snapshot.TagID.String()).Scan(&conflicts)
+		if err != nil {
+			return assignmentWriteError(ctx, err)
+		}
+		if conflicts != 0 {
+			return app.ErrCommandConflict
+		}
+	} else {
+		current, found, loadErr := r.load(ctx, snapshot.TagID)
+		if loadErr != nil {
+			return loadErr
+		}
+		if !found || !reflect.DeepEqual(current, prior) {
+			return app.ErrRevisionConflict
+		}
+	}
+
+	event := snapshot.Events[expected]
+	in := event.Command
+	var commandConflicts uint64
+	err = r.transaction.QueryRowContext(ctx, `SELECT
+ (SELECT count(*) FROM tc_assignment_commands WHERE command_id=?1)+
+ (SELECT count(*) FROM tc_assignment_events WHERE command_id=?1)`, in.CommandID.String()).Scan(&commandConflicts)
+	if err != nil {
+		return assignmentWriteError(ctx, err)
+	}
+	if commandConflicts != 0 {
+		return app.ErrCommandConflict
+	}
+	var tagRevision uint64
+	err = r.transaction.QueryRowContext(ctx, `SELECT revision FROM tc_tags WHERE tag_id=?`, snapshot.TagID.String()).Scan(&tagRevision)
+	if errors.Is(err, sql.ErrNoRows) || err == nil && tagRevision != in.ExpectedTagRevision {
+		return app.ErrDependencyConflict
+	}
+	if err != nil {
+		return assignmentWriteError(ctx, err)
+	}
+	if !in.Target.ContentID().IsZero() {
+		var catalogRevision uint64
+		err = r.transaction.QueryRowContext(ctx, `SELECT m.aggregate_revision FROM tc_catalog_managed m JOIN tc_content_versions v ON v.content_id=m.content_id WHERE m.content_id=? AND v.version_id=?`, in.Target.ContentID().String(), in.Target.VersionID().String()).Scan(&catalogRevision)
+		if errors.Is(err, sql.ErrNoRows) || err == nil && catalogRevision != in.ExpectedCatalogRevision {
+			return app.ErrDependencyConflict
+		}
+		if err != nil {
+			return assignmentWriteError(ctx, err)
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	exec := func(query string, args ...any) error {
+		_, execErr := r.transaction.ExecContext(ctx, query, args...)
+		return assignmentWriteError(ctx, execErr)
+	}
+	if expected == 0 {
+		if err := exec(`INSERT INTO tc_assignments VALUES (?,?)`, snapshot.ID.String(), snapshot.TagID.String()); err != nil {
+			return err
+		}
+	}
+	nullable := func(text string) any {
+		if text == "" {
+			return nil
+		}
+		return text
+	}
+	eventHash := sha256.Sum256(raw)
+	if err := exec(`INSERT INTO tc_assignment_events VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,?,?,?)`, snapshot.ID.String(), snapshot.TagID.String(), event.Result.Revision, in.CommandID.String(), in.Kind, in.EffectiveAt.Unix(), in.EffectiveAt.Nanosecond(), event.RecordedAt.Unix(), event.RecordedAt.Nanosecond(), nullable(in.Target.ContentID().String()), nullable(in.Target.VersionID().String()), nullable(in.ReviewID.String()), raw, eventHash[:], delta.Observations, delta.SupportLinks, delta.RetainedBytes); err != nil {
+		return err
+	}
+	support := in.Support
+	if in.Evidence != (d.Evidence{}) {
+		evidence, evidenceErr := in.Evidence.CanonicalBytes()
+		if evidenceErr != nil {
+			return app.ErrUnavailable
+		}
+		evidenceHash := sha256.Sum256(evidence)
+		if err := exec(`INSERT INTO tc_assignment_evidence VALUES (?,?,?,?,1,?,?,?,?)`, in.Evidence.ID().String(), snapshot.ID.String(), snapshot.TagID.String(), event.Result.Revision, evidence, evidenceHash[:], nullable(in.Target.ContentID().String()), nullable(in.Target.VersionID().String())); err != nil {
+			return err
+		}
+		support = []d.EvidenceID{in.Evidence.ID()}
+	}
+	for _, evidence := range support {
+		if err := exec(`INSERT INTO tc_assignment_support VALUES (?,?,?,?)`, snapshot.ID.String(), snapshot.TagID.String(), event.Result.Revision, evidence.String()); err != nil {
+			return err
+		}
+	}
+	commandHash, resultHash := sha256.Sum256(command), sha256.Sum256(result)
+	if err := exec(`INSERT INTO tc_assignment_commands VALUES (?,?,?,?,1,?,?,?,?)`, in.CommandID.String(), snapshot.ID.String(), snapshot.TagID.String(), event.Result.Revision, command, result, commandHash[:], resultHash[:]); err != nil {
+		return err
+	}
+	usage := snapshot.Usage
+	if expected == 0 {
+		if err := exec(`INSERT INTO tc_assignment_heads VALUES (?,?,?,?,?,?,?,?)`, snapshot.ID.String(), snapshot.TagID.String(), event.Result.Revision, replay.projection.Retired, usage.Events(), usage.Observations(), usage.SupportLinks(), usage.RetainedBytes()); err != nil {
+			return err
+		}
+	} else {
+		changed, updateErr := r.transaction.ExecContext(ctx, `UPDATE tc_assignment_heads SET head_revision=?,retired=?,event_count=?,observation_count=?,support_count=?,retained_bytes=? WHERE assignment_id=? AND tag_id=? AND head_revision=?`, event.Result.Revision, replay.projection.Retired, usage.Events(), usage.Observations(), usage.SupportLinks(), usage.RetainedBytes(), snapshot.ID.String(), snapshot.TagID.String(), expected)
+		if updateErr != nil {
+			return assignmentWriteError(ctx, updateErr)
+		}
+		rows, rowsErr := changed.RowsAffected()
+		if rowsErr != nil {
+			return assignmentWriteError(ctx, rowsErr)
+		}
+		if rows != 1 {
+			return app.ErrRevisionConflict
+		}
+	}
+	projection, err := json.Marshal(replay.projection)
+	if err != nil {
+		return app.ErrUnavailable
+	}
+	projectionHash := sha256.Sum256(projection)
+	if expected == 0 {
+		if err := exec(`INSERT INTO tc_assignment_projections VALUES (?,?,?,1,?,?)`, snapshot.ID.String(), snapshot.TagID.String(), event.Result.Revision, projection, projectionHash[:]); err != nil {
+			return err
+		}
+	} else {
+		changed, updateErr := r.transaction.ExecContext(ctx, `UPDATE tc_assignment_projections SET head_revision=?,canonical_projection=?,projection_sha256=? WHERE assignment_id=? AND tag_id=? AND head_revision=?`, event.Result.Revision, projection, projectionHash[:], snapshot.ID.String(), snapshot.TagID.String(), expected)
+		if updateErr != nil {
+			return assignmentWriteError(ctx, updateErr)
+		}
+		rows, rowsErr := changed.RowsAffected()
+		if rowsErr != nil {
+			return assignmentWriteError(ctx, rowsErr)
+		}
+		if rows != 1 {
+			return app.ErrRevisionConflict
+		}
+	}
+	return ctx.Err()
 }
 
 func (r *assignmentRepository) checkEvidence(ctx context.Context, event app.Event) error {
