@@ -1,9 +1,11 @@
 # PI-09 execution plan
 
-Status: **R, A1 and staged A2a complete**; A2b/B/T and the milestone
-**Assignments have one authoritative service** remain pending. No independent
-review, remote CI, hardware, deployment or production-migration acceptance is
-implied. Request `pi09-r-assignment-semantics-contract-20261031`; baseline
+Status: **B1 locally complete and published** at
+`28b97bf41587a3e0a1158d7ec389ae60eb076831`, with exact-head CI green per the
+supplied baseline. B2 is replanned. B2 delivery, independent T and the milestone
+**Assignments have one authoritative service** remain pending. This replan has
+no remote CI, hardware, deployment or production-migration acceptance.
+Original R request `pi09-r-assignment-semantics-contract-20261031`; baseline
 `90301bfe2b5badd684229c3d5d140fa975842d91`.
 
 ## Scope and decisions
@@ -32,7 +34,7 @@ No push/publication or delivery implementation is included in R.
 | Pure URI admission | D4 closed HTTPS metadata profile, no I/O/authority; B1. |
 | History, replay and concurrency | D3/D5 append-only events, derived intervals, canonical replay, CAS and ownership; A1/A2/B2. |
 | Compatibility and migration | D6, inherited PI-06/07/08 boundaries and D7 deferrals; B2. |
-| Ordered bounded delivery | A1 -> A2a -> A2b.1 -> A2b.2 -> A2b.3 -> B1 -> B2 -> independent T below. |
+| Ordered bounded delivery | A1 -> A2a -> A2b.1 -> A2b.2 -> A2b.3 -> B1 -> B2.1 -> B2.2 -> B2.3 -> B2.4 -> independent T below. |
 | Budget and exact 5% reserve | Integrated independent-window estimates in budget; no parent double count. |
 | Honest status | README links only R completion; delivery tests below are specifications, not results. |
 
@@ -344,28 +346,150 @@ use A2 recovery if binary downgrade is necessary.
 
 ### B2: complete history queries, uncertainty and recovery
 
-Depends on accepted B1. Own new
-`internal/adapters/sqlite/{assignment_history,assignment_recovery,assignment_restart,assignment_failure,assignment_recovery_process}_test.go`
-and `internal/application/assignment/{history,recovery}_test.go`;
-extend A1's `queries.go`, A2's `assignment_repository.go` and
-`assignment_transaction.go` only for history/recovery corrections.
-No rewrite of accepted PI-05/07 recovery machinery or changed timeouts.
+Request `pi09-b2-bounded-replan-20261106` partitions B2 into four sequential
+acceptance checkpoints. The prerequisite is accepted B1 at
+`28b97bf41587a3e0a1158d7ec389ae60eb076831`. Each next checkpoint depends on its
+predecessor's accepted exact commit. History must establish trustworthy readback
+before command outcomes can be resolved. In-process outcome and restart checks
+provide the oracle for fenced restore. Process termination uses those accepted
+paths and fixtures to prove the precommit and postcommit boundaries end to end.
+Pagination and integrity, lookup and replay, and restore and its fences each
+stay together because separating either half would leave its public behavior
+unverified. B2 remains the delivery owner for all four checkpoints.
 
-Required tests: `TestAssignmentHistoryPagination`, `TestAssignmentTombstoneRetention`,
-`TestAssignmentLostResponse`, `TestAssignmentCommitUncertainty`,
-`TestAssignmentRestoreFence`, `TestAssignmentHelperProcessRecovery`,
-`TestAssignmentCorruptLedger`, `TestAssignmentPreSchemaRestore`.
-Prove real helper termination before commit and lost response after commit, exact
-readback/replay after restart, revoked sessions, cancellation and bounded contention,
-rollback/backup failures, stale cursors after dependency writes/restart/restore,
-head/projection mismatch, missing evidence and restrictive references. Distinguish
-not-found/no aggregate/unassigned/retired/corrupt/schema-unavailable. Query history
-at retained revisions; retain retired references and original receipts. Pre-schema
-restore disables commands without read-triggered upgrades. No replay-induced
-catalog, media or classification mutation.
+This replan writes exactly `docs/architecture/pi/pi-09-plan.md` and
+`docs/architecture/pi/pi-09-budget.md`. The following manifests are exhaustive
+for future delivery dispatches and relative to `next/backend/`. Test files are
+new. Existing source paths may change only for their stated B2 corrections.
+No implicit docs, workflow, schema, lifecycle-owner or other cross-owner edits.
+If a required correction exceeds a manifest, stop and replan at that boundary.
 
-Rollback: A2 database recovery, retained newer DB for reconciliation. Software
-crash evidence is not physical power-loss or production migration acceptance.
+#### PI09-B2.1: retained history and integrity
+
+Depends on B1. Exact write manifest:
+
+- `internal/application/assignment/queries.go`
+- `internal/application/assignment/history_test.go`
+- `internal/adapters/sqlite/assignment_repository.go` (history and reconstruction)
+- `internal/adapters/sqlite/assignment_history_test.go`
+
+Verify `GetEffectiveAssignment`, `GetAssignment` and `ListAssignmentHistory`
+through the service and real SQLite. Prove retained-revision and as-known
+answers, revision-ordered bounded pages and full aggregate validation before
+pagination. Enforce the D5 page, encoded response and cursor limits together.
+Check binding to query/time, knowledge/head revision, dependency snapshot and
+owner generation. Reject stale cursors after relevant dependency writes,
+restart and restore through the existing A2 lifecycle. Check continuation and
+explicit rejection of invalid page sizes and future knowledge revisions.
+
+Prove retention of tombstones, historical targets, restrictive references and
+original receipts. Distinguish Tag not found, known Tag with no aggregate,
+unassigned, retired, corrupt/unavailable and schema unavailable. Preserve
+typed D5 outcomes for unmanaged or oversized state, stale cursors, limits,
+busy and canceled/deadline. A head/projection mismatch or missing persisted
+evidence, even outside the requested page, fails closed. Preserve exact targets
+and revision-labelled catalog annotations without fallback or media verification.
+
+#### PI09-B2.2: command outcome, retained replay and restart
+
+Depends on PI09-B2.1. Exact write manifest:
+
+- `internal/adapters/sqlite/assignment_transaction.go` (command outcome and scope)
+- `internal/adapters/sqlite/assignment_repository.go` (command lookup/readback)
+- `internal/adapters/sqlite/assignment_failure_test.go`
+- `internal/adapters/sqlite/assignment_restart_test.go`
+- `internal/application/assignment/recovery_test.go`
+
+Use the real owner/SQLite path with bounded in-process faults. Prove precommit
+rejection or cancellation has no partial ledger, projection, command or usage
+effect. Exercise contention, caller deadlines, rollback failure and commit or
+cleanup uncertainty. Distinguish confirmed failure from an indeterminate
+outcome. Retain the owner fence while commit is still possible and require
+authorized command lookup to resolve uncertainty. Verify callback/close
+revocation and fail-closed behavior for corrupt command evidence.
+
+Prove a lost response after commit is resolved by authorized
+`LookupAssignmentCommand` and exact same-ID replay, including after a real
+close and reopen. Cover absent, identity conflict and current authorization,
+original URI-absent and B1 receipts, and exact retained readback after restart.
+Compare assignment, Tag, catalog, media and classification state before and
+after replay. Replay may neither add assignment state nor mutate dependencies.
+Keep the original command ID and result. This checkpoint verifies in-process
+outcomes and restart. Process death and the full restore matrix follow.
+
+#### PI09-B2.3: fenced restore and backup failures
+
+Depends on PI09-B2.2. Exact write manifest:
+
+- `internal/adapters/sqlite/assignment_transaction.go` (assignment-side restore fence)
+- `internal/adapters/sqlite/assignment_recovery_test.go`
+
+Use the existing PI-05/07 verified backup and closed, fenced new-path restore.
+Test backup and restore failures, including integrity/FK/ledger rejection,
+and prove a failure never exposes a partial or unverified candidate to reads or
+writes. Prove old sessions and cursors are revoked on restore and the current-schema
+restore retains exact lookup/replay, history, references and receipts. Exercise
+the exact pre-assignment v9 restore with the original newer DB and external media
+preserved. Commands fail closed and reads create no assignment tables or schema
+upgrade. Keep supported v9 catalog behavior and report the newer history omitted
+from the restored snapshot. Restore and revocation are one acceptance boundary.
+
+#### PI09-B2.4: helper-process recovery and B2 composition
+
+Depends on PI09-B2.3. Exact write manifest:
+
+- `internal/adapters/sqlite/assignment_recovery_process_test.go`
+
+Use a real helper process on the normal owner/service path with bounded
+synchronization and verified termination. Stop it before commit and prove after
+reopen that no partial state or command result exists. Separately terminate it
+after commit before response delivery, then reopen and prove exact retained
+history, result and authorized same-ID replay without mutation. Verify process
+exit and the reached commit boundary in both scenarios. In-process faults and
+normal restart are regressions here and cannot substitute for process death.
+Rerun the entire B2 evidence set and the common gates at the composed head.
+If the process test exposes a runtime gap, return it to the owning checkpoint
+for a reviewed correction before accepting B2.
+
+#### B2 required-test ownership and common gates
+
+| Original required test | Acceptance owner | Test file |
+| --- | --- | --- |
+| `TestAssignmentHistoryPagination` | PI09-B2.1 | `assignment_history_test.go`; application coverage in `history_test.go`. |
+| `TestAssignmentTombstoneRetention` | PI09-B2.1 | `assignment_history_test.go` |
+| `TestAssignmentCorruptLedger` | PI09-B2.1 | `assignment_history_test.go` |
+| `TestAssignmentLostResponse` | PI09-B2.2 | `assignment_failure_test.go`; restart/readback in `assignment_restart_test.go`. |
+| `TestAssignmentCommitUncertainty` | PI09-B2.2 | `assignment_failure_test.go`; typed application outcomes in `recovery_test.go`. |
+| `TestAssignmentRestoreFence` | PI09-B2.3 | `assignment_recovery_test.go` |
+| `TestAssignmentPreSchemaRestore` | PI09-B2.3 | `assignment_recovery_test.go` |
+| `TestAssignmentHelperProcessRecovery` | PI09-B2.4 | `assignment_recovery_process_test.go` |
+
+Every slice runs focused uncached, repeated and race assignment checks and the
+common A/B gates below. Include accepted assignment tests to date, A2
+schema/owner/restart/restore and restrictive-reference regressions, B1 URI and
+old-receipt compatibility, and existing Tag, catalog/accounting and media
+regressions. Preserve accepted PI-08 tier exceptions and mandatory one-shots.
+Keep the 10-second operation and 5-second transaction limits, including
+contention and earlier caller deadlines. Preserve existing test deadlines,
+assertions, schema and PI-05/07 recovery machinery. Run with the pinned toolchain
+and qualified storage fixture. Record actual selected tests and evidence of
+execution.
+
+Each checkpoint hands off the dependency SHA, exact commit and changed files,
+scenario evidence, commands/results/durations, runner limits, separate local
+and exact-head CI status, both budget deltas and remaining owner work. Final
+software B2 acceptance requires the composed evidence, parent review and
+required exact-head CI. Earlier checkpoints claim only their verified behavior.
+T remains independently admitted after B2 acceptance.
+
+Rollback at every delivery checkpoint uses the A2 recovery boundary after any
+assignment-schema write. Fence commands, keep the newer DB and media for
+reconciliation, and use a verified backup and closed, fenced new-path
+exact-schema restore. Report lost newer history. No source-only downgrade
+against the active assignment schema, down migration, dual writer or destructive
+cleanup. Process-crash evidence covers software recovery. This replan authorizes
+no implementation, deployment, physical power-loss or production-migration
+acceptance.
 
 ### T: independent classification consolidation and service audit
 
