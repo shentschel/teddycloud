@@ -513,6 +513,30 @@ func TestAssignmentCorruptReadback(t *testing.T) {
 		_, _, err = s.LookupAssignmentCommand(context.Background(), in)
 		wantError(t, err, ErrUnavailable)
 	}
+	t.Run("noncanonical URI in retained history", func(t *testing.T) {
+		s, m := fixture(t)
+		in := command(t, 1, Assign, 0)
+		in.URI = OptionalURI{Present: true, Value: "HTTPS://Catalog.Example:443/a%62"}
+		execute(t, s, in)
+		snapshot := m.snapshots[in.TagID]
+		snapshot.Events[0].Command.URI = in.URI
+		m.snapshots[in.TagID] = snapshot
+		_, err := s.GetEffectiveAssignment(t.Context(), EffectiveQuery{TagID: in.TagID, At: time.Unix(100, 0)})
+		wantError(t, err, ErrUnavailable)
+		_, _, err = s.LookupAssignmentCommand(t.Context(), in)
+		wantError(t, err, ErrUnavailable)
+	})
+	t.Run("noncanonical URI in command index", func(t *testing.T) {
+		s, m := fixture(t)
+		in := command(t, 1, Assign, 0)
+		in.URI = OptionalURI{Present: true, Value: "HTTPS://Catalog.Example:443/a%62"}
+		execute(t, s, in)
+		indexed := m.commands[in.CommandID]
+		indexed.Command.URI = in.URI
+		m.commands[in.CommandID] = indexed
+		_, _, err := s.LookupAssignmentCommand(t.Context(), in)
+		wantError(t, err, ErrUnavailable)
+	})
 	// The snapshot/command index must agree; an index hit alone is not a result.
 	s, m := fixture(t)
 	in := command(t, 1, Assign, 0)

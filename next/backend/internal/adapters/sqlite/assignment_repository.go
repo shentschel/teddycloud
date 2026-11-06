@@ -122,10 +122,7 @@ type assignmentInput struct {
 	Evidence                                       []byte
 	Classification                                 d.PhysicalClassification
 	Support                                        []string
-	URI                                            struct {
-		Present          bool
-		Profile, Locator string
-	}
+	URI                                            d.SourceURIEncoding
 }
 type assignmentResult struct {
 	Command, Assignment, Tag string
@@ -156,7 +153,7 @@ type assignmentProjection struct {
 
 func assignmentEncodeEvent(event app.Event) (command, result, raw []byte, err error) {
 	in := event.Command
-	input := assignmentInput{Format: "TCAS/1", Command: in.CommandID.String(), Assignment: in.AssignmentID.String(), Tag: in.TagID.String(), Kind: in.Kind, Expected: in.ExpectedRevision, TagRevision: in.ExpectedTagRevision, CatalogRevision: in.ExpectedCatalogRevision, Policy: in.PolicyRevision, Actor: event.Actor, Reason: in.Reason, Content: in.Target.ContentID().String(), Version: in.Target.VersionID().String(), Review: in.ReviewID.String(), Classification: in.Classification, Support: []string{}}
+	input := assignmentInput{Format: "TCAS/1", Command: in.CommandID.String(), Assignment: in.AssignmentID.String(), Tag: in.TagID.String(), Kind: in.Kind, Expected: in.ExpectedRevision, TagRevision: in.ExpectedTagRevision, CatalogRevision: in.ExpectedCatalogRevision, Policy: in.PolicyRevision, Actor: event.Actor, Reason: in.Reason, Content: in.Target.ContentID().String(), Version: in.Target.VersionID().String(), Review: in.ReviewID.String(), Classification: in.Classification, Support: []string{}, URI: in.URI.Encoding()}
 	if !in.EffectiveAt.IsZero() {
 		input.Effective = in.EffectiveAt.Format(time.RFC3339Nano)
 	}
@@ -269,7 +266,7 @@ func assignmentDecodeEvent(raw []byte) (app.Event, error) {
 	if assignmentJSON(raw, &envelope) != nil || assignmentJSON(envelope.Input, &input) != nil || assignmentJSON(envelope.Result, &result) != nil {
 		return bad()
 	}
-	if input.Format != "TCAS/1" || !bytes.Equal(result.Input, envelope.Input) || input.URI.Present || input.URI.Profile != "" || input.URI.Locator != "" || input.Policy != app.PolicyRevision || input.TagRevision == 0 || input.TagRevision > d.MaxDecisionRevision || len(input.Support) > int(d.MaxSelectedSupport) || input.Support == nil {
+	if input.Format != "TCAS/1" || !bytes.Equal(result.Input, envelope.Input) || input.Policy != app.PolicyRevision || input.TagRevision == 0 || input.TagRevision > d.MaxDecisionRevision || len(input.Support) > int(d.MaxSelectedSupport) || input.Support == nil {
 		return bad()
 	}
 	var event app.Event
@@ -288,6 +285,10 @@ func assignmentDecodeEvent(raw []byte) (app.Event, error) {
 		return bad()
 	}
 	in.Kind = input.Kind
+	in.URI, err = app.RestoreOptionalURI(input.URI)
+	if err != nil || (in.URI.Present && in.Kind != app.Assign) {
+		return bad()
+	}
 	in.ExpectedRevision = input.Expected
 	in.ExpectedTagRevision = input.TagRevision
 	in.ExpectedCatalogRevision = input.CatalogRevision

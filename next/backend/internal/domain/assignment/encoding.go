@@ -56,6 +56,29 @@ func (v ReviewRequest) CanonicalByteLen() (uint64, error)    { return canonicalB
 func (v ReviewProvenance) CanonicalByteLen() (uint64, error) { return canonicalByteLen(v) }
 func (v ReviewRecord) CanonicalByteLen() (uint64, error)     { return canonicalByteLen(v) }
 
+// SourceURIEncoding is the reserved locator slot in a TCAS/1 command.
+type SourceURIEncoding struct {
+	Present          bool
+	Profile, Locator string
+}
+
+func (v SourceURI) Encoding() SourceURIEncoding {
+	return SourceURIEncoding{Present: v != (SourceURI{}), Profile: v.Profile(), Locator: v.Locator()}
+}
+
+// RestoreSourceURI validates the retained locator using its recorded profile.
+// Persisted locators must already be in canonical form.
+func RestoreSourceURI(profile, locator string) (SourceURI, error) {
+	switch profile {
+	case SourceURIProfileV1:
+		value, err := parseSourceURIv1(locator)
+		if err == nil && value.Locator() == locator {
+			return value, nil
+		}
+	}
+	return SourceURI{}, ErrInvalidSourceURI
+}
+
 type canonicalValue interface {
 	appendCanonical(*canonicalEncoder) error
 }

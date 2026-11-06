@@ -1,15 +1,18 @@
 package sqlite
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 
 	app "github.com/shentschel/teddycloud/next/backend/internal/application/assignment"
 	catalogapp "github.com/shentschel/teddycloud/next/backend/internal/application/catalog"
+	d "github.com/shentschel/teddycloud/next/backend/internal/domain/assignment"
 )
 
 func assignmentActivateOwner(t *testing.T, f *assignmentRepositoryFixture) (*LifecycleOwner, *app.Service, string) {
@@ -283,5 +286,119 @@ func TestAssignmentPreUpgradeRestoreSmoke(t *testing.T) {
 	var restoredTables int
 	if err := owner.database.db.QueryRowContext(t.Context(), `SELECT count(*) FROM sqlite_schema WHERE name LIKE 'tc_assignment%'`).Scan(&restoredTables); err != nil || restoredTables != 0 {
 		t.Fatal("v9 restore retained newer assignment schema", restoredTables, err)
+	}
+}
+
+func TestAssignmentURICanonicalReplay(t *testing.T) {
+	f := newAssignmentRepositoryFixture(t)
+	owner, service, path := assignmentActivateOwner(t, f)
+	ctx := t.Context()
+	legacy := f.command(t, 1, app.Assign, 0)
+	legacyResult, err := service.Execute(ctx, legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := f.command(t, 2, app.Assign, 1)
+	in.URI = app.OptionalURI{Present: true, Value: "HTTPS://Catalog.Example:443/a%62"}
+	uriResult, err := service.Execute(ctx, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bad := f.command(t, 3, app.Assign, 2)
+	bad.URI = app.OptionalURI{Present: true, Value: "https://catalog.example/a?token=private"}
+	if got, err := service.Execute(ctx, bad); got != (app.Result{}) || err != app.ErrInvalidInput {
+		t.Fatal("owner failed to reject and redact query credentials")
+	}
+
+	query := app.EffectiveQuery{TagID: f.tag, At: in.EffectiveAt.Add(time.Second)}
+	uriView, err := service.GetEffectiveAssignment(ctx, query)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyRevision := legacyResult.Revision
+	query.KnowledgeRevision = &legacyRevision
+	legacyView, err := service.GetEffectiveAssignment(ctx, query)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if uriView.Desired.Target != in.Target || uriView.Desired.TransitionRevision != uriResult.Revision ||
+		uriView.Desired.Target != legacyView.Desired.Target || uriView.Classification != legacyView.Classification ||
+		uriView.OriginalState != legacyView.OriginalState || uriView.OriginalTarget != legacyView.OriginalTarget ||
+		uriView.Dimensions != legacyView.Dimensions || uriView.CatalogOnly != legacyView.CatalogOnly ||
+		uriView.BoundUnchecked != legacyView.BoundUnchecked {
+		t.Fatal("stored locator changed projection semantics")
+	}
+
+	if err := owner.Close(ctx); err != nil {
+		t.Fatal(err)
+	}
+	restarted, err := OpenLifecycleOwner(ctx, Config{Path: path}, SchemaMigrations())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = restarted.Close(context.Background()) })
+	service = app.New(restarted)
+	in.URI.Value = "https://catalog.example/%61b"
+	for _, tc := range []struct {
+		command app.Command
+		result  app.Result
+	}{{legacy, legacyResult}, {in, uriResult}} {
+		got, err := service.Execute(ctx, tc.command)
+		if err != nil || got != tc.result {
+			t.Fatal("restart replay failed", err)
+		}
+		got, found, err := service.LookupAssignmentCommand(ctx, tc.command)
+		if err != nil || !found || got != tc.result {
+			t.Fatal("restart readback failed", err)
+		}
+	}
+	changed := in
+	changed.URI.Value = "https://catalog.example/Ab"
+	_, err = service.Execute(ctx, changed)
+	assignmentWantError(t, err, app.ErrCommandConflict)
+
+	wantSlot := d.SourceURIEncoding{Present: true, Profile: "pi09-uri/1", Locator: "https://catalog.example/ab"}
+	if err := restarted.WithinAssignmentTransaction(ctx, func(port app.Port) error {
+		snapshot, found, err := port.Load(ctx, f.tag)
+		if err != nil || !found || len(snapshot.Events) != 2 ||
+			snapshot.Events[0].Command.URI != (app.OptionalURI{}) || snapshot.Events[1].Command.URI.Encoding() != wantSlot {
+			t.Fatal("restart history or provenance differs", err)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	var commandBytes, eventBytes []byte
+	db := restarted.database.db
+	if err := db.QueryRowContext(ctx, `SELECT canonical_command FROM tc_assignment_commands WHERE command_id=?`, in.CommandID.String()).Scan(&commandBytes); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRowContext(ctx, `SELECT canonical_event FROM tc_assignment_events WHERE command_id=?`, in.CommandID.String()).Scan(&eventBytes); err != nil {
+		t.Fatal(err)
+	}
+	var envelope assignmentEvent
+	var input assignmentInput
+	var result assignmentResult
+	if assignmentJSON(eventBytes, &envelope) != nil || assignmentJSON(commandBytes, &input) != nil ||
+		assignmentJSON(envelope.Result, &result) != nil || input.URI != wantSlot ||
+		!bytes.Equal(commandBytes, envelope.Input) || !bytes.Equal(commandBytes, result.Input) {
+		t.Fatal("durable input copies lack canonical URI and profile")
+	}
+	for _, slot := range []d.SourceURIEncoding{
+		{Profile: wantSlot.Profile, Locator: wantSlot.Locator},
+		{Present: true, Locator: wantSlot.Locator},
+		{Present: true, Profile: "pi09-uri/2", Locator: wantSlot.Locator},
+		{Present: true, Profile: wantSlot.Profile},
+		{Present: true, Profile: wantSlot.Profile, Locator: "HTTPS://Catalog.Example:443/a%62"},
+		{Present: true, Profile: wantSlot.Profile, Locator: "https://catalog.example/a?token=private"},
+	} {
+		input.URI = slot
+		envelope.Input = assignmentMarshal(t, input)
+		result.Input = envelope.Input
+		envelope.Result = assignmentMarshal(t, result)
+		if _, err := assignmentDecodeEvent(assignmentMarshal(t, envelope)); err != app.ErrUnavailable {
+			t.Fatal("durable codec accepted or exposed malformed provenance")
+		}
 	}
 }

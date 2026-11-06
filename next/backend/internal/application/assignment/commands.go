@@ -22,9 +22,28 @@ const (
 )
 const PolicyRevision uint64 = 1
 
+// OptionalURI carries a request locator or a canonical retained locator.
 type OptionalURI struct {
-	Present bool
-	Value   string
+	Present   bool
+	Value     string
+	canonical d.SourceURI
+}
+
+func (u OptionalURI) Encoding() d.SourceURIEncoding { return u.canonical.Encoding() }
+
+// RestoreOptionalURI reads the versioned slot of a retained command.
+func RestoreOptionalURI(slot d.SourceURIEncoding) (OptionalURI, error) {
+	if slot == (d.SourceURIEncoding{}) {
+		return OptionalURI{}, nil
+	}
+	if !slot.Present {
+		return OptionalURI{}, ErrInvalidInput
+	}
+	value, err := d.RestoreSourceURI(slot.Profile, slot.Locator)
+	if err != nil {
+		return OptionalURI{}, ErrInvalidInput
+	}
+	return OptionalURI{Present: true, Value: value.Locator(), canonical: value}, nil
 }
 
 // Actor is an optional assertion checked against the authenticated principal;
@@ -63,9 +82,6 @@ func (k Kind) decision() d.DecisionKind {
 	return 0
 }
 func normalizedCommand(in Command, actor string) (Command, error) {
-	if in.URI.Present || in.URI.Value != "" {
-		return Command{}, ErrURIUnsupported
-	}
 	if in.Actor != "" && in.Actor != actor {
 		return Command{}, ErrUnauthorized
 	}
@@ -82,6 +98,20 @@ func normalizedCommand(in Command, actor string) (Command, error) {
 	if in.Kind < Assign || in.Kind > RetireAssignment || in.PolicyRevision != PolicyRevision ||
 		in.ExpectedRevision > d.MaxDecisionRevision || in.ExpectedTagRevision == 0 || in.ExpectedTagRevision > d.MaxDecisionRevision {
 		return Command{}, ErrInvalidInput
+	}
+	if in.URI != (OptionalURI{}) {
+		if in.Kind != Assign || !in.URI.Present {
+			return Command{}, ErrInvalidInput
+		}
+		if in.URI.canonical == (d.SourceURI{}) {
+			value, err := d.ParseSourceURI(in.URI.Value)
+			if err != nil {
+				return Command{}, ErrInvalidInput
+			}
+			in.URI.Value, in.URI.canonical = value.Locator(), value
+		} else if in.URI.Value != in.URI.canonical.Locator() {
+			return Command{}, ErrInvalidInput
+		}
 	}
 	if in.Kind.target() {
 		if _, err := in.Target.CanonicalByteLen(); err != nil {
@@ -156,8 +186,8 @@ func (in Command) decisionInput(actor string, localRevision uint64) d.DecisionIn
 }
 
 // TCAS/1 is an internal canonical envelope, not a public API or durable codec.
-// Fixed struct field order, JSON escaping, explicit absent URI/profile and sorted
-// support reserve B1's slot without interpreting any URI. Domain primitive bytes
+// Fixed struct field order, JSON escaping, the versioned URI slot and sorted
+// support preserve the URI-absent A1 representation. Domain primitive bytes
 // preserve A1b/A1c formats; canonical input also binds the GLOBAL expected head.
 type canonicalInput struct {
 	Format                                         string
@@ -170,10 +200,7 @@ type canonicalInput struct {
 	Evidence                                       []byte
 	Classification                                 d.PhysicalClassification
 	Support                                        []string
-	URI                                            struct {
-		Present          bool
-		Profile, Locator string
-	}
+	URI                                            d.SourceURIEncoding
 }
 
 func canonicalCommand(in Command, actor string) ([]byte, error) {
@@ -184,7 +211,7 @@ func canonicalCommand(in Command, actor string) ([]byte, error) {
 	v := canonicalInput{Format: "TCAS/1", Command: in.CommandID.String(), Assignment: in.AssignmentID.String(), Tag: in.TagID.String(),
 		Kind: in.Kind, Expected: in.ExpectedRevision, TagRevision: in.ExpectedTagRevision, CatalogRevision: in.ExpectedCatalogRevision,
 		Policy: in.PolicyRevision, Actor: actor, Reason: in.Reason, Content: in.Target.ContentID().String(), Version: in.Target.VersionID().String(),
-		Review: in.ReviewID.String(), Classification: in.Classification, Support: []string{}}
+		Review: in.ReviewID.String(), Classification: in.Classification, Support: []string{}, URI: in.URI.Encoding()}
 	if !in.EffectiveAt.IsZero() {
 		v.Effective = in.EffectiveAt.Format(time.RFC3339Nano)
 	}

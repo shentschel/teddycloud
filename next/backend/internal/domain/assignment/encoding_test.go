@@ -433,3 +433,24 @@ func TestAssignmentEncodingA1aRecords(t *testing.T) {
 		t.Fatal("primitive encoding exceeds charged envelope or mutated history")
 	}
 }
+
+func TestAssignmentSourceURIRetainedEncoding(t *testing.T) {
+	const locator = "https://catalog.example/Ab"
+	got, err := RestoreSourceURI("pi09-uri/1", locator)
+	if err != nil || got.Profile() != "pi09-uri/1" || got.Locator() != locator {
+		t.Fatal("failed to restore the v1 pair", err)
+	}
+	for _, input := range []struct{ profile, locator string }{
+		{"", locator},
+		{"pi09-uri/2", locator},
+		{"pi09-uri/1", ""},
+		{"pi09-uri/1", "https://catalog.example"},
+		{"pi09-uri/1", "HTTPS://Catalog.Example:443/Ab"},
+		{"pi09-uri/1", "https://catalog.example/A%62"},
+		{"pi09-uri/1", locator + "?token=private"},
+	} {
+		if value, err := RestoreSourceURI(input.profile, input.locator); err != ErrInvalidSourceURI || value != (SourceURI{}) {
+			t.Fatal("invalid retained locator restored", err)
+		}
+	}
+}

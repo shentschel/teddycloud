@@ -60,17 +60,7 @@ func TestAssignmentAllCommandKinds(t *testing.T) {
 	wantError(t, err, ErrInvalidInput)
 }
 
-func TestAssignmentURIReservationAndInput(t *testing.T) {
-	for _, uri := range []OptionalURI{{true, ""}, {true, "https://catalog.example/a"}, {false, "https://catalog.example/a"}, {true, "file:///secret"}} {
-		s, m := fixture(t)
-		in := command(t, 1, Assign, 0)
-		in.URI = uri
-		_, err := s.Execute(context.Background(), in)
-		wantError(t, err, ErrURIUnsupported)
-		if m.commits != 0 {
-			t.Fatal("URI admitted")
-		}
-	}
+func TestAssignmentCommandInput(t *testing.T) {
 	invalid := map[string]func(*Command){
 		"overflow":             func(in *Command) { in.ExpectedRevision = d.MaxDecisionRevision + 1 },
 		"reason bound":         func(in *Command) { in.Reason = strings.Repeat("x", 1025) },
@@ -109,7 +99,7 @@ func TestAssignmentCanonicalEnvelope(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Golden shape binds independently typed identities, GLOBAL revision and the
-	// reserved URI slot; it does not serialize opaque IDs as empty JSON objects.
+	// absent URI slot using the original A1 bytes.
 	want := `{"Format":"TCAS/1","Command":"00000000000000000000000000000001","Assignment":"asn_00000000000000000000000001","Tag":"tag_00000000000000000000000001","Kind":1,"Expected":0,"TagRevision":2,"CatalogRevision":3,"Policy":1,"Actor":"operator","Reason":"explicit reason","Effective":"1970-01-01T00:00:10Z","Content":"cnt_00000000000000000000000001","Version":"ver_00000000000000000000000001","Review":"","Evidence":null,"Classification":0,"Support":[],"URI":{"Present":false,"Profile":"","Locator":""}}`
 	if string(b) != want {
 		t.Fatalf("canonical golden mismatch: %s", b)
@@ -121,6 +111,14 @@ func TestAssignmentCanonicalEnvelope(t *testing.T) {
 		t.Fatal("equivalent input changed canonical command", err)
 	}
 	in.Actor = ""
+	in.URI = OptionalURI{Present: true, Value: "HTTPS://Catalog.Example:443/a%62"}
+	withURI, err := canonicalCommand(in, "operator")
+	wantURI := strings.Replace(want, `"URI":{"Present":false,"Profile":"","Locator":""}`,
+		`"URI":{"Present":true,"Profile":"pi09-uri/1","Locator":"https://catalog.example/ab"}`, 1)
+	if err != nil || string(withURI) != wantURI {
+		t.Fatal("versioned URI golden mismatch", err)
+	}
+	in.URI = OptionalURI{}
 	changed, err := canonicalCommand(in, "other")
 	if err != nil || bytes.Equal(b, changed) {
 		t.Fatal("actor missing from identity")

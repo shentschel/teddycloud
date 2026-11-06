@@ -244,9 +244,9 @@ func load(ctx context.Context, p Port, tag identity.TagID) (aggregate, bool, err
 		if err != nil || event.Result != retained.Result || !bytes.Equal(event.Primitive, retained.Primitive) {
 			return aggregate{}, false, ErrUnavailable
 		}
-		// Canonical storage must not hide inactive fields, a noncanonical timestamp,
-		// or request-supplied authority in a retained command.
-		if retained.Command.Actor != "" || !retained.RecordedAt.Equal(event.RecordedAt) {
+		// Retained URI provenance must already be canonical and versioned.
+		if retained.Command.Actor != "" || retained.Command.URI != event.Command.URI ||
+			!retained.RecordedAt.Equal(event.RecordedAt) {
 			return aggregate{}, false, ErrUnavailable
 		}
 		a = next
@@ -408,6 +408,10 @@ func retainedEnvelopeBytes(event Event) (uint64, error) {
 }
 func readReplay(ctx context.Context, p Port, command Command, actor string, prior Event) (Result, error) {
 	if prior.Command.CommandID != command.CommandID || prior.Command.Actor != "" {
+		return Result{}, ErrUnavailable
+	}
+	slot := prior.Command.URI.Encoding()
+	if slot.Present != prior.Command.URI.Present || slot.Locator != prior.Command.URI.Value {
 		return Result{}, ErrUnavailable
 	}
 	if _, err := d.BindAuthenticatedReviewAuthority(prior.Actor); err != nil {
