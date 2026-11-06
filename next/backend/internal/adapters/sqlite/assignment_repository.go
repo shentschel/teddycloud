@@ -10,7 +10,11 @@ import (
 	"errors"
 	"io"
 	"reflect"
+	"runtime"
+	"sync"
+	"sync/atomic"
 	"time"
+	"weak"
 
 	app "github.com/shentschel/teddycloud/next/backend/internal/application/assignment"
 	d "github.com/shentschel/teddycloud/next/backend/internal/domain/assignment"
@@ -28,6 +32,32 @@ import (
 // activation in this checkpoint. Calls must be serialized by the scope. No
 // dependency or decoded state is cached across reads or guarded appends.
 type assignmentRepository struct{ transaction *sql.Tx }
+
+var assignmentHistoryInstances struct {
+	next atomic.Uint64
+	keys sync.Map // weak.Pointer[LifecycleOwner] -> uint64
+}
+
+// AssignmentHistoryScope is sampled by the history reader under the existing
+// assignment fence. Weak owner identities prevent allocator address reuse
+// from reviving cursors after close/reopen without retaining closed owners.
+func (owner *LifecycleOwner) AssignmentHistoryScope() (uint64, uint64) {
+	if owner == nil {
+		return 0, 0
+	}
+	key := weak.Make(owner)
+	instance, ok := assignmentHistoryInstances.keys.Load(key)
+	if !ok {
+		var loaded bool
+		instance, loaded = assignmentHistoryInstances.keys.LoadOrStore(key, assignmentHistoryInstances.next.Add(1))
+		if !loaded {
+			runtime.AddCleanup(owner, func(key weak.Pointer[LifecycleOwner]) {
+				assignmentHistoryInstances.keys.Delete(key)
+			}, key)
+		}
+	}
+	return instance.(uint64), owner.generation.Load()
+}
 
 func assignmentReadError(ctx context.Context, err error) error {
 	if err == nil {
@@ -525,8 +555,7 @@ func (r *assignmentRepository) load(ctx context.Context, tag identity.TagID) (ap
 	if err != nil {
 		return bad(err)
 	}
-	usage, err := d.NewEvidenceUsage(events, observations, links, retained)
-	if err != nil || head == 0 || head != events || retired > 1 || retained == 0 || storedTag != tag.String() {
+	if head == 0 || head != events || retired > 1 || retained == 0 || storedTag != tag.String() {
 		return bad(app.ErrUnavailable)
 	}
 	// Count and sum every retained copy BEFORE selecting BLOBs or allocating a
@@ -545,8 +574,23 @@ func (r *assignmentRepository) load(ctx context.Context, tag identity.TagID) (ap
 	if err != nil {
 		return bad(err)
 	}
-	if eventCount != events || evidenceCount != observations || supportCount != links || commandCount != events || projectionCount != 1 || size > retained || size > d.MaxEvidenceRetainedBytes {
+	if eventCount != events || evidenceCount != observations || supportCount != links || commandCount != events || projectionCount != 1 || size > retained {
 		return bad(app.ErrUnavailable)
+	}
+	usage, err := d.NewEvidenceUsage(events, observations, links, retained)
+	if err != nil {
+		// Corroborate the oversized head with the counted rows and charges
+		// before classifying it as unsupported. A mismatched head is corrupt.
+		var charge uint64
+		err = r.transaction.QueryRowContext(ctx, `SELECT COALESCE(sum(retained_bytes),0)
+ FROM tc_assignment_events WHERE assignment_id=? OR tag_id=?`, idText, tag.String()).Scan(&charge)
+		if err != nil {
+			return bad(err)
+		}
+		if charge != retained {
+			return bad(app.ErrUnavailable)
+		}
+		return app.Snapshot{}, false, app.ErrUnsupportedState
 	}
 	replay, err := newAssignmentReplay(id, tag)
 	if err != nil {
