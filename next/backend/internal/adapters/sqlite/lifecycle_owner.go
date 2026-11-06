@@ -27,13 +27,14 @@ var (
 // LifecycleOwner is the single-process owner of one active application
 // database handle. It exposes application ports, not Database or SQL values.
 type LifecycleOwner struct {
-	gate             *lifecycleGate
-	database         *Database
-	config           Config
-	migrations       []Migration
-	contentAdmitted  atomic.Bool
-	generation       atomic.Uint64
-	contentInventory contentstore.InventoryInvalidator
+	gate               *lifecycleGate
+	database           *Database
+	config             Config
+	migrations         []Migration
+	contentAdmitted    atomic.Bool
+	assignmentAdmitted atomic.Bool
+	generation         atomic.Uint64
+	contentInventory   contentstore.InventoryInvalidator
 }
 
 var _ applicationcatalog.Transactor = (*LifecycleOwner)(nil)

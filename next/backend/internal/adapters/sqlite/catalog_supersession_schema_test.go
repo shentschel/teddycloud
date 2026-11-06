@@ -54,8 +54,9 @@ func TestSupersessionSchemaUpgrade(t *testing.T) {
 		t.Fatal(err)
 	}
 	migrations := SchemaMigrations()
-	if len(migrations) != 9 || migrations[8].Version != 9 || migrations[8].ID != "0009-catalog-version-supersession" {
-		t.Fatal("migration 9 not active")
+	if len(migrations) != 10 || migrations[8].Version != 9 || migrations[8].ID != "0009-catalog-version-supersession" ||
+		migrations[9].Version != 10 || migrations[9].ID != "0010-assignment-ledger" {
+		t.Fatal("coordinated v9/v10 migrations not active")
 	}
 	if migrationChecksum(migrations[7]) != "4504d2bc70747671589c83a1036c63d66a190394e82207f5c74f14848b67544c" {
 		t.Fatal("migration 8 checksum changed")
@@ -71,8 +72,8 @@ func TestSupersessionSchemaUpgrade(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer upgraded.Close()
-	if version, err := upgraded.CurrentVersion(t.Context()); err != nil || version != 9 {
-		t.Fatal("normal Open did not activate v9", version, err)
+	if version, err := upgraded.CurrentVersion(t.Context()); err != nil || version != 10 {
+		t.Fatal("normal Open did not activate v10", version, err)
 	}
 	backup, ok := upgraded.UpgradeBackup()
 	if !ok || backup.SchemaVersion != 8 {
@@ -116,7 +117,7 @@ func TestSupersessionSchemaUpgrade(t *testing.T) {
 	}
 	reopened, err := Open(t.Context(), Config{Path: path}, migrations)
 	if err != nil {
-		t.Fatal("clean v9 reopen", err)
+		t.Fatal("clean v10 reopen", err)
 	}
 	if _, created := reopened.UpgradeBackup(); created || !reflect.DeepEqual(current, registrationSchemaRows(t, reopened.db)) {
 		t.Fatal("same-schema reopen changed rows or created an upgrade backup")
@@ -139,11 +140,11 @@ func TestSupersessionSchemaUpgrade(t *testing.T) {
 }
 
 func TestSupersessionSchemaDispatch(t *testing.T) {
-	for _, version := range []int{4, 5, 7, 8, 9, 10} {
+	for _, version := range []int{4, 5, 7, 8, 9, 10, 11} {
 		t.Run(fmt.Sprint(version), func(t *testing.T) {
 			migrations := SchemaMigrations()
-			if version == 10 {
-				migrations = append(migrations, Migration{Version: 10, ID: "0010-test-future", Statements: []string{"CREATE TABLE test_future (id INTEGER) STRICT"}})
+			if version == 11 {
+				migrations = append(migrations, Migration{Version: 11, ID: "0011-test-future", Statements: []string{"CREATE TABLE test_future (id INTEGER) STRICT"}})
 			} else {
 				migrations = migrations[:version]
 			}
@@ -161,7 +162,7 @@ func TestSupersessionSchemaDispatch(t *testing.T) {
 				}
 				return nil
 			})
-			if version < 5 || version > 9 {
+			if !catalogTransactionSchema(version) {
 				if !errors.Is(err, app.ErrUnsupported) || calls != 0 {
 					t.Fatal("unsupported schema dispatched callback", calls, err)
 				}
@@ -197,7 +198,7 @@ func TestSupersessionSchemaRegistrationCompatibility(t *testing.T) {
 	}
 	defer f.owner.Close(context.Background())
 	f.bind(t)
-	if current, err := f.owner.CurrentVersion(t.Context()); err != nil || current != 9 {
+	if current, err := f.owner.CurrentVersion(t.Context()); err != nil || current != 10 {
 		t.Fatal("registered v8 fixture not upgraded", current, err)
 	}
 	for table, want := range before {
@@ -234,7 +235,7 @@ func TestSupersessionSchemaRegistrationFailClosed(t *testing.T) {
 		mutate string
 	}{
 		{"pre-registration schema", 7, ""},
-		{"future schema", 9, "UPDATE tc_schema_migrations SET version=10 WHERE version=9"},
+		{"future schema", 10, "UPDATE tc_schema_migrations SET version=11 WHERE version=10"},
 		{"dirty schema", 9, "UPDATE tc_schema_migrations SET dirty=1 WHERE version=9"},
 		{"checksum drift", 9, "UPDATE tc_schema_migrations SET checksum='changed' WHERE version=9"},
 		{"ledger gap", 9, "DELETE FROM tc_schema_migrations WHERE version=8"},

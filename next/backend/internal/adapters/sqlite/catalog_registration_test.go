@@ -1450,7 +1450,7 @@ func TestRegistrationSchemaRecovery(t *testing.T) {
 			want           error
 		}{
 			{"dirty", "UPDATE tc_schema_migrations SET dirty=1 WHERE version=8", ErrDirtyMigration},
-			{"future", "INSERT INTO tc_schema_migrations VALUES (10,'future','unknown',0,NULL)", ErrSchemaNewer},
+			{"future", "INSERT INTO tc_schema_migrations VALUES (11,'future','unknown',0,NULL)", ErrSchemaNewer},
 			{"checksum", "UPDATE tc_schema_migrations SET checksum='changed' WHERE version=8", ErrChecksumDrift},
 		} {
 			t.Run(tc.name, func(t *testing.T) {

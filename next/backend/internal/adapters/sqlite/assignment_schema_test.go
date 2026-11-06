@@ -21,7 +21,7 @@ var assignmentSchemaTables = []string{
 }
 
 func assignmentSchemaMigrations() []Migration {
-	return append(SchemaMigrations(), assignmentMigration())
+	return append(SchemaMigrations()[:9], assignmentMigration())
 }
 
 func assignmentSchemaFixture(t *testing.T) *Database {
@@ -94,8 +94,9 @@ func assignmentSchemaReject(t *testing.T, db *sql.DB, code int, query string, ar
 
 func TestAssignmentSchemaUpgrade(t *testing.T) {
 	active := SchemaMigrations()
-	if len(active) != 9 || active[8].Version != 9 || active[8].ID != "0009-catalog-version-supersession" {
-		t.Fatal("assignment migration activated or v9 identity changed")
+	if len(active) != 10 || active[8].Version != 9 || active[8].ID != "0009-catalog-version-supersession" ||
+		active[9].Version != 10 || active[9].ID != "0010-assignment-ledger" {
+		t.Fatal("active v9/v10 identity changed")
 	}
 	candidate := assignmentMigration()
 	if candidate.Version != 10 || candidate.ID != "0010-assignment-ledger" {
@@ -122,7 +123,7 @@ func TestAssignmentSchemaUpgrade(t *testing.T) {
 	if t.Failed() {
 		t.FailNow()
 	}
-	db := registrationSchemaFixture(t)
+	db := registrationSchemaFixtureMigrations(t, SchemaMigrations()[:9])
 	for _, n := range []int{1, 2} {
 		catalogSchemaExec(t, db.db, `INSERT INTO tc_tags VALUES (?,?,7)`, catalogSchemaID("tag", n), bytes.Repeat([]byte{byte(n)}, 8))
 	}
@@ -199,20 +200,26 @@ func TestAssignmentSchemaUpgrade(t *testing.T) {
 		t.Fatal("candidate reopen changed rows or made another backup")
 	}
 	reopened.Close()
-	if rejected, err := Open(t.Context(), Config{Path: path}, SchemaMigrations()); !errors.Is(err, ErrSchemaNewer) {
+	if rejected, err := Open(t.Context(), Config{Path: path}, SchemaMigrations()[:9]); !errors.Is(err, ErrSchemaNewer) {
 		if rejected != nil {
 			rejected.Close()
 		}
-		t.Fatal("default v9 runtime accepted staged v10", err)
+		t.Fatal("source-only v9 runtime accepted v10", err)
 	}
-	// A normal fresh runtime remains v9, without even empty assignment tables.
+	// A normal fresh runtime activates v10 without manufacturing history.
 	normal, err := Open(t.Context(), Config{Path: filepath.Join(t.TempDir(), "normal.sqlite")}, SchemaMigrations())
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer normal.Close()
-	if rows := catalogSchemaRows(t, normal.db, `SELECT name FROM sqlite_schema WHERE name LIKE 'tc_assignment%'`); len(rows) != 0 {
-		t.Fatal("default runtime installed assignment objects", rows)
+	if version, err := normal.CurrentVersion(t.Context()); err != nil || version != 10 {
+		t.Fatal("default runtime did not activate v10", version, err)
+	}
+	for _, table := range assignmentSchemaTables {
+		var count int
+		if err := normal.db.QueryRowContext(t.Context(), "SELECT count(*) FROM "+table).Scan(&count); err != nil || count != 0 {
+			t.Fatal("fresh runtime manufactured assignment history", table, count, err)
+		}
 	}
 }
 
@@ -296,8 +303,8 @@ func TestAssignmentSchemaManifest(t *testing.T) {
 	// Each call returns independently owned statements, like SchemaMigrations.
 	changed := assignmentMigration()
 	changed.Statements[0] = "modified"
-	if assignmentMigration().Statements[0] == "modified" || len(SchemaMigrations()) != 9 {
-		t.Fatal("candidate aliases mutable state or activated itself")
+	if assignmentMigration().Statements[0] == "modified" || len(SchemaMigrations()) != 10 {
+		t.Fatal("migration aliases mutable state or activation changed")
 	}
 }
 
@@ -579,7 +586,7 @@ func TestAssignmentSchemaBlobEnvelopes(t *testing.T) {
 }
 
 func TestAssignmentSchemaMigrationFailure(t *testing.T) {
-	db := registrationSchemaFixture(t)
+	db := registrationSchemaFixtureMigrations(t, SchemaMigrations()[:9])
 	before := registrationSchemaRows(t, db.db)
 	objects := catalogSchemaRows(t, db.db, catalogRecoveryObjects)
 	path := dbPathForSupersessionTest(t, db)

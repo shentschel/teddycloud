@@ -49,7 +49,7 @@ func (r *catalogRepository) Query(ctx context.Context, query app.Query) (result 
 	if err := catalogQueryInput(query); err != nil {
 		return result, err
 	}
-	if query.Kind == app.ListCurrentVersions && r.schemaVersion != 9 {
+	if query.Kind == app.ListCurrentVersions && !catalogSupersessionSchema(r.schemaVersion) {
 		return result, app.ErrUnsupported
 	}
 	if query.Kind == app.FindVersionsByPair || query.Kind == app.FindVersionsByAudioID {

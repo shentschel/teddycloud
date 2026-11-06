@@ -55,7 +55,7 @@ func (r *assignmentRepository) check(ctx context.Context) error {
 	if err != nil {
 		return assignmentReadError(ctx, err)
 	}
-	migrations := append(SchemaMigrations(), assignmentMigration())
+	migrations := SchemaMigrations()
 	i := 0
 	for rows.Next() {
 		var version, dirty int

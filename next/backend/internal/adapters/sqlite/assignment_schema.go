@@ -1,8 +1,7 @@
 package sqlite
 
-// assignmentMigration is the staged PI-09/A2a foundation, deliberately absent
-// from SchemaMigrations. A2b must activate v10 with the owner and every exact
-// catalog schema gate. Calling this function alone grants no persistence port.
+// assignmentMigration is the frozen PI-09/A2a foundation activated by A2b.3
+// together with the owner and every exact catalog schema gate.
 //
 // Manifest: seven STRICT tables below, five explicit lookup indexes, and ten
 // immutable UPDATE/DELETE triggers on identities and retained history. All FKs

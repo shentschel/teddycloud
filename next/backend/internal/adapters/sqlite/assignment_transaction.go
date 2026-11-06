@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"sync"
 	"sync/atomic"
 
@@ -12,6 +13,85 @@ import (
 )
 
 var _ app.Port = (*assignmentTransactionPort)(nil)
+var _ app.Transactor = (*LifecycleOwner)(nil)
+
+var assignmentOwnerActor = app.AuthenticatedActor{
+	Reference: "teddycloud-next-core",
+	Read:      true,
+	Decide:    true,
+	Review:    true,
+}
+
+// WithinAssignmentTransaction is the only production assignment authority. It
+// shares the LifecycleOwner fence and one SQLite transaction for every Tag and
+// catalog dependency read, ledger append and commit.
+func (owner *LifecycleOwner) WithinAssignmentTransaction(ctx context.Context, operation func(app.Port) error) error {
+	if ctx == nil || operation == nil {
+		return app.ErrInvalidInput
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if owner == nil || owner.gate == nil {
+		return app.ErrUnavailable
+	}
+	if ctx.Value(contentOperationContextKey{}) != nil {
+		return app.ErrContention
+	}
+	if !owner.assignmentAdmitted.CompareAndSwap(false, true) {
+		return app.ErrBusy
+	}
+	defer owner.assignmentAdmitted.Store(false)
+	if err := owner.gate.enterOperation(ctx); err != nil {
+		return assignmentBoundaryError(ctx, err)
+	}
+	defer owner.gate.leave()
+	if owner.database == nil {
+		return app.ErrUnavailable
+	}
+
+	commitReady := false
+	err := owner.database.withinSQLTransaction(ctx, func(tx *sql.Tx) error {
+		// Reject v9, synthetic v11, dirty ledgers and corrupt references before
+		// granting even the callback-scoped authority.
+		if err := (&assignmentRepository{transaction: tx}).check(ctx); err != nil {
+			return err
+		}
+		scope := &assignmentTransaction{}
+		if err := scope.run(ctx, tx, assignmentOwnerActor, operation); err != nil {
+			return err
+		}
+		commitReady = true
+		return nil
+	})
+	if err == nil {
+		return nil
+	}
+	if commitReady {
+		return app.ErrIndeterminate
+	}
+	return assignmentBoundaryError(ctx, err)
+}
+
+func assignmentBoundaryError(ctx context.Context, err error) error {
+	if ctx != nil && ctx.Err() != nil {
+		return ctx.Err()
+	}
+	for _, allowed := range []error{
+		context.Canceled, context.DeadlineExceeded,
+		app.ErrInvalidInput, app.ErrUnauthorized, app.ErrTagNotFound,
+		app.ErrTargetNotFound, app.ErrDependencyConflict,
+		app.ErrRevisionConflict, app.ErrCommandConflict, app.ErrRetired,
+		app.ErrURIUnsupported, app.ErrLimit, app.ErrBusy, app.ErrContention,
+		app.ErrUnavailable, app.ErrIndeterminate, app.ErrUnsupportedState,
+		app.ErrKnowledgeRevision,
+	} {
+		if errors.Is(err, allowed) {
+			return allowed
+		}
+	}
+	return app.ErrUnavailable
+}
 
 // assignmentTransaction supplies callback scope only. A trusted harness owns
 // authentication and the SQL transaction's begin/commit/rollback lifecycle.

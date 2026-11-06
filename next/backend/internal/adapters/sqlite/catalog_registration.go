@@ -56,7 +56,7 @@ func (r *catalogRepository) registrationInput(ctx context.Context, op app.Regist
 	if err != nil {
 		return nil, nil, err
 	}
-	if r.schemaVersion < 8 || r.schemaVersion > 9 {
+	if r.schemaVersion != 8 && !catalogSupersessionSchema(r.schemaVersion) {
 		return nil, nil, app.ErrUnsupported
 	}
 	rows, err := r.transaction.QueryContext(ctx, "SELECT version,migration_id,checksum,dirty FROM tc_schema_migrations ORDER BY version")
@@ -631,7 +631,7 @@ func (r *catalogRepository) registrationKeyOnly(ctx context.Context, key string)
 	if err := r.transaction.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM tc_catalog_registrations WHERE command_id=?)", key).Scan(&used); err != nil {
 		return repositoryError(ctx, err)
 	}
-	if !used && r.schemaVersion == 9 {
+	if !used && catalogSupersessionSchema(r.schemaVersion) {
 		if err := r.transaction.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM tc_catalog_supersessions WHERE command_id=?)", key).Scan(&used); err != nil {
 			return repositoryError(ctx, err)
 		}
@@ -648,7 +648,7 @@ func (r *catalogRepository) catalogBatchKeyGuard(ctx context.Context, key string
 	if err := r.registrationKeyOnly(ctx, key); err != nil {
 		return err
 	}
-	if r.schemaVersion != 9 {
+	if !catalogSupersessionSchema(r.schemaVersion) {
 		return nil
 	}
 	var exists bool
@@ -869,7 +869,7 @@ func (r *catalogRepository) registrationAccountingProspective(ctx context.Contex
 	if err != nil {
 		return repositoryError(ctx, err)
 	}
-	if r.schemaVersion == 9 {
+	if catalogSupersessionSchema(r.schemaVersion) {
 		usage, err := r.supersessionUsage(ctx, content)
 		if err != nil {
 			return err
@@ -1164,7 +1164,7 @@ func (r *catalogRepository) registrationSnapshot(ctx context.Context, content id
 	if r.schemaVersion < 8 {
 		return nil
 	}
-	if r.schemaVersion == 9 {
+	if catalogSupersessionSchema(r.schemaVersion) {
 		state, err := r.readSupersession(ctx, content, domain.CatalogPersistenceBindings{AllowUnbound: true})
 		if err != nil {
 			return err

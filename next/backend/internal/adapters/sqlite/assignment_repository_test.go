@@ -171,11 +171,39 @@ type assignmentRepositoryFixture struct {
 	target, other, foreign d.OriginalTarget
 }
 
+func newAssignmentSupersessionFixture(t *testing.T) supersessionFixture {
+	t.Helper()
+	f := supersessionFixture{registrationFixture: newRegistrationFixtureMigrations(t, SchemaMigrations()[:9])}
+	if _, err := f.service.RegisterContent(t.Context(), f.registrationFixture.command); err != nil {
+		t.Fatal(err)
+	}
+	for n := 101; n <= 102; n++ {
+		if _, err := f.service.RegisterCatalogVersion(t.Context(), f.version(t, n, uint64(n-100))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var err error
+	f.cap, err = c.NewCatalogSupersessionCapability(f.review)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.sup, err = catalogapp.NewSupersessionService(f.base, f.cap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := catalogRead(t, f.owner, catalogapp.Query{Kind: catalogapp.ListVersions, Content: f.registrationFixture.command.Subject.ContentID(), Page: catalogapp.PageRequest{Limit: 128}})
+	if err != nil || len(page.Entries) != 2 {
+		t.Fatal(page, err)
+	}
+	f.command = f.link(t, page.Entries[0].Version, page.Entries[1].Version, 3, 1)
+	return f
+}
+
 func newAssignmentRepositoryFixture(t *testing.T) *assignmentRepositoryFixture {
 	t.Helper()
 	// Genuine v9 catalog imports, operator registrations, ownership/fingerprint
 	// support. Upgrade only in the harness.
-	upstream := newSupersessionFixture(t)
+	upstream := newAssignmentSupersessionFixture(t)
 	// A second independently registered Content/version has the SAME fingerprint.
 	// Tuple ownership, rather than descriptive/audio similarity, is authoritative.
 	foreign := upstream.registrationFixture
@@ -380,7 +408,7 @@ func TestAssignmentNoCatalogRetarget(t *testing.T) {
 	if err = os.WriteFile(copyPath, raw, 0600); err != nil {
 		t.Fatal(err)
 	}
-	owner, err := OpenLifecycleOwner(t.Context(), Config{Path: copyPath}, SchemaMigrations())
+	owner, err := OpenLifecycleOwner(t.Context(), Config{Path: copyPath}, SchemaMigrations()[:9])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -667,8 +695,8 @@ func TestAssignmentRepositoryCorruption(t *testing.T) {
 }
 
 func TestAssignmentRepositoryInert(t *testing.T) {
-	if migrations := SchemaMigrations(); len(migrations) != 9 || migrations[8].Version != 9 {
-		t.Fatal("default schema activated")
+	if migrations := SchemaMigrations(); len(migrations) != 10 || migrations[9].Version != 10 {
+		t.Fatal("default assignment schema not activated")
 	}
 	normal, err := Open(t.Context(), Config{Path: filepath.Join(t.TempDir(), "normal.sqlite")}, SchemaMigrations())
 	if err != nil {
@@ -676,7 +704,7 @@ func TestAssignmentRepositoryInert(t *testing.T) {
 	}
 	defer normal.Close()
 	var tables int
-	if err := normal.db.QueryRowContext(t.Context(), `SELECT count(*) FROM sqlite_schema WHERE name LIKE 'tc_assignment%'`).Scan(&tables); err != nil || tables != 0 {
+	if err := normal.db.QueryRowContext(t.Context(), `SELECT count(*) FROM sqlite_schema WHERE name LIKE 'tc_assignment%'`).Scan(&tables); err != nil || tables == 0 {
 		t.Fatal("normal runtime assignment objects", tables, err)
 	}
 	tx, err := normal.db.BeginTx(t.Context(), nil)
@@ -685,8 +713,10 @@ func TestAssignmentRepositoryInert(t *testing.T) {
 	}
 	r := &assignmentRepository{transaction: tx}
 	tag, _ := identity.ParseTagID(catalogSchemaID("tag", 1))
-	_, _, err = r.Load(t.Context(), tag)
-	assignmentWantError(t, err, app.ErrUnsupportedState)
+	_, found, err := r.Load(t.Context(), tag)
+	if err != nil || found {
+		t.Fatal("empty active repository", found, err)
+	}
 	if err = tx.Rollback(); err != nil {
 		t.Fatal(err)
 	}
@@ -700,7 +730,7 @@ func TestAssignmentRepositoryInert(t *testing.T) {
 	assignmentWantError(t, err, context.Canceled)
 	for _, interfaceType := range []reflect.Type{reflect.TypeFor[app.Port](), reflect.TypeFor[app.Transactor]()} {
 		if reflect.TypeFor[*assignmentRepository]().Implements(interfaceType) {
-			t.Fatal("production port activated", interfaceType)
+			t.Fatal("repository exposed as production port", interfaceType)
 		}
 	}
 	for _, name := range []string{"Commit", "Save", "WithinAssignmentTransaction", "Authenticate"} {

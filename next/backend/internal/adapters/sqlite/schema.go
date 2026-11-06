@@ -366,6 +366,7 @@ func init() {
 	}})
 	schemaMigrations = append(schemaMigrations, catalogRegistrationMigration())
 	schemaMigrations = append(schemaMigrations, catalogSupersessionMigration())
+	schemaMigrations = append(schemaMigrations, assignmentMigration())
 }
 
 // Migration 8 only supplies storage fences. C2 must still validate complete

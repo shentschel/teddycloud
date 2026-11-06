@@ -140,8 +140,9 @@ func TestCatalogStateQuerySchemaCompatibility(t *testing.T) {
 		{name: "v7", version: 7, accepted: true},
 		{name: "v8", version: 8, accepted: true},
 		{name: "v9", version: 9, accepted: true},
+		{name: "v10", version: 10, accepted: true},
 		{name: "dirty v6", version: 6, mutation: "UPDATE tc_schema_migrations SET dirty=1 WHERE version=6"},
-		{name: "future v10", version: 9, mutation: "INSERT INTO tc_schema_migrations(version,migration_id,checksum,dirty) VALUES (10,'future','unknown',0)"},
+		{name: "future v11", version: 10, mutation: "INSERT INTO tc_schema_migrations(version,migration_id,checksum,dirty) VALUES (11,'future','unknown',0)"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			owner, err := OpenLifecycleOwner(t.Context(), Config{Path: filepath.Join(t.TempDir(), "compat.sqlite")}, SchemaMigrations()[:tc.version])
@@ -204,7 +205,7 @@ func TestCatalogStateMigrationIdentity(t *testing.T) {
 		"c65137b653d80e54301a14fd7f8be52bdb7e246ec32245623cbf47d7bfa66fc7",
 		"f3bd874bbb9d8ae2228ba91c3d2b5d5077d0110d69d13551a24c87e54558fcd1",
 	}
-	if len(migrations) != 9 || migrations[5].Version != 6 || migrations[5].ID != "0006-catalog-aggregate-state" {
+	if len(migrations) != 10 || migrations[5].Version != 6 || migrations[5].ID != "0006-catalog-aggregate-state" {
 		t.Fatal("migration identity changed")
 	}
 	for i, sum := range want {
@@ -259,7 +260,7 @@ func TestCatalogStateV5Upgrade(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer upgraded.Close()
-	if version, err := upgraded.CurrentVersion(t.Context()); err != nil || version != 9 {
+	if version, err := upgraded.CurrentVersion(t.Context()); err != nil || version != 10 {
 		t.Fatal("current schema upgrade failed", version, err)
 	}
 	for table, rows := range before {

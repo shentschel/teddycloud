@@ -245,7 +245,7 @@ func (r *catalogRepository) supersessionCursorAfter(query app.SupersessionQuery,
 // Revocation is independent of the immutable command/result graph digest
 // already included by registrationSnapshot. Frames prevent source-key aliasing.
 func (r *catalogRepository) supersessionRevocations(ctx context.Context, content identity.ContentID, target io.Writer) error {
-	if r.schemaVersion != 9 {
+	if !catalogSupersessionSchema(r.schemaVersion) {
 		return nil
 	}
 	rows, err := r.transaction.QueryContext(ctx, `SELECT DISTINCT s.source_id,s.registration_revision,p.revoked FROM tc_catalog_supersessions s JOIN tc_catalog_sources p USING(source_id,registration_revision) WHERE s.content_id=? ORDER BY s.source_id,s.registration_revision`, content.String())
@@ -276,7 +276,7 @@ func (r *catalogRepository) supersessionRevocations(ctx context.Context, content
 
 func (r *catalogRepository) catalogAnnotations(ctx context.Context, record app.CatalogRecord) (map[identity.ContentVersionID]app.Supersession, error) {
 	annotations := map[identity.ContentVersionID]app.Supersession{}
-	if r.schemaVersion != 9 || record.Review == app.CatalogUnmanaged {
+	if !catalogSupersessionSchema(r.schemaVersion) || record.Review == app.CatalogUnmanaged {
 		return annotations, nil
 	}
 	if err := r.supersessionReadSchema(ctx); err != nil {
@@ -313,7 +313,7 @@ func (r *catalogRepository) catalogAnnotations(ctx context.Context, record app.C
 }
 
 func (r *catalogRepository) supersessionReadSchema(ctx context.Context) error {
-	if r.schemaVersion != 9 {
+	if !catalogSupersessionSchema(r.schemaVersion) {
 		return app.ErrUnsupported
 	}
 	rows, err := r.transaction.QueryContext(ctx, "SELECT version,migration_id,checksum,dirty FROM tc_schema_migrations ORDER BY version")
@@ -329,7 +329,7 @@ func (r *catalogRepository) supersessionReadSchema(ctx context.Context) error {
 		if err := rows.Scan(&version, &id, &sum, &dirty); err != nil {
 			return repositoryError(ctx, err)
 		}
-		if i >= 9 || version != migrations[i].Version || id != migrations[i].ID || sum != migrationChecksum(migrations[i]) || dirty != 0 {
+		if i >= r.schemaVersion || version != migrations[i].Version || id != migrations[i].ID || sum != migrationChecksum(migrations[i]) || dirty != 0 {
 			return app.ErrUnsupported
 		}
 		i++
@@ -337,7 +337,7 @@ func (r *catalogRepository) supersessionReadSchema(ctx context.Context) error {
 	if err := rows.Err(); err != nil {
 		return repositoryError(ctx, err)
 	}
-	if i != 9 {
+	if i != r.schemaVersion {
 		return app.ErrUnsupported
 	}
 	return nil
@@ -359,7 +359,7 @@ func (r *catalogRepository) supersessionInput(ctx context.Context, op app.Supers
 			return nil, app.ErrUnsupported
 		}
 	}
-	if r.schemaVersion != 9 {
+	if !catalogSupersessionSchema(r.schemaVersion) {
 		return nil, app.ErrUnsupported
 	}
 	var persisted bool
@@ -390,7 +390,7 @@ func (r *catalogRepository) supersessionInput(ctx context.Context, op app.Supers
 			rows.Close()
 			return nil, repositoryError(ctx, err)
 		}
-		if i >= 9 || version != migrations[i].Version || id != migrations[i].ID || sum != migrationChecksum(migrations[i]) || dirty != 0 {
+		if i >= r.schemaVersion || version != migrations[i].Version || id != migrations[i].ID || sum != migrationChecksum(migrations[i]) || dirty != 0 {
 			rows.Close()
 			return nil, app.ErrUnsupported
 		}
@@ -401,7 +401,7 @@ func (r *catalogRepository) supersessionInput(ctx context.Context, op app.Supers
 	if err != nil {
 		return nil, repositoryError(ctx, err)
 	}
-	if i != 9 {
+	if i != r.schemaVersion {
 		return nil, app.ErrUnsupported
 	}
 	return raw, nil

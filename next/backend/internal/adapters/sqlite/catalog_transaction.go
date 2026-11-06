@@ -21,6 +21,19 @@ import (
 var _ app.CatalogTransactor = (*LifecycleOwner)(nil)
 var _ app.CatalogRepository = (*catalogRepository)(nil)
 
+func catalogTransactionSchema(version int) bool {
+	switch version {
+	case 5, 6, 7, 8, 9, 10:
+		return true
+	default:
+		return false
+	}
+}
+
+func catalogSupersessionSchema(version int) bool {
+	return version == 9 || version == 10
+}
+
 // WithinCatalogTransaction retains the restore fence and starts query-only.
 // Only a validated v6 catalog commit enables writes on the leased connection.
 func (owner *LifecycleOwner) WithinCatalogTransaction(ctx context.Context, operation func(app.CatalogRepository) error) error {
@@ -86,7 +99,7 @@ func (owner *LifecycleOwner) catalogTransaction(ctx context.Context, operation f
 		return repositoryError(ctx, err)
 	}
 	// v6 adds state envelopes without changing the accepted v5 query tables.
-	if (version < 5 || version > 9) || dirty != 0 {
+	if !catalogTransactionSchema(version) || dirty != 0 {
 		return app.ErrUnsupported
 	}
 	repository := &catalogRepository{transaction: tx, ctx: ctx, owner: owner, database: owner.database, generation: owner.generation.Load(), schemaVersion: version, statements: make(map[string]*sql.Stmt)}
@@ -396,7 +409,7 @@ func (r *catalogRepository) readStates(ctx context.Context, content identity.Con
 // the identical graph reconstruction twice.
 func (r *catalogRepository) readStatesWithGraph(ctx context.Context, content identity.ContentID, subject domain.CatalogSubject, order bool, bindings domain.CatalogPersistenceBindings, graph bool) ([]catalogStoredState, domain.CatalogRevision, error) {
 	states, revision, err := r.readStatesRaw(ctx, content, subject, order, bindings)
-	if err == nil && graph && r.schemaVersion == 9 {
+	if err == nil && graph && catalogSupersessionSchema(r.schemaVersion) {
 		_, err = r.readSupersession(ctx, content, bindings)
 	}
 	return states, revision, err
@@ -458,7 +471,7 @@ func (r *catalogRepository) readStatesRawWithForeignKeys(ctx context.Context, co
 		eventSQL += ` UNION ALL SELECT aggregate_revision FROM tc_catalog_order_states_v2 WHERE content_id=? AND order_revision>1`
 		args = append(args, id)
 	}
-	if r.schemaVersion == 9 {
+	if catalogSupersessionSchema(r.schemaVersion) {
 		eventSQL += ` UNION ALL SELECT result_aggregate FROM tc_catalog_supersessions WHERE content_id=?`
 		args = append(args, id)
 	}

@@ -148,6 +148,9 @@ func TestAssignmentTransactionInert(t *testing.T) {
 	if reflect.TypeFor[*assignmentTransaction]().Implements(reflect.TypeFor[app.Transactor]()) {
 		t.Fatal("private scope became public Transactor")
 	}
+	if !reflect.TypeFor[*LifecycleOwner]().Implements(reflect.TypeFor[app.Transactor]()) {
+		t.Fatal("LifecycleOwner did not activate assignment Transactor")
+	}
 	if !reflect.TypeFor[*assignmentTransactionPort]().Implements(reflect.TypeFor[app.Port]()) {
 		t.Fatal("callback scope lost Port contract")
 	}
@@ -157,8 +160,8 @@ func TestAssignmentTransactionInert(t *testing.T) {
 	if app.OperationTimeout != 10*time.Second || app.TransactionTimeout != 5*time.Second {
 		t.Fatal("assignment deadlines changed")
 	}
-	if migrations := SchemaMigrations(); len(migrations) != 9 || migrations[8].Version != 9 {
-		t.Fatal("inert transaction activated schema")
+	if migrations := SchemaMigrations(); len(migrations) != 10 || migrations[9].Version != 10 {
+		t.Fatal("coordinated v10 activation missing")
 	}
 	for _, name := range []string{"Save", "WithinAssignmentTransaction"} {
 		if _, exists := reflect.TypeFor[*assignmentTransactionPort]().MethodByName(name); exists {

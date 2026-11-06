@@ -23,7 +23,7 @@ import (
 // deliberately remain separate acceptance work.
 func TestCatalogSchemaRecovery(t *testing.T) {
 	migrations := SchemaMigrations()
-	if len(migrations) != 9 || migrations[5].ID != "0006-catalog-aggregate-state" {
+	if len(migrations) != 10 || migrations[5].ID != "0006-catalog-aggregate-state" {
 		t.Fatal("expected the admitted current schema")
 	}
 	dir := t.TempDir()
@@ -65,7 +65,7 @@ func TestCatalogSchemaRecovery(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { _ = upgraded.Close(context.Background()) })
-		if version, err := upgraded.CurrentVersion(t.Context()); err != nil || version != 9 {
+		if version, err := upgraded.CurrentVersion(t.Context()); err != nil || version != 10 {
 			t.Fatalf("open %d version: %d %v", attempt, version, err)
 		}
 		if got := catalogV4Rows(t, upgraded.database.db); !reflect.DeepEqual(got, before) {
@@ -81,7 +81,7 @@ func TestCatalogSchemaRecovery(t *testing.T) {
 			}
 		}
 		applied, err := readAppliedMigrations(t.Context(), upgraded.database.db)
-		if err != nil || len(applied) != 9 {
+		if err != nil || len(applied) != 10 {
 			t.Fatalf("migration ledger: %+v %v", applied, err)
 		}
 		for i, row := range applied {
@@ -634,7 +634,7 @@ func TestCatalogSnapshotRestoreFailuresKeepOriginal(t *testing.T) {
 				if !reflect.DeepEqual(before, catalogRecoveryRows(t, owner.database.db)) {
 					t.Fatal("preflight failure changed original")
 				}
-				if version, err := owner.CurrentVersion(t.Context()); err != nil || version != 9 {
+				if version, err := owner.CurrentVersion(t.Context()); err != nil || version != 10 {
 					t.Fatal("preflight failure closed owner", version, err)
 				}
 			}
