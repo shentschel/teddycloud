@@ -66,6 +66,9 @@ func assignmentReadError(ctx context.Context, err error) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
+	if code, ok := sqlitePrimaryCode(err); ok && (code == sqlite3.SQLITE_BUSY || code == sqlite3.SQLITE_LOCKED) {
+		return app.ErrContention
+	}
 	return app.ErrUnavailable
 }
 
@@ -974,8 +977,8 @@ func (r *assignmentRepository) checkEvidence(ctx context.Context, event app.Even
 	return nil
 }
 
-// Lookup is GLOBAL. Missing an index row is corrupt when a retained event still
-// names the command. A hit validates the whole owning aggregate before release.
+// Lookup is global. Either both indexed copies are absent or both must agree.
+// A hit validates the whole owning aggregate before releasing its receipt.
 func (r *assignmentRepository) LookupCommand(ctx context.Context, id d.CommandID) (app.Event, bool, error) {
 	if err := r.check(ctx); err != nil {
 		return app.Event{}, false, err
@@ -983,32 +986,24 @@ func (r *assignmentRepository) LookupCommand(ctx context.Context, id d.CommandID
 	if id.IsZero() {
 		return app.Event{}, false, app.ErrInvalidInput
 	}
-	rows, err := r.transaction.QueryContext(ctx, `SELECT assignment_id,tag_id FROM tc_assignment_commands WHERE command_id=?1 UNION SELECT assignment_id,tag_id FROM tc_assignment_events WHERE command_id=?1`, id.String())
+	var eventOwner, eventTag, commandOwner, commandTag sql.NullString
+	var eventRevision, commandRevision sql.NullInt64
+	err := r.transaction.QueryRowContext(ctx, `SELECT e.assignment_id,e.tag_id,e.revision,c.assignment_id,c.tag_id,c.revision
+ FROM (SELECT ? AS id) key
+ LEFT JOIN tc_assignment_events e ON e.command_id=key.id
+ LEFT JOIN tc_assignment_commands c ON c.command_id=key.id`, id.String()).Scan(
+		&eventOwner, &eventTag, &eventRevision, &commandOwner, &commandTag, &commandRevision)
 	if err != nil {
 		return app.Event{}, false, assignmentReadError(ctx, err)
 	}
-	var owner, subject string
-	n := 0
-	for rows.Next() {
-		n++
-		if err = rows.Scan(&owner, &subject); err != nil {
-			break
-		}
+	if !eventRevision.Valid && !commandRevision.Valid {
+		return app.Event{}, false, ctx.Err()
 	}
-	if err == nil {
-		err = rows.Err()
-	}
-	rows.Close()
-	if err != nil {
-		return app.Event{}, false, assignmentReadError(ctx, err)
-	}
-	if n == 0 {
-		return app.Event{}, false, nil
-	}
-	if n != 1 {
+	if !eventOwner.Valid || !eventTag.Valid || !eventRevision.Valid || eventRevision.Int64 < 1 ||
+		eventOwner != commandOwner || eventTag != commandTag || eventRevision != commandRevision {
 		return app.Event{}, false, app.ErrUnavailable
 	}
-	tag, err := identity.ParseTagID(subject)
+	tag, err := identity.ParseTagID(eventTag.String)
 	if err != nil {
 		return app.Event{}, false, app.ErrUnavailable
 	}
@@ -1016,15 +1011,14 @@ func (r *assignmentRepository) LookupCommand(ctx context.Context, id d.CommandID
 	if err != nil {
 		return app.Event{}, false, err
 	}
-	if !found || snapshot.ID.String() != owner {
+	if !found || snapshot.ID.String() != eventOwner.String || eventRevision.Int64 > int64(len(snapshot.Events)) {
 		return app.Event{}, false, app.ErrUnavailable
 	}
-	for _, event := range snapshot.Events {
-		if event.Command.CommandID == id {
-			return event, true, nil
-		}
+	event := snapshot.Events[eventRevision.Int64-1]
+	if event.Command.CommandID != id {
+		return app.Event{}, false, app.ErrUnavailable
 	}
-	return app.Event{}, false, app.ErrUnavailable
+	return event, true, ctx.Err()
 }
 
 // Target reconstructs the requested immutable tuple, never a terminal/latest

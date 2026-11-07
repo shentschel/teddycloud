@@ -398,6 +398,7 @@ Depends on PI09-B2.1. Exact write manifest:
 - `internal/adapters/sqlite/assignment_repository.go` (command lookup/readback)
 - `internal/adapters/sqlite/assignment_failure_test.go`
 - `internal/adapters/sqlite/assignment_restart_test.go`
+- `internal/application/assignment/service.go` (post-finalization outcome reporting)
 - `internal/application/assignment/recovery_test.go`
 
 Use the real owner/SQLite path with bounded in-process faults. Prove precommit

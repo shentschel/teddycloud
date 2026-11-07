@@ -79,7 +79,9 @@ func (s *Service) run(ctx context.Context, operation func(context.Context, Port,
 	if callbackErr != nil {
 		return sanitize(callbackErr)
 	}
-	return sanitize(txctx.Err())
+	// The transactor has resolved the outcome. A later cancellation cannot
+	// turn a confirmed commit into a reported precommit failure.
+	return nil
 }
 
 func allowed(actor AuthenticatedActor, k Kind) bool {

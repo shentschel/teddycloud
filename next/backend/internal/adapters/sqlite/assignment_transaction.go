@@ -3,11 +3,14 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	app "github.com/shentschel/teddycloud/next/backend/internal/application/assignment"
+	catalogapp "github.com/shentschel/teddycloud/next/backend/internal/application/catalog"
 	d "github.com/shentschel/teddycloud/next/backend/internal/domain/assignment"
 	"github.com/shentschel/teddycloud/next/backend/internal/domain/identity"
 )
@@ -38,6 +41,8 @@ func (owner *LifecycleOwner) WithinAssignmentTransaction(ctx context.Context, op
 	if ctx.Value(contentOperationContextKey{}) != nil {
 		return app.ErrContention
 	}
+	ctx, cancel := context.WithTimeout(ctx, app.TransactionTimeout)
+	defer cancel()
 	if !owner.assignmentAdmitted.CompareAndSwap(false, true) {
 		return app.ErrBusy
 	}
@@ -50,32 +55,97 @@ func (owner *LifecycleOwner) WithinAssignmentTransaction(ctx context.Context, op
 		return app.ErrUnavailable
 	}
 
+	return owner.assignmentSQLTransaction(ctx, operation)
+}
+
+// The shared helper rolls back on this marker and joins any finalization
+// failure to it. Read-only callbacks also take this path.
+var errAssignmentPrecommit = errors.New("assignment precommit stopped")
+
+func (owner *LifecycleOwner) assignmentSQLTransaction(ctx context.Context, operation func(app.Port) error) error {
+	// Acquire (or reopen) the pooled handle with the caller's deadline
+	// before detaching cancellation from transaction finalization.
+	connection, err := owner.database.db.Conn(ctx)
+	if err != nil {
+		return assignmentReadError(ctx, err)
+	}
+	if err := connection.Close(); err != nil {
+		return assignmentReadError(ctx, err)
+	}
+
+	var precommit error
 	commitReady := false
-	err := owner.database.withinSQLTransaction(ctx, func(tx *sql.Tx) error {
-		// Reject v9, synthetic v11, dirty ledgers and corrupt references before
-		// granting even the callback-scoped authority.
-		if err := (&assignmentRepository{transaction: tx}).check(ctx); err != nil {
-			return err
+	finished := false
+	defer func() {
+		if !finished {
+			// The shared transaction unwinds first. A panic cannot return a
+			// connection with unverified rollback to the next owner operation.
+			owner.discardAssignmentConnection()
 		}
+	}()
+	// The gate already exclusively owns the single-connection pool. Keep SQL
+	// finalization synchronous and observable: database/sql cancellation must
+	// not race the explicit rollback. Repository work uses the bounded ctx.
+	err = owner.database.withinSQLTransaction(context.WithoutCancel(ctx), func(tx *sql.Tx) error {
+		// Validate the selected schema before granting callback authority.
 		scope := &assignmentTransaction{}
-		if err := scope.run(ctx, tx, assignmentOwnerActor, operation); err != nil {
-			return err
+		precommit = (&assignmentRepository{transaction: tx}).check(ctx)
+		if precommit == nil {
+			precommit = scope.run(ctx, tx, assignmentOwnerActor, operation)
 		}
-		commitReady = true
+		if precommit == nil {
+			precommit = ctx.Err()
+		}
+		commitReady = precommit == nil && scope.wrote
+		if !commitReady {
+			return errAssignmentPrecommit
+		}
 		return nil
 	})
+	finished = true
 	if err == nil {
 		return nil
 	}
 	if commitReady {
+		// The callback was admitted to commit. A driver or cleanup failure can
+		// hide a durable result. The fence stays held through finalization.
+		owner.discardAssignmentConnection()
 		return app.ErrIndeterminate
 	}
+	if err == errAssignmentPrecommit {
+		if precommit == nil {
+			return ctx.Err()
+		}
+		return assignmentBoundaryError(ctx, precommit)
+	}
+	if errors.Is(err, errAssignmentPrecommit) {
+		// Commit was never possible. Remove the connection with a failed
+		// rollback or failed cleanup before allowing another owner operation.
+		owner.discardAssignmentConnection()
+		return app.ErrUnavailable
+	}
 	return assignmentBoundaryError(ctx, err)
+}
+
+func (owner *LifecycleOwner) discardAssignmentConnection() {
+	cleanup, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	connection, err := owner.database.db.Conn(cleanup)
+	if err != nil {
+		return
+	}
+	_ = connection.Raw(func(any) error { return driver.ErrBadConn })
+	_ = connection.Close()
+	// Re-establish the owner's persistent WAL setting on the replacement.
+	_ = preserveWALSidecars(cleanup, owner.database)
 }
 
 func assignmentBoundaryError(ctx context.Context, err error) error {
 	if ctx != nil && ctx.Err() != nil {
 		return ctx.Err()
+	}
+	if errors.Is(err, catalogapp.ErrRepositoryContention) {
+		return app.ErrContention
 	}
 	for _, allowed := range []error{
 		context.Canceled, context.DeadlineExceeded,
@@ -96,9 +166,12 @@ func assignmentBoundaryError(ctx context.Context, err error) error {
 // assignmentTransaction supplies callback scope only. A trusted harness owns
 // authentication and the SQL transaction's begin/commit/rollback lifecycle.
 // Keeping run private prevents this inert component from becoming a Transactor.
-type assignmentTransaction struct{ active atomic.Bool }
+type assignmentTransaction struct {
+	active atomic.Bool
+	wrote  bool
+}
 
-func (transaction *assignmentTransaction) run(ctx context.Context, tx *sql.Tx, actor app.AuthenticatedActor, operation func(app.Port) error) error {
+func (transaction *assignmentTransaction) run(ctx context.Context, tx *sql.Tx, actor app.AuthenticatedActor, operation func(app.Port) error) (result error) {
 	if ctx == nil || operation == nil {
 		return app.ErrInvalidInput
 	}
@@ -113,36 +186,36 @@ func (transaction *assignmentTransaction) run(ctx context.Context, tx *sql.Tx, a
 	}
 	defer transaction.active.Store(false)
 
-	port := &assignmentTransactionPort{repository: &assignmentRepository{transaction: tx}, actor: actor, live: true}
-	err := operation(port)
-	failure := port.revoke()
-	if err != nil {
-		return err
-	}
-	if failure != nil {
-		return failure
-	}
-	return ctx.Err()
+	port := &assignmentTransactionPort{repository: &assignmentRepository{transaction: tx}, actor: actor, ctx: ctx, live: true}
+	defer func() {
+		wrote, failure := port.revoke()
+		transaction.wrote = wrote
+		if result == nil {
+			result = failure
+		}
+		if result == nil {
+			result = ctx.Err()
+		}
+	}()
+	return operation(port)
 }
 
 type assignmentTransactionPort struct {
 	mutex      sync.Mutex
 	repository *assignmentRepository
 	actor      app.AuthenticatedActor
+	ctx        context.Context
 	live       bool
 	failure    error
 	committed  bool
 }
 
-func (port *assignmentTransactionPort) revoke() error {
-	if port == nil {
-		return app.ErrUnavailable
-	}
+func (port *assignmentTransactionPort) revoke() (bool, error) {
 	port.mutex.Lock()
 	defer port.mutex.Unlock()
 	port.live = false
 	port.repository = nil
-	return port.failure
+	return port.committed && port.failure == nil, port.failure
 }
 
 func (port *assignmentTransactionPort) call(ctx context.Context) (*assignmentRepository, error) {
@@ -154,6 +227,9 @@ func (port *assignmentTransactionPort) call(ctx context.Context) (*assignmentRep
 	}
 	if port == nil || !port.live || port.repository == nil {
 		return nil, app.ErrUnavailable
+	}
+	if err := port.ctx.Err(); err != nil {
+		return nil, err
 	}
 	return port.repository, nil
 }
@@ -228,13 +304,13 @@ func (port *assignmentTransactionPort) Commit(ctx context.Context, expected uint
 	}
 	port.mutex.Lock()
 	defer port.mutex.Unlock()
-	if port.committed {
-		port.failure = app.ErrUnavailable
-		return port.failure
-	}
 	repository, err := port.call(ctx)
 	if err != nil {
 		return err
+	}
+	if port.committed {
+		port.failure = app.ErrUnavailable
+		return port.failure
 	}
 	port.committed = true
 	if err := repository.commit(ctx, expected, snapshot); err != nil {
