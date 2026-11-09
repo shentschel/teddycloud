@@ -5,9 +5,11 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"errors"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
+	"weak"
 
 	app "github.com/shentschel/teddycloud/next/backend/internal/application/assignment"
 	catalogapp "github.com/shentschel/teddycloud/next/backend/internal/application/catalog"
@@ -24,6 +26,8 @@ var assignmentOwnerActor = app.AuthenticatedActor{
 	Decide:    true,
 	Review:    true,
 }
+
+var assignmentRestoreValidations sync.Map // weak.Pointer[LifecycleOwner] -> uint64
 
 // WithinAssignmentTransaction is the only production assignment authority. It
 // shares the LifecycleOwner fence and one SQLite transaction for every Tag and
@@ -87,9 +91,18 @@ func (owner *LifecycleOwner) assignmentSQLTransaction(ctx context.Context, opera
 	// finalization synchronous and observable: database/sql cancellation must
 	// not race the explicit rollback. Repository work uses the bounded ctx.
 	err = owner.database.withinSQLTransaction(context.WithoutCancel(ctx), func(tx *sql.Tx) error {
-		// Validate the selected schema before granting callback authority.
-		scope := &assignmentTransaction{}
-		precommit = (&assignmentRepository{transaction: tx}).check(ctx)
+		// Bind callback authority to the selected lifecycle generation as well
+		// as this SQL transaction. A restore revokes the generation before it
+		// can select a replacement handle.
+		scope := &assignmentTransaction{
+			generation:         &owner.generation,
+			admittedGeneration: owner.generation.Load(),
+		}
+		repository := &assignmentRepository{transaction: tx}
+		precommit = repository.check(ctx)
+		if precommit == nil {
+			precommit = owner.validateAssignmentRestore(ctx, repository)
+		}
 		if precommit == nil {
 			precommit = scope.run(ctx, tx, assignmentOwnerActor, operation)
 		}
@@ -125,6 +138,60 @@ func (owner *LifecycleOwner) assignmentSQLTransaction(ctx context.Context, opera
 		return app.ErrUnavailable
 	}
 	return assignmentBoundaryError(ctx, err)
+}
+
+// The generic backup boundary verifies SQLite, foreign keys and migrations.
+// Before a restored generation grants Assignment authority, validate every
+// retained aggregate once as well. This keeps a canonically corrupt ledger from
+// exposing an otherwise healthy subset or accepting new writes.
+func (owner *LifecycleOwner) validateAssignmentRestore(ctx context.Context, repository *assignmentRepository) error {
+	generation := owner.generation.Load()
+	if generation == 0 {
+		return nil
+	}
+	key := weak.Make(owner)
+	if validated, ok := assignmentRestoreValidations.Load(key); ok && validated.(uint64) == generation {
+		return nil
+	}
+	rows, err := repository.transaction.QueryContext(ctx, `SELECT tag_id FROM tc_assignments ORDER BY tag_id`)
+	if err != nil {
+		return assignmentReadError(ctx, err)
+	}
+	tags := make([]identity.TagID, 0)
+	for rows.Next() {
+		var raw string
+		if err = rows.Scan(&raw); err != nil {
+			break
+		}
+		tag, parseErr := identity.ParseTagID(raw)
+		if parseErr != nil {
+			err = app.ErrUnavailable
+			break
+		}
+		tags = append(tags, tag)
+	}
+	if err == nil {
+		err = rows.Err()
+	}
+	rows.Close()
+	if err != nil {
+		return assignmentReadError(ctx, err)
+	}
+	for _, tag := range tags {
+		if _, found, err := repository.load(ctx, tag); err != nil {
+			return err
+		} else if !found {
+			return app.ErrUnavailable
+		}
+	}
+	if _, loaded := assignmentRestoreValidations.LoadOrStore(key, generation); loaded {
+		assignmentRestoreValidations.Store(key, generation)
+	} else {
+		runtime.AddCleanup(owner, func(key weak.Pointer[LifecycleOwner]) {
+			assignmentRestoreValidations.Delete(key)
+		}, key)
+	}
+	return nil
 }
 
 func (owner *LifecycleOwner) discardAssignmentConnection() {
@@ -167,8 +234,14 @@ func assignmentBoundaryError(ctx context.Context, err error) error {
 // authentication and the SQL transaction's begin/commit/rollback lifecycle.
 // Keeping run private prevents this inert component from becoming a Transactor.
 type assignmentTransaction struct {
-	active atomic.Bool
-	wrote  bool
+	active             atomic.Bool
+	wrote              bool
+	generation         *atomic.Uint64
+	admittedGeneration uint64
+}
+
+func (transaction *assignmentTransaction) generationValid() bool {
+	return transaction.generation == nil || transaction.generation.Load() == transaction.admittedGeneration
 }
 
 func (transaction *assignmentTransaction) run(ctx context.Context, tx *sql.Tx, actor app.AuthenticatedActor, operation func(app.Port) error) (result error) {
@@ -181,17 +254,30 @@ func (transaction *assignmentTransaction) run(ctx context.Context, tx *sql.Tx, a
 	if transaction == nil || tx == nil {
 		return app.ErrUnavailable
 	}
+	if !transaction.generationValid() {
+		return app.ErrUnavailable
+	}
 	if !transaction.active.CompareAndSwap(false, true) {
 		return app.ErrBusy
 	}
 	defer transaction.active.Store(false)
 
-	port := &assignmentTransactionPort{repository: &assignmentRepository{transaction: tx}, actor: actor, ctx: ctx, live: true}
+	port := &assignmentTransactionPort{
+		repository:         &assignmentRepository{transaction: tx},
+		actor:              actor,
+		ctx:                ctx,
+		live:               true,
+		generation:         transaction.generation,
+		admittedGeneration: transaction.admittedGeneration,
+	}
 	defer func() {
 		wrote, failure := port.revoke()
 		transaction.wrote = wrote
 		if result == nil {
 			result = failure
+		}
+		if result == nil && !transaction.generationValid() {
+			result = app.ErrUnavailable
 		}
 		if result == nil {
 			result = ctx.Err()
@@ -201,13 +287,15 @@ func (transaction *assignmentTransaction) run(ctx context.Context, tx *sql.Tx, a
 }
 
 type assignmentTransactionPort struct {
-	mutex      sync.Mutex
-	repository *assignmentRepository
-	actor      app.AuthenticatedActor
-	ctx        context.Context
-	live       bool
-	failure    error
-	committed  bool
+	mutex              sync.Mutex
+	repository         *assignmentRepository
+	actor              app.AuthenticatedActor
+	ctx                context.Context
+	live               bool
+	failure            error
+	committed          bool
+	generation         *atomic.Uint64
+	admittedGeneration uint64
 }
 
 func (port *assignmentTransactionPort) revoke() (bool, error) {
@@ -226,6 +314,9 @@ func (port *assignmentTransactionPort) call(ctx context.Context) (*assignmentRep
 		return nil, err
 	}
 	if port == nil || !port.live || port.repository == nil {
+		return nil, app.ErrUnavailable
+	}
+	if port.generation != nil && port.generation.Load() != port.admittedGeneration {
 		return nil, app.ErrUnavailable
 	}
 	if err := port.ctx.Err(); err != nil {
