@@ -669,8 +669,22 @@ non-race with `-count=1`, even when other lanes also select them.
 | --- | --- |
 | Mandatory accounting one-shot | `TestSupersessionSQLiteCombinedWriterBytes`, `TestSupersessionSQLiteCombinedWriterObservations`, `TestSupersessionSQLiteCombinedWriterEvents`, `TestSupersessionSQLiteCombinedRegisterContentBytes`; `-count=1`, non-race, no skipped assertions. |
 | Focused SQLite/architecture regression | Skip only the observation/event fixtures explicitly run above. Tag/tagregistry regression remains required. |
-| Ordinary SQLite repetition | `-timeout=20m -count=10`; skip only `TestSupersessionSQLiteCombinedWriterObservations` and `TestSupersessionSQLiteCombinedWriterEvents`. Every other SQLite test, including both byte fixtures, retains ten repetitions. |
+| Ordinary SQLite repetition | Two disjoint `-timeout=20m -count=10` shards: one selects `^TestSupersession` and skips only `TestSupersessionSQLiteCombinedWriterObservations` and `TestSupersessionSQLiteCombinedWriterEvents`; the other skips `^TestSupersession`. Their union selects every other SQLite test exactly once, including both byte fixtures. |
 | Persistence/domain race | Uncached `-count=1 -timeout=25m -race`; skip only the four named accounting fixtures. All other SQLite tests and all six companion packages retain their existing race coverage. |
+
+Runtime-only sharding amendment, 2026-11-09. Request
+`pi09-b2-2-ci-runtime-repair-20261109`, basis
+`a86c7442a0825386336f96959a23a54e0483016d`, replaces the single ordinary
+repetition package invocation with the two disjoint shards above. Exact-head CI
+run `42347944331` exhausted the cumulative 20-minute package deadline while the
+active stack was in `TestSupersessionHistoryCursor`; a qualified isolated
+tenfold run completed in 20.744 seconds, so that stack was not the runtime root
+cause. Qualified tenfold runs of the complete Supersession and complementary
+shards completed in 292.235 and 645.248 seconds. The cumulative package was too
+large for one deadline; no assertion, repetition count, package deadline,
+operation deadline, race package or accounting exception changes. The shards
+run in their own workflow job so the existing persistence/race evidence retains
+its 45-minute job budget.
 
 The exact commands, including anchored selectors and race package set, are:
 
@@ -678,12 +692,14 @@ The exact commands, including anchored selectors and race package set, are:
 go test -count=1 -run '^TestSupersessionSQLiteCombined(WriterBytes|WriterObservations|WriterEvents|RegisterContentBytes)$' ./backend/internal/adapters/sqlite
 go test -skip '^TestSupersessionSQLiteCombinedWriter(Observations|Events)$' ./backend/internal/adapters/sqlite ./backend/internal/architecture
 go test ./backend/internal/domain/tag ./backend/internal/application/tagregistry
-go test -timeout=20m -count=10 -skip '^TestSupersessionSQLiteCombinedWriter(Observations|Events)$' ./backend/internal/adapters/sqlite
+go test -timeout=20m -count=10 -run '^TestSupersession' -skip '^TestSupersessionSQLiteCombinedWriter(Observations|Events)$' ./backend/internal/adapters/sqlite
+go test -timeout=20m -count=10 -skip '^TestSupersession' ./backend/internal/adapters/sqlite
 go test -count=1 -timeout=25m -race -skip '^TestSupersessionSQLiteCombined(WriterBytes|WriterObservations|WriterEvents|RegisterContentBytes)$' ./backend/internal/adapters/sqlite ./backend/internal/architecture ./backend/internal/domain/tag ./backend/internal/domain/content ./backend/internal/application/tagregistry ./backend/internal/testutil/taffixture ./backend/internal/adapters/contentfs
 ```
 
-The persistence job's 45-minute timeout and other package/job timeouts stay
-unchanged. Qualified Linux contentfs `-count=10`, Darwin boundary compilation,
+The persistence job's existing 45-minute timeout stays unchanged; the separate
+repetition job uses the same 45-minute job timeout. Other package/job timeouts
+stay unchanged. Qualified Linux contentfs `-count=10`, Darwin boundary compilation,
 package/full-backend/vet, `make -C next check`, fuzz, deterministic build/smoke
 and reproducibility gates remain required. Existing advisory semantics remain
 unchanged. No workflow or test implementation is changed by this disposition.
@@ -740,7 +756,7 @@ initialization without a decision event; import's existing pre-write/global-only
 semantics are unchanged. Driver-boundary tests prove rejection before attempted
 writes, full snapshots and replay; post-admission drift proves final checks.
 
-M2 is independently closed: the five D2l commands match the actual workflow;
+M2 is independently closed: the six D2l commands match the actual workflow;
 the explicit residual repetition/race risk and exact exception set are retained.
 D2j's already accepted gates and support-count dominance proof stand without
 repetition or extension. Existing F01/R/A/B acceptance remains unchanged.

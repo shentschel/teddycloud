@@ -106,6 +106,33 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  sqlite-repetition:
+    name: SQLite repetition shards
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: |
+            next/backend/go.mod
+            next/tools/go.mod
+            next/tools/go.sum
+            next/go.work
+
+      - name: Run ordinary SQLite repetition shards
+        working-directory: next
+        # These selectors are a disjoint partition: the first shard owns every
+        # Supersession test except the two D2l repetition exceptions; the second
+        # owns every non-Supersession test. Thus every ordinary SQLite test still
+        # runs exactly ten times, while each package invocation keeps the 20m limit.
+        run: |
+          go test -timeout=20m -count=10 -run '^TestSupersession' -skip '^TestSupersessionSQLiteCombinedWriter(Observations|Events)$' ./backend/internal/adapters/sqlite
+          go test -timeout=20m -count=10 -skip '^TestSupersession' ./backend/internal/adapters/sqlite
+
   sqlite-persistence:
     name: Persistence and domain regression and race evidence
     runs-on: ubuntu-24.04
@@ -132,14 +159,14 @@ jobs:
         # expensive command-authored fixtures; neither is rebuilt ten times below.
         run: go test -count=1 -run '^TestSupersessionSQLiteCombined(WriterBytes|WriterObservations|WriterEvents|RegisterContentBytes)$' ./backend/internal/adapters/sqlite
 
-      - name: Run focused SQLite regressions and repetition
+      - name: Run focused SQLite regressions
         working-directory: next
         # Exclude only the observation and event tests explicitly covered above.
-        # Every other SQLite test retains the full ten repetitions.
+        # Every other SQLite test retains full tenfold coverage in the separate
+        # repetition-shards job.
         run: |
           go test -skip '^TestSupersessionSQLiteCombinedWriter(Observations|Events)$' ./backend/internal/adapters/sqlite ./backend/internal/architecture
           go test ./backend/internal/domain/tag ./backend/internal/application/tagregistry
-          go test -timeout=20m -count=10 -skip '^TestSupersessionSQLiteCombinedWriter(Observations|Events)$' ./backend/internal/adapters/sqlite
 
       - name: Run focused persistence and domain race evidence
         working-directory: next
