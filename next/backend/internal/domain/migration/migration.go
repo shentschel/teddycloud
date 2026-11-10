@@ -9,6 +9,7 @@ import (
 	"errors"
 	"sort"
 
+	assignment "github.com/shentschel/teddycloud/next/backend/internal/domain/assignment"
 	"github.com/shentschel/teddycloud/next/backend/internal/domain/catalog"
 	"github.com/shentschel/teddycloud/next/backend/internal/domain/evidence"
 	"github.com/shentschel/teddycloud/next/backend/internal/domain/identity"
@@ -26,12 +27,14 @@ var (
 	ErrSource = errors.New("migration requires unique source references")
 )
 
-type Classification uint8
+// Classification retains the legacy fixture spelling, using the one domain
+// vocabulary. A raw value is a claim, not reviewed physical classification.
+type Classification = assignment.PhysicalClassification
 
 const (
-	Unclassified Classification = iota
-	Original
-	CustomCard
+	Unclassified = assignment.Unknown
+	Original     = assignment.Original
+	CustomCard   = assignment.CustomCard
 )
 
 type Availability uint8
@@ -91,13 +94,40 @@ type Result struct {
 	grouping set.Set
 }
 
-func (r Result) Raw() Record                             { return clone(r.raw) }
-func (r Result) Status() Status                          { return r.status }
-func (r Result) Issues() []Issue                         { return append([]Issue(nil), r.issues...) }
+func (r Result) Raw() Record     { return clone(r.raw) }
+func (r Result) Status() Status  { return r.status }
+func (r Result) Issues() []Issue { return append([]Issue(nil), r.issues...) }
+
+// Protected is the legacy preservation marker, NOT physical classification or
+// accepted catalog authorship. Even unresolved custom raw evidence retains it.
 func (r Result) Protected() bool                         { return r.raw.Classification == CustomCard }
 func (r Result) Content() (catalog.Content, bool)        { return r.content, !r.content.ID().IsZero() }
 func (r Result) Version() (catalog.ContentVersion, bool) { return r.version, !r.version.ID().IsZero() }
 func (r Result) Set() (set.Set, bool)                    { return r.grouping, !r.grouping.ID().IsZero() }
+
+// AdaptClassification is an explicit, in-memory fixture adapter. It neither
+// authenticates a caller nor allocates identities, persists reviews or imports
+// production data. The caller supplies a domain capability, command/evidence
+// identities and disposition. Run alone never grants classification authority.
+// Unresolved results cannot be promoted by this seam; their raw evidence and
+// previous outcomes remain available for a separate, explicit review workflow.
+func (r Result) AdaptClassification(state assignment.TagEvidence, authority assignment.ReviewAuthority,
+	request assignment.ReviewRequest, id assignment.EvidenceID, disposition assignment.EvidenceDisposition,
+) (assignment.TagEvidence, error) {
+	if r.status != Accepted || r.raw.TagID.IsZero() || (r.raw.Classification != Original && r.raw.Classification != CustomCard) {
+		return state, assignment.ErrInvalidEvidence
+	}
+	if state.Subject() != r.raw.TagID {
+		return state, assignment.ErrEvidenceSubject
+	}
+	// Source is descriptive imported provenance; it cannot mint manufacturer or
+	// operator authority. Preserve the complete original Source in Raw/Issues.
+	claim, err := assignment.NewEvidence(id, r.raw.TagID, assignment.ImportedAssertion, r.raw.Source.Name(), disposition)
+	if err != nil {
+		return state, err
+	}
+	return state.AdmitClassification(authority, request, claim, r.raw.Classification)
+}
 
 func (r *Result) issue(status Status, reason string) {
 	r.issues = append(r.issues, Issue{Status: status, Reason: reason, Source: r.raw.Source})

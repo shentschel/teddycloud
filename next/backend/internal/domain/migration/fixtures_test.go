@@ -87,3 +87,12 @@ func fixtures(t *testing.T) []Record {
 	}
 	return append(records, grouping)
 }
+
+// Extra review inputs are allocated by the test caller, never derived by the
+// migration adapter from a UID, filename, fingerprint or array position.
+func classificationFixture(t *testing.T, n int, class Classification) Record {
+	t.Helper()
+	r := tagFixture(t, fixture(t, n, "classification-adapter"), n, "11:22:33:44:55:66:77:88")
+	r.Classification = class
+	return r
+}

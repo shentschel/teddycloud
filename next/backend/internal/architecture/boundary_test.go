@@ -1,6 +1,7 @@
 package architecture_test
 
 import (
+	"go/ast"
 	"go/parser"
 	"go/token"
 	"io/fs"
@@ -135,5 +136,84 @@ func assertForbiddenImports(
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+// This is a source inventory, not a claim that trusted in-process Go code is a
+// security sandbox. The dynamic audit separately exercises the actual ports.
+func TestAssignmentAuditNoBypass(t *testing.T) {
+	root := backendSourceRoot(t)
+	calls := map[string]map[string]bool{
+		"WithinAssignmentTransaction": {"internal/application/assignment/service.go": true},
+		"AdmitClassification":         {"internal/domain/assignment/classification.go": true, "internal/application/assignment/service.go": true, "internal/application/assignment/queries.go": true, "internal/adapters/sqlite/assignment_repository.go": true, "internal/domain/migration/migration.go": true},
+		"ResolveClassification":       {"internal/application/assignment/service.go": true, "internal/application/assignment/queries.go": true, "internal/adapters/sqlite/assignment_repository.go": true},
+	}
+	seen := map[string]int{}
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		rel = filepath.ToSlash(rel)
+		file, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+		if err != nil {
+			return err
+		}
+		ast.Inspect(file, func(node ast.Node) bool {
+			switch n := node.(type) {
+			case *ast.SelectorExpr:
+				if allowed, ok := calls[n.Sel.Name]; ok {
+					// Includes method values as well as direct calls, preventing trivial aliases.
+					seen[n.Sel.Name]++
+					if !allowed[rel] {
+						t.Errorf("assignment authority reference %s in %s", n.Sel.Name, rel)
+					}
+				}
+			case *ast.BasicLit:
+				if n.Kind != token.STRING {
+					return true
+				}
+				value, err := strconv.Unquote(n.Value)
+				if err != nil {
+					return true
+				}
+				if strings.Contains(value, "tc_assignment") {
+					// Every current table-bearing statement, including dynamic table names,
+					// is inventoried. Schema owns DDL, repository DML, transaction restore read.
+					if rel != "internal/adapters/sqlite/assignment_schema.go" && rel != "internal/adapters/sqlite/assignment_repository.go" && rel != "internal/adapters/sqlite/assignment_transaction.go" {
+						t.Errorf("assignment SQL escaped owner: %s", rel)
+					}
+					if rel == "internal/adapters/sqlite/assignment_transaction.go" && !strings.HasPrefix(strings.TrimSpace(value), "SELECT ") {
+						t.Errorf("transaction layer gained assignment write: %s", value)
+					}
+				}
+			}
+			return true
+		})
+		// URI admission and classification cannot acquire network/filesystem/process
+		// I/O through their own imports. Existing domain boundary covers dependencies.
+		if strings.HasPrefix(rel, "internal/domain/assignment/") || strings.HasPrefix(rel, "internal/application/assignment/") || rel == "internal/domain/migration/migration.go" {
+			for _, imp := range file.Imports {
+				name, _ := strconv.Unquote(imp.Path.Value)
+				for _, prefix := range []string{"net", "os", "syscall", "unsafe", "plugin", "database", "io/fs"} {
+					if name == prefix || strings.HasPrefix(name, prefix+"/") {
+						t.Errorf("assignment policy gained I/O import %s in %s", name, rel)
+					}
+				}
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if seen["WithinAssignmentTransaction"] != 1 || seen["AdmitClassification"] != 4 || seen["ResolveClassification"] != 4 {
+		t.Fatalf("authority inventory changed: %v", seen)
 	}
 }

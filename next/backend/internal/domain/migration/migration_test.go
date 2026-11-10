@@ -191,3 +191,26 @@ func FuzzMigrationDeterminism(f *testing.F) {
 		}
 	})
 }
+
+func TestAssignmentMigrationRawVocabulary(t *testing.T) {
+	// Preserve the original numeric wire/fixture values. Domain Conflict is a
+	// derived review result, never a valid raw legacy classification claim.
+	if Unclassified != 0 || Original != 1 || CustomCard != 2 {
+		t.Fatal("legacy classification values changed")
+	}
+	for _, class := range []Classification{3, 255} {
+		raw := classificationFixture(t, 80, class)
+		want := clone(raw)
+		results, err := Run([]Record{raw})
+		if err != nil || results[0].Status() != Rejected || !reflect.DeepEqual(results[0].Raw(), want) {
+			t.Fatal("invalid raw classification was normalized", err)
+		}
+		found := false
+		for _, issue := range results[0].Issues() {
+			found = found || issue.Reason == "invalid-state"
+		}
+		if !found {
+			t.Fatal("previous invalid-state outcome lost")
+		}
+	}
+}
