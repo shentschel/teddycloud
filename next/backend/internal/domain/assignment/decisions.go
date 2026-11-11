@@ -255,24 +255,52 @@ func (s DecisionLedger) LookupCommand(c DecisionCommand) (DecisionResult, bool, 
 	if err != nil {
 		return DecisionResult{}, false, err
 	}
-	for _, event := range s.events {
-		prior := event.Result.Command
-		if prior.input.CommandID != c.input.CommandID {
+	for i := range s.events {
+		if s.events[i].Result.Command.input.CommandID != c.input.CommandID {
 			continue
 		}
-		original, err := prior.CanonicalBytes()
+		original, err := s.events[i].Result.Command.CanonicalBytes()
 		if err != nil {
 			return DecisionResult{}, false, err
 		}
 		if !bytes.Equal(b, original) {
 			return DecisionResult{}, false, ErrCommandConflict
 		}
-		return event.Result, true, nil
+		return s.events[i].Result, true, nil
 	}
 	return DecisionResult{}, false, nil
 }
 
+// NewDecisionReconstruction returns a single-sequence replay operation with a
+// private, bounded history buffer. It is for synchronous reconstruction, not a
+// concurrent writer. Copies of the returned function share the same sequence.
+// Each returned ledger is an immutable prefix; ordinary Admit still copies it.
+// Capacity is only an allocation hint, never a smaller admission limit.
+func NewDecisionReconstruction(id ID, tag identity.TagID, capacity int) (func(DecisionCommand, DecisionReferences, time.Time) (DecisionLedger, DecisionResult, error), error) {
+	if capacity < 0 || uint64(capacity) > MaxEvidenceEvents {
+		return nil, ErrEvidenceEventLimit
+	}
+	head, err := NewDecisionLedger(id, tag)
+	if err != nil {
+		return nil, err
+	}
+	events := make([]DecisionEvent, 0, capacity)
+	return func(c DecisionCommand, refs DecisionReferences, at time.Time) (DecisionLedger, DecisionResult, error) {
+		next, result, err := head.admit(c, refs, at, &events)
+		if err == nil {
+			head = next
+		}
+		return next, result, err
+	}, nil
+}
+
 func (s DecisionLedger) Admit(c DecisionCommand, refs DecisionReferences, recordedAt time.Time) (DecisionLedger, DecisionResult, error) {
+	return s.admit(c, refs, recordedAt, nil)
+}
+
+// Only the reconstruction closure supplies its privately owned buffer. Replay
+// and every admission check are shared with normal immutable appends.
+func (s DecisionLedger) admit(c DecisionCommand, refs DecisionReferences, recordedAt time.Time, buffer *[]DecisionEvent) (DecisionLedger, DecisionResult, error) {
 	if r, found, err := s.LookupCommand(c); err != nil || found {
 		return s, r, err
 	}
@@ -321,10 +349,18 @@ func (s DecisionLedger) Admit(c DecisionCommand, refs DecisionReferences, record
 	if err != nil {
 		return s, DecisionResult{}, err
 	}
-	// All admission checks precede allocation; no older snapshot is mutated.
-	events := make([]DecisionEvent, len(s.events)+1)
-	copy(events, s.events)
-	events[len(s.events)] = event
-	s.events, s.usage, s.revision, s.retired = events, u, r.Revision, in.Kind == Retire
+	// All admission checks precede allocation or a reconstruction-buffer write.
+	// Reconstruction appends only beyond every published prefix; no old event
+	// is overwritten. Normal admission never reuses a published backing array.
+	var events []DecisionEvent
+	if buffer == nil {
+		events = make([]DecisionEvent, len(s.events)+1)
+		copy(events, s.events)
+		events[len(s.events)] = event
+	} else {
+		*buffer = append(*buffer, event)
+		events = *buffer
+	}
+	s.events, s.usage, s.revision, s.retired = events[:len(events):len(events)], u, r.Revision, in.Kind == Retire
 	return s, r, nil
 }

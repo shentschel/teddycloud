@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -235,14 +236,19 @@ func TestAssignmentReachableRetentionBoundaries(t *testing.T) {
 	service, m := fixture(t)
 	m.actor.Reference = "x"
 	installSnapshot(m, a.snapshot)
+	started := time.Now()
 	view := effective(t, service, in, 100000, nil)
+	t.Logf("bounded readback: %s", time.Since(started))
 	if view.Desired.HeadRevision != 4096 || view.Desired.State != d.Unassigned {
 		t.Fatal("bounded service read lost exhausted history")
 	}
+	stored := cloneSnapshot(m.snapshots[in.TagID])
+	started = time.Now()
 	_, err = service.Execute(context.Background(), command(t, 4097, Unassign, 4096))
+	t.Logf("bounded event +1: %s", time.Since(started))
 	wantError(t, err, ErrLimit)
-	if m.commits != 0 {
-		t.Fatal("event limit committed")
+	if m.commits != 0 || !reflect.DeepEqual(stored, m.snapshots[in.TagID]) {
+		t.Fatal("event limit committed or mutated retained state")
 	}
 }
 
@@ -309,7 +315,9 @@ func TestAssignmentRetainedSupportExactAndPlusOne(t *testing.T) {
 	service, m := fixture(t)
 	m.actor.Reference = "x"
 	installSnapshot(m, exact.snapshot)
+	started := time.Now()
 	view := effective(t, service, in, 100000, nil)
+	t.Logf("bounded readback: %s", time.Since(started))
 	if view.Classification != d.Original || view.Desired.HeadRevision != exact.snapshot.Usage.Events() {
 		t.Fatal("complete support readback lost review")
 	}
@@ -335,7 +343,7 @@ func previewDecisionCharge(t *testing.T, a aggregate, in Command, actor string) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	event := Event{Command: in, Actor: actor, Result: result, RecordedAt: time.Unix(1, 0), Primitive: primitive}
+	event := Event{Command: in, Actor: actor, Result: result, RecordedAt: time.Unix(1, 0).UTC(), Primitive: primitive}
 	extra, err := retainedEnvelopeBytes(event)
 	if err != nil {
 		t.Fatal(err)
@@ -422,13 +430,18 @@ func TestAssignmentRetainedBytesExactAndPlusOne(t *testing.T) {
 	m.actor.Reference = "x"
 	service.now = func() time.Time { return time.Unix(1, 0) }
 	installSnapshot(m, a.snapshot)
+	stored := cloneSnapshot(m.snapshots[second.TagID])
+	started := time.Now()
 	_, err = service.Execute(context.Background(), second)
+	t.Logf("bounded byte +1: %s", time.Since(started))
 	wantError(t, err, ErrLimit)
-	if m.commits != 0 {
-		t.Fatal("byte overflow committed")
+	if m.commits != 0 || !reflect.DeepEqual(stored, m.snapshots[second.TagID]) {
+		t.Fatal("byte overflow committed or mutated retained state")
 	}
 	installSnapshot(m, exact.snapshot)
+	started = time.Now()
 	view := effective(t, service, second, 100000, nil)
+	t.Logf("bounded byte readback: %s", time.Since(started))
 	if view.Desired.HeadRevision != exact.snapshot.Usage.Events() {
 		t.Fatal("byte-exhausted history unreadable")
 	}
@@ -461,5 +474,56 @@ func installSnapshot(m *memory, snapshot Snapshot) {
 	m.commands = map[d.CommandID]Event{}
 	for _, event := range snapshot.Events {
 		m.commands[event.Command.CommandID] = event
+	}
+}
+
+// Reconstructed buffers are private to one load. A later append or failed
+// admission must preserve both the loaded prefix and the port's retained data.
+func TestAssignmentReconstructionIsolation(t *testing.T) {
+	service, m := fixture(t)
+	for n, kind := range []Kind{Assign, RecordClassification, RecordClassification, ResolveClassification, Unassign} {
+		in := command(t, n+1, kind, uint64(n))
+		if n == 2 {
+			in.Classification = d.CustomCard
+		}
+		if kind == ResolveClassification {
+			in.Support = []d.EvidenceID{command(t, 2, RecordClassification, 1).Evidence.ID()}
+		}
+		execute(t, service, in)
+	}
+	in := command(t, 6, Assign, 5)
+	stored := cloneSnapshot(m.snapshots[in.TagID])
+	err := m.WithinAssignmentTransaction(t.Context(), func(p Port) error {
+		a, found, err := load(t.Context(), p, in.TagID)
+		if err != nil || !found || !reflect.DeepEqual(a.snapshot, stored) {
+			t.Fatalf("reconstructed mixed history: found %t, %v", found, err)
+		}
+		before := cloneSnapshot(a.snapshot)
+		auth, _ := d.BindAuthenticatedReviewAuthority(m.actor.Reference)
+		next, _, err := a.append(in, m.actor.Reference, auth, service.now())
+		if err != nil || len(next.snapshot.Events) != 6 {
+			t.Fatal("append after reconstruction", err)
+		}
+		next.snapshot.Events[0].Actor = "changed new snapshot"
+		if !reflect.DeepEqual(a.snapshot, before) {
+			t.Fatal("new append mutated reconstructed prefix")
+		}
+		in.ExpectedRevision++
+		_, _, err = a.append(in, m.actor.Reference, auth, service.now())
+		wantError(t, err, ErrRevisionConflict)
+		if !reflect.DeepEqual(a.snapshot, before) {
+			t.Fatal("rejected append mutated reconstructed prefix")
+		}
+		// Regenerated command support and primitives also belong to this load.
+		a.snapshot.Events[3].Command.Support[0] = d.EvidenceID{}
+		a.snapshot.Events[0].Primitive[0] ^= 1
+		retained, _, err := p.Load(t.Context(), in.TagID)
+		if err != nil || !reflect.DeepEqual(retained, stored) {
+			t.Fatal("reconstruction aliased retained port data", err)
+		}
+		return nil
+	})
+	if err != nil || !reflect.DeepEqual(m.snapshots[in.TagID], stored) {
+		t.Fatal("reconstruction mutated persisted history", err)
 	}
 }

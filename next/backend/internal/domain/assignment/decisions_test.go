@@ -473,3 +473,241 @@ func TestAssignmentDecisionLimitReachability(t *testing.T) {
 		t.Fatalf("invalid byte upper bound: %d, %v", length, err)
 	}
 }
+
+func TestAssignmentDecisionReconstruction(t *testing.T) {
+	for _, capacity := range []int{0, 1, int(MaxEvidenceEvents)} {
+		t.Run(fmt.Sprint(capacity), func(t *testing.T) {
+			head := decisionFixture(t)
+			reconstruct, err := NewDecisionReconstruction(head.ID(), head.TagID(), capacity)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var first DecisionCommand
+			var firstResult DecisionResult
+			var prefixes []DecisionLedger
+			var histories [][]DecisionEvent
+			var canonicalBytes uint64
+			for i, kind := range []DecisionKind{Assign, Unassign, Assign, Retire} {
+				command := decisionCommand(t, head, i+1, kind, int64(i+1)*10)
+				at := time.Unix(int64(100-i), 0) // audit time is not transition order
+				want, result, err := head.Admit(command, decisionRefs(command), at)
+				if err != nil {
+					t.Fatal(err)
+				}
+				got, receipt, err := reconstruct(command, decisionRefs(command), at)
+				if err != nil || receipt != result || !reflect.DeepEqual(got, want) {
+					t.Fatalf("reconstruction differs from immutable admission: %+v, %v", receipt, err)
+				}
+				encoded, err := got.Events()[i].CanonicalBytes()
+				if err != nil {
+					t.Fatal(err)
+				}
+				canonicalBytes += uint64(len(encoded))
+				usage, err := NewEvidenceUsage(uint64(i+1), 0, 0, canonicalBytes)
+				if err != nil || got.Usage() != usage || cap(got.events) != len(got.events) {
+					t.Fatal("reconstruction changed canonical accounting or exposed spare capacity", err)
+				}
+				prefixes = append(prefixes, got)
+				histories = append(histories, got.Events())
+				if i == 0 {
+					first, firstResult = command, receipt
+				}
+				// A normal append from any published prefix owns its new array.
+				if kind != Retire {
+					fork := decisionCommand(t, got, 99, Unassign, 1000)
+					branch := admitDecision(t, got, fork)
+					branch.events[0].RecordedAt = time.Time{}
+					if !reflect.DeepEqual(got.Events(), histories[i]) {
+						t.Fatal("ordinary append aliased reconstructed history")
+					}
+				}
+				head = want
+			}
+			for i, prefix := range prefixes {
+				if !reflect.DeepEqual(prefix.Events(), histories[i]) {
+					t.Fatal("later reconstruction overwrote a published prefix")
+				}
+				out := prefix.Events()
+				out[0] = DecisionEvent{}
+				if !reflect.DeepEqual(prefix.Events(), histories[i]) {
+					t.Fatal("published Events output aliases reconstruction")
+				}
+			}
+			// Replay precedes stale dependencies, bad audit time and retirement.
+			copyOfReplay := reconstruct
+			got, receipt, err := copyOfReplay(first, DecisionReferences{}, time.Time{})
+			if err != nil || receipt != firstResult || !reflect.DeepEqual(got, head) {
+				t.Fatal("reconstruction replay changed the original result/head", err)
+			}
+			in := first.Input()
+			in.Reason = "different canonical input"
+			changed, err := NewDecisionCommand(in)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, receipt, err = reconstruct(changed, DecisionReferences{}, time.Time{})
+			if err != ErrCommandConflict || receipt != (DecisionResult{}) || !reflect.DeepEqual(got, head) {
+				t.Fatal("changed replay mutated reconstruction", err)
+			}
+			retired := decisionCommand(t, head, 100, Unassign, 1000)
+			got, _, err = reconstruct(retired, decisionRefs(retired), time.Unix(100, 0))
+			if err != ErrDecisionRetired || !reflect.DeepEqual(got, head) {
+				t.Fatal("reconstruction admitted after retirement", err)
+			}
+		})
+	}
+}
+
+func TestAssignmentDecisionReconstructionRejectedAppend(t *testing.T) {
+	for _, change := range []string{"revision", "subject", "Tag reference", "catalog reference", "effective time", "audit time", "command identity"} {
+		t.Run(change, func(t *testing.T) {
+			empty := decisionFixture(t)
+			reconstruct, err := NewDecisionReconstruction(empty.ID(), empty.TagID(), 2)
+			if err != nil {
+				t.Fatal(err)
+			}
+			first := decisionCommand(t, empty, 1, Unassign, 10)
+			head, _, err := reconstruct(first, decisionRefs(first), time.Unix(100, 0))
+			if err != nil {
+				t.Fatal(err)
+			}
+			before := head.Events()
+			valid := decisionCommand(t, head, 2, Assign, 20)
+			in, refs, at := valid.Input(), decisionRefs(valid), time.Unix(101, 0)
+			switch change {
+			case "revision":
+				in.ExpectedRevision++
+			case "subject":
+				in.TagID = reviewTag(t, 2)
+			case "Tag reference":
+				refs.TagRevision++
+			case "catalog reference":
+				refs.CatalogRevision++
+			case "effective time":
+				in.EffectiveAt = first.Input().EffectiveAt
+			case "audit time":
+				at = time.Time{}
+			case "command identity":
+				in.CommandID = first.Input().CommandID
+			}
+			bad, err := NewDecisionCommand(in)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want, expected, failure := head.Admit(bad, refs, at)
+			got, receipt, err := reconstruct(bad, refs, at)
+			if failure == nil || err != failure || receipt != expected || !reflect.DeepEqual(got, want) || !reflect.DeepEqual(head.Events(), before) {
+				t.Fatalf("rejected reconstruction: got %v, want %v", err, failure)
+			}
+			// A failed admission must not consume the command, revision or slot.
+			want, expected, err = head.Admit(valid, decisionRefs(valid), time.Unix(101, 0))
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, receipt, err = reconstruct(valid, decisionRefs(valid), time.Unix(101, 0))
+			if err != nil || receipt != expected || !reflect.DeepEqual(got, want) || !reflect.DeepEqual(head.Events(), before) {
+				t.Fatal("rejected append poisoned a later reconstruction", err)
+			}
+		})
+	}
+}
+
+func TestAssignmentDecisionReconstructionLimits(t *testing.T) {
+	head := decisionFixture(t)
+	for _, capacity := range []int{-1, int(MaxEvidenceEvents) + 1} {
+		if _, err := NewDecisionReconstruction(head.ID(), head.TagID(), capacity); err != ErrEvidenceEventLimit {
+			t.Fatal("unbounded reconstruction allocation", err)
+		}
+	}
+	if _, err := NewDecisionReconstruction(ID{}, head.TagID(), 1); err == nil {
+		t.Fatal("invalid reconstruction identity")
+	}
+	if _, err := NewDecisionReconstruction(head.ID(), identity.TagID{}, 1); err == nil {
+		t.Fatal("invalid reconstruction subject")
+	}
+	reconstruct, err := NewDecisionReconstruction(head.ID(), head.TagID(), int(MaxEvidenceEvents))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var first DecisionCommand
+	for n := 1; n <= int(MaxEvidenceEvents); n++ {
+		c := decisionCommand(t, head, n, Unassign, int64(n))
+		if n == 1 {
+			first = c
+		}
+		head, _, err = reconstruct(c, decisionRefs(c), time.Unix(100, 0))
+		if err != nil {
+			t.Fatalf("event %d: %v", n, err)
+		}
+	}
+	before := head.Events()
+	over := decisionCommand(t, head, int(MaxEvidenceEvents)+1, Unassign, int64(MaxEvidenceEvents)+1)
+	got, _, err := reconstruct(over, decisionRefs(over), time.Unix(100, 0))
+	if err != ErrEvidenceEventLimit || !reflect.DeepEqual(got, head) || !reflect.DeepEqual(head.Events(), before) {
+		t.Fatal("reconstruction event +1 mutated full history", err)
+	}
+	got, receipt, err := reconstruct(first, DecisionReferences{}, time.Time{})
+	if err != nil || receipt != before[0].Result || !reflect.DeepEqual(got, head) {
+		t.Fatal("full reconstruction blocked exact replay", err)
+	}
+	// Seed only byte arithmetic; the complete reachable application boundary
+	// is independently exercised in the application package under race.
+	base := decisionFixture(t)
+	c := decisionCommand(t, base, 1, Unassign, 10)
+	event := DecisionEvent{DecisionResult{Command: c, Revision: 1}, time.Unix(100, 0)}
+	n, err := event.CanonicalByteLen()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, over := range []uint64{0, 1} {
+		seed := base
+		seed.usage, err = NewEvidenceUsage(0, 0, 0, MaxEvidenceRetainedBytes-n+over)
+		if err != nil {
+			t.Fatal(err)
+		}
+		buffer := make([]DecisionEvent, 0, 1)
+		got, _, err := seed.admit(c, decisionRefs(c), time.Unix(100, 0), &buffer)
+		if over == 0 {
+			if err != nil || got.Usage().RetainedBytes() != MaxEvidenceRetainedBytes || len(buffer) != 1 {
+				t.Fatal("reconstruction exact byte arithmetic", err)
+			}
+		} else if err != ErrRetainedByteLimit || !reflect.DeepEqual(got, seed) || len(buffer) != 0 {
+			t.Fatal("reconstruction byte +1 wrote its buffer", err)
+		}
+	}
+}
+
+func TestAssignmentDecisionReconstructionConcurrentPrefixes(t *testing.T) {
+	empty := decisionFixture(t)
+	reconstruct, err := NewDecisionReconstruction(empty.ID(), empty.TagID(), 64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := decisionCommand(t, empty, 1, Unassign, 1)
+	prefix, _, err := reconstruct(c, decisionRefs(c), time.Unix(100, 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := prefix.Events()
+	done := make(chan bool, 1)
+	go func() {
+		for range 64 {
+			if !reflect.DeepEqual(prefix.Events(), before) {
+				done <- false
+				return
+			}
+		}
+		done <- true
+	}()
+	head := prefix
+	for n := 2; n <= 64; n++ {
+		c := decisionCommand(t, head, n, Unassign, int64(n))
+		head, _, err = reconstruct(c, decisionRefs(c), time.Unix(100, 0))
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !<-done || !reflect.DeepEqual(prefix.Events(), before) {
+		t.Fatal("reconstruction changed concurrently read immutable prefix")
+	}
+}

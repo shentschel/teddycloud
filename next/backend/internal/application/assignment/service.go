@@ -226,6 +226,13 @@ func load(ctx context.Context, p Port, tag identity.TagID) (aggregate, bool, err
 	if err != nil {
 		return aggregate{}, false, ErrUnavailable
 	}
+	// Reconstruction owns this buffer. Admit every retained event through the
+	// same domain/accounting checks without copying each validated prefix.
+	a.snapshot.Events = make([]Event, 0, len(snapshot.Events))
+	reconstruct, err := d.NewDecisionReconstruction(snapshot.ID, tag, len(snapshot.Events))
+	if err != nil {
+		return aggregate{}, false, ErrUnavailable
+	}
 	seen := make(map[d.CommandID]bool, len(snapshot.Events))
 	for _, retained := range snapshot.Events {
 		if uint64(len(retained.Primitive)) > d.MaxEvidenceRetainedBytes {
@@ -242,7 +249,7 @@ func load(ctx context.Context, p Port, tag identity.TagID) (aggregate, bool, err
 		if err != nil {
 			return aggregate{}, false, ErrUnavailable
 		}
-		next, event, err := a.append(retained.Command, retained.Actor, auth, retained.RecordedAt)
+		next, event, err := a.admit(retained.Command, retained.Actor, auth, retained.RecordedAt, reconstruct)
 		if err != nil || event.Result != retained.Result || !bytes.Equal(event.Primitive, retained.Primitive) {
 			return aggregate{}, false, ErrUnavailable
 		}
@@ -251,6 +258,7 @@ func load(ctx context.Context, p Port, tag identity.TagID) (aggregate, bool, err
 			!retained.RecordedAt.Equal(event.RecordedAt) {
 			return aggregate{}, false, ErrUnavailable
 		}
+		next.snapshot.Events = append(a.snapshot.Events, event)
 		a = next
 	}
 	if a.snapshot.Usage != snapshot.Usage {
@@ -259,6 +267,24 @@ func load(ctx context.Context, p Port, tag identity.TagID) (aggregate, bool, err
 	return a, true, nil
 }
 func (a aggregate) append(command Command, actor string, auth d.ReviewAuthority, at time.Time) (aggregate, Event, error) {
+	next, event, err := a.admit(command, actor, auth, at, a.decisions.Admit)
+	if err != nil {
+		return a, Event{}, err
+	}
+	// New commands preserve older aggregates, including reconstructed values.
+	events := make([]Event, len(a.snapshot.Events)+1)
+	copy(events, a.snapshot.Events)
+	events[len(a.snapshot.Events)] = event
+	next.snapshot.Events = events
+	return next, event, nil
+}
+
+type decisionAdmission func(d.DecisionCommand, d.DecisionReferences, time.Time) (d.DecisionLedger, d.DecisionResult, error)
+
+// admit validates and charges one event. Both history buffers remain immutable
+// for a new command and privately owned during one load; domain admission is
+// identical in either case. No reconstruction operation escapes this callback.
+func (a aggregate) admit(command Command, actor string, auth d.ReviewAuthority, at time.Time, admitDecision decisionAdmission) (aggregate, Event, error) {
 	command, err := normalizedCommand(command, actor)
 	if err != nil {
 		return a, Event{}, err
@@ -363,7 +389,7 @@ func (a aggregate) append(command Command, actor string, auth d.ReviewAuthority,
 		}
 	} else {
 		refs := d.DecisionReferences{TagID: command.TagID, TagRevision: command.ExpectedTagRevision, CatalogRevision: command.ExpectedCatalogRevision, Target: command.Target}
-		next.decisions, _, err = a.decisions.Admit(dc, refs, at)
+		next.decisions, _, err = admitDecision(dc, refs, at)
 	}
 	if err != nil {
 		return a, Event{}, err
@@ -372,7 +398,6 @@ func (a aggregate) append(command Command, actor string, auth d.ReviewAuthority,
 	// usage again. Counts charge one global event, including every review kind.
 	next.snapshot = a.snapshot
 	next.snapshot.Usage = usage
-	next.snapshot.Events = append(append([]Event(nil), a.snapshot.Events...), event)
 	next.sealed = a.sealed || command.Kind == RetireAssignment
 	return next, event, nil
 }
