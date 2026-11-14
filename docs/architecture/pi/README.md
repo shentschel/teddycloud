@@ -22,6 +22,16 @@ assumed.
 
 Current execution artifacts:
 
+- [PI-10 Library query and pagination contract](pi-10-library-query-contract.md)
+- [PI-10 execution plan and A/B/T manifests](pi-10-plan.md)
+- [PI-10 integrated budget and admission](pi-10-budget.md)
+- **PI-10/R is a complete refinement decision set for parent review**, based on
+  `b75799cf767b00c5717d7ad20fdd8f42f61266d6`; A/B/T and **Large libraries return
+  stable pages quickly** remain pending. No runtime/schema/workflow/issue change,
+  public API/V3 freeze, hardware, deployment or production-migration acceptance.
+  Local checks and the requested checker-path deviation are recorded in the plan;
+  parent review, publication, exact-head CI and final accounting are separate gates.
+
 - [PI-09 assignment, original and custom policy](pi-09-assignment-policy.md)
 - [PI-09 execution plan](pi-09-plan.md)
 - [PI-09 budget and admission](pi-09-budget.md)
