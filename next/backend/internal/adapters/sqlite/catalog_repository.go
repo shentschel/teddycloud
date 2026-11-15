@@ -1046,3 +1046,35 @@ func (r *catalogRepository) catalogCursorAfter(query app.Query, revision domain.
 	}
 	return after, nil
 }
+
+// libraryAggregate reconstructs one complete bounded aggregate with exactly the
+// existing PI-08 integrity/ownership/order/graph rules. It is build-only; ready
+// pages never reach these helpers or global Find. Zero-version Contents are
+// validated as well, but produce no inventory item.
+func (r *catalogRepository) libraryAggregate(ctx context.Context, id identity.ContentID) ([]app.CatalogRecord, domain.CatalogRevision, error) {
+	ctx = context.WithValue(ctx, catalogReadCacheKey{}, &catalogReadCache{repository: r})
+	record, revision, found, err := r.catalogContent(ctx, id)
+	if err != nil {
+		return nil, revision, err
+	}
+	if !found {
+		return nil, revision, app.ErrRepositoryUnavailable
+	}
+	versions, err := r.catalogVersions(ctx, id)
+	if err != nil {
+		return nil, revision, err
+	}
+	annotations, err := r.catalogAnnotations(ctx, record)
+	if err != nil {
+		return nil, revision, err
+	}
+	entries := make([]app.CatalogRecord, 0, len(versions))
+	for _, v := range versions {
+		entry := record
+		entry.Version = v.Version
+		entry.Media = v.Media
+		entry.Supersession = annotations[v.Version.ID()]
+		entries = append(entries, entry)
+	}
+	return entries, revision, nil
+}

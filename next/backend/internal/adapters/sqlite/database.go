@@ -5,13 +5,16 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"fmt"
+	"math"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	sqliteDriver "modernc.org/sqlite"
@@ -39,8 +42,9 @@ type Config struct {
 // Database is the adapter-owned database handle. It deliberately does not
 // expose database/sql or driver values.
 type Database struct {
-	db            *sql.DB
-	upgradeBackup *BackupFile
+	db                 *sql.DB
+	upgradeBackup      *BackupFile
+	physicalGeneration atomic.Uint64
 }
 
 // UpgradeError retains the verified pre-upgrade snapshot when a later
@@ -82,7 +86,9 @@ func Open(ctx context.Context, config Config, migrations []Migration) (*Database
 		return nil, fmt.Errorf("create sqlite connector: %w", err)
 	}
 
-	db := sql.OpenDB(connector)
+	database := &Database{}
+	db := sql.OpenDB(&incarnationConnector{Connector: connector, generation: &database.physicalGeneration})
+	database.db = db
 	// PI-05/A has no reader port. A one-connection pool is therefore the
 	// explicit serialized writer boundary until PI-05/B introduces one.
 	db.SetMaxOpenConns(1)
@@ -105,7 +111,6 @@ func Open(ctx context.Context, config Config, migrations []Migration) (*Database
 		return nil, err
 	}
 
-	database := &Database{db: db}
 	pendingUpgrade := state.ledgerExists && len(state.applied) < len(migrations)
 	if pendingUpgrade {
 		if strings.TrimSpace(config.UpgradeBackupPath) == "" {
@@ -274,4 +279,30 @@ func verifyConnection(ctx context.Context, db *sql.DB, expectedBusyTimeout int) 
 		}
 	}
 	return nil
+}
+
+// Count actual successful physical opens, not pool leases or Go pointer values.
+// Returning the original driver connection preserves every optional interface,
+// including backup/WAL control, cancellation and session reset behavior.
+type incarnationConnector struct {
+	driver.Connector
+	generation *atomic.Uint64
+}
+
+func (c *incarnationConnector) Connect(ctx context.Context) (driver.Conn, error) {
+	conn, err := c.Connector.Connect(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for {
+		current := c.generation.Load()
+		if current == math.MaxUint64 {
+			_ = conn.Close()
+			return nil, ErrConnectionInvariant
+		}
+		if c.generation.CompareAndSwap(current, current+1) {
+			break
+		}
+	}
+	return conn, nil
 }

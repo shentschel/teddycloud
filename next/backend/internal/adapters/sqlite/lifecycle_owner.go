@@ -11,6 +11,7 @@ import (
 
 	applicationcatalog "github.com/shentschel/teddycloud/next/backend/internal/application/catalog"
 	"github.com/shentschel/teddycloud/next/backend/internal/application/contentstore"
+	library "github.com/shentschel/teddycloud/next/backend/internal/application/library"
 	applicationtag "github.com/shentschel/teddycloud/next/backend/internal/application/tagregistry"
 )
 
@@ -35,6 +36,7 @@ type LifecycleOwner struct {
 	assignmentAdmitted atomic.Bool
 	generation         atomic.Uint64
 	contentInventory   contentstore.InventoryInvalidator
+	library            *libraryState
 }
 
 var _ applicationcatalog.Transactor = (*LifecycleOwner)(nil)
@@ -67,6 +69,7 @@ func OpenLifecycleOwner(
 	config.Path = absolutePath
 	return &LifecycleOwner{
 		gate:       newLifecycleGate(),
+		library:    newLibraryState(),
 		database:   database,
 		config:     config,
 		migrations: ownedMigrations,
@@ -205,6 +208,7 @@ func (owner *LifecycleOwner) Restore(
 	if err := owner.invalidateContentInventory(); err != nil {
 		return err
 	}
+	owner.invalidateLibrary()
 	owner.generation.Add(1)
 	owner.database = nil
 	if err := old.Close(); err != nil {
@@ -237,6 +241,7 @@ func (owner *LifecycleOwner) Restore(
 	}
 
 	owner.database = restored
+	owner.library.closed.Store(false)
 	owner.config = restoredConfig
 	closeRestored = false
 	return nil
@@ -259,6 +264,7 @@ func (owner *LifecycleOwner) Close(ctx context.Context) error {
 	}
 	database := owner.database
 	inventoryErr := owner.invalidateContentInventory()
+	owner.invalidateLibrary()
 	owner.generation.Add(1)
 	owner.database = nil
 	if err := database.Close(); err != nil {
@@ -551,4 +557,34 @@ func (owner *LifecycleOwner) WithinContentOperation(ctx context.Context, operati
 		err = operationContext.Err()
 	}
 	return contentBoundaryError(operationContext, err)
+}
+
+// LibraryReadScope is a trusted local-core grant, never an external ACL. Each
+// callback receives a separate revoked-on-exit repository, while this scope
+// binds continuation across callbacks until explicit renewal/close/restore.
+func (owner *LifecycleOwner) LibraryReadScope() library.ReadScope {
+	if owner == nil || owner.library == nil || owner.library.closed.Load() {
+		return library.ReadScope{}
+	}
+	return owner.library.authority.Issue()
+}
+func (owner *LifecycleOwner) AuthorizeLibrary(scope library.ReadScope) error {
+	if owner == nil || owner.library == nil || owner.library.closed.Load() {
+		return library.ErrUnauthorized
+	}
+	return owner.library.authority.Authorize(scope)
+}
+func (owner *LifecycleOwner) RevokeLibraryReadScopes() {
+	if owner != nil && owner.library != nil {
+		owner.library.authority.Revoke()
+	}
+}
+func (owner *LifecycleOwner) invalidateLibrary() {
+	if owner.library == nil {
+		return
+	}
+	owner.library.closed.Store(true)
+	owner.library.discard()
+	owner.library.authority.Revoke()
+	owner.library.rotate()
 }
