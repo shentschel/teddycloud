@@ -254,30 +254,124 @@ func TestLibraryInventoryIdentityCorruption(t *testing.T) {
 }
 
 func TestLibraryIndexPreparationPageCap(t *testing.T) {
-	// Medium-size WITHOUT ROWID cells overflow into separate 4096-byte pages.
-	// 65536 valid source versions leave both the 100k-item and 128MiB staging
-	// caps out of the way. Two individually owned short summaries make the last
-	// admitted prefix land on exactly 65536 pages, not merely somewhere below it.
+	// Plan a valid source prefix for the B layout on a separate unpublished DB.
+	// Only page arithmetic is planned here; evidence below reconstructs every
+	// aggregate under the real owner, epoch checks and unchanged 10s/5s deadlines.
+	connector, err := sqliteDriver.NewConnector(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := sql.OpenDB(connector)
+	plan.SetMaxOpenConns(1)
+	if _, err := plan.Exec(libraryIndexSchema); err != nil {
+		t.Fatal(err)
+	}
+	makeItem := func(content, version, size int) lib.Item {
+		return lib.Item{ContentID: catalogSchemaID("cnt", content), VersionID: catalogSchemaID("ver", version), AudioID: 123, Hash: strings.Repeat("01", 20), ContentRevision: 1, Media: 1, Baseline: lib.Baseline{Title: libraryCapacityText(size)}}
+	}
+	insert := func(item lib.Item, commit bool) (uint64, error) {
+		tx, e := plan.BeginTx(t.Context(), nil)
+		if e != nil {
+			return 0, e
+		}
+		defer tx.Rollback()
+		keys, e := libraryItemKeys(item)
+		if e != nil {
+			return 0, e
+		}
+		if e = libraryInsertItem(t.Context(), tx, item, keys); e != nil {
+			return 0, e
+		}
+		var pages uint64
+		if e = tx.QueryRow("PRAGMA page_count").Scan(&pages); e != nil {
+			return 0, e
+		}
+		if commit {
+			e = tx.Commit()
+		}
+		return pages, e
+	}
+	for content := 1; content <= 7; content++ {
+		tx, e := plan.BeginTx(t.Context(), nil)
+		if e != nil {
+			t.Fatal(e)
+		}
+		for n := 1; n <= 1024; n++ {
+			item := makeItem(content, (content-1)*1024+n, 1500)
+			keys, _ := libraryItemKeys(item)
+			if e := libraryInsertItem(t.Context(), tx, item, keys); e != nil {
+				t.Fatal(e)
+			}
+		}
+		if e := tx.Commit(); e != nil {
+			t.Fatal(e)
+		}
+	}
+	var pages uint64
+	if err := plan.QueryRow("PRAGMA page_count").Scan(&pages); err != nil {
+		t.Fatal(err)
+	}
+	type tail struct{ content, version, size int }
+	var tails []tail
+	for len(tails) < 1024 && pages < 65536 {
+		content, version := 1000+len(tails), 200000+len(tails)
+		bestSize, bestPages := -1, pages
+		// Binary layout thresholds are finite: try the common medium overflow cell
+		// first, then all source byte lengths only for the final few physical pages.
+		candidates := []int{1500}
+		if 65536-pages < 16 {
+			candidates = nil
+			for size := 0; size <= 4096; size++ {
+				candidates = append(candidates, size)
+			}
+		}
+		// Keep room for a whole item (identity plus two partitions) unless
+		// this insertion itself reaches the exact target.
+		for _, size := range candidates {
+			got, e := insert(makeItem(content, version, size), false)
+			if e == nil && (got <= 65533 || got == 65536) && got >= bestPages {
+				bestSize, bestPages = size, got
+			}
+			if got == 65536 && e == nil {
+				break
+			}
+		}
+		if bestSize < 0 {
+			t.Fatal("could not plan exact physical cap", pages)
+		}
+		got, e := insert(makeItem(content, version, bestSize), true)
+		if e != nil || got != bestPages {
+			t.Fatal(got, bestPages, e)
+		}
+		pages = got
+		tails = append(tails, tail{content, version, bestSize})
+	}
+	if pages != 65536 {
+		t.Fatal("unreachable B physical cap", pages)
+	}
+	if err := plan.Close(); err != nil {
+		t.Fatal(err)
+	} // no old/new index double allowance
 	o := catalogQueryOwner(t)
 	s := lib.NewService(o)
 	scope := o.LibraryReadScope()
-	catalogSchemaExec(t, o.database.db, `WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<66) INSERT INTO tc_catalog_content SELECT 'cnt_'||printf('%026d',x),CASE WHEN x IN (56,57) THEN '' ELSE ? END,NULL,NULL FROM n`, strings.Repeat("a", 700))
-	catalogSchemaExec(t, o.database.db, `WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<65536) INSERT INTO tc_content_versions SELECT 'ver_'||printf('%026d',x),'cnt_'||printf('%026d',CASE WHEN x<=56320 THEN 1+(x-1)/1024 WHEN x=56321 THEN 56 WHEN x=56322 THEN 57 WHEN x<=57344 THEN 58 ELSE 3+(x-1)/1024 END),123,zeroblob(20),0,NULL,NULL FROM n`)
-	before := catalogRecoveryRows(t, o.database.db)
-	if _, err := s.Prepare(t.Context(), scope); err != nil {
-		t.Fatal(err)
+	var ids []int
+	for content := 1; content <= 7; content++ {
+		libraryUnmanaged(t, o, content, (content-1)*1024+1, 1024, libraryCapacityText(1500))
+		ids = append(ids, content)
 	}
-
-	// Fixture construction is separate from the capacity operation under test.
-	// Advance normally batches >=4096 versions; under -race those bulk reads can
-	// exhaust the normative transaction deadline before reaching the page cap.
-	// Seed the same valid, unpublished prefix one complete Content at a time.
-	// Every seed retains the real owner lease, 10s/5s deadlines, complete PI-08
-	// reconstruction and source epoch checks. No foreign key/provenance check is
-	// suppressed, no row is trimmed, and no ready generation is manufactured.
+	for _, row := range tails {
+		libraryUnmanaged(t, o, row.content, row.version, 1, libraryCapacityText(row.size))
+		ids = append(ids, row.content)
+	}
+	libraryUnmanaged(t, o, 10000, 300000, 1024, libraryCapacityText(1500))
+	before := catalogRecoveryRows(t, o.database.db)
+	if _, e := s.Prepare(t.Context(), scope); e != nil {
+		t.Fatal(e)
+	}
 	setupStart := time.Now()
 	var maxSeed time.Duration
-	for content := 1; content <= 58; content++ {
+	for _, content := range ids {
 		start := time.Now()
 		err := o.WithinLibraryRead(t.Context(), scope, func(ctx context.Context, reader lib.Reader) error {
 			r := reader.(*libraryRead)
@@ -286,48 +380,48 @@ func TestLibraryIndexPreparationPageCap(t *testing.T) {
 					repo := &catalogRepository{transaction: tx, ctx: call, owner: o, database: o.database, generation: o.generation.Load(), schemaVersion: version, statements: make(map[string]*sql.Stmt)}
 					defer repo.closeStatements()
 					defer repo.revoke()
-					id, err := identity.ParseContentID(fmt.Sprintf("cnt_%026d", content))
-					if err != nil {
-						return err
-					}
-					entries, revision, err := repo.libraryAggregate(call, id)
-					if err != nil {
-						return err
+					id, _ := identity.ParseContentID(catalogSchemaID("cnt", content))
+					entries, revision, e := repo.libraryAggregate(call, id)
+					if e != nil {
+						return e
 					}
 					if len(entries) == 0 || len(entries) > 1024 {
 						return lib.ErrUnavailable
 					}
-					index := o.library.index
-					write, err := index.BeginTx(call, nil)
-					if err != nil {
-						return err
+					write, e := o.library.index.BeginTx(call, nil)
+					if e != nil {
+						return e
 					}
 					defer write.Rollback()
 					for _, entry := range entries {
 						item := libraryProject(entry, revision.Uint64())
-						if err := lib.ValidateItem(item); err != nil {
-							return err
+						if e := lib.ValidateItem(item); e != nil {
+							return e
 						}
-						raw, err := lib.CanonicalJSON(item)
-						if err != nil {
-							return err
+						raw, e := lib.CanonicalJSON(item)
+						if e != nil {
+							return e
 						}
-						added := uint64(len(raw) + len(item.ContentID) + len(item.VersionID))
-						if err := libraryCapacity(o.library.progress.Items, o.library.progress.Bytes, added); err != nil {
-							return err
+						keys, e := libraryItemKeys(item)
+						if e != nil {
+							return e
 						}
-						if _, err := write.ExecContext(call, "INSERT INTO items VALUES (?,?,?)", item.ContentID, item.VersionID, raw); err != nil {
-							return err
+						added := libraryStagingSize(item, raw, keys)
+						if e := libraryCapacity(o.library.progress.Items, o.library.progress.Bytes, added); e != nil {
+							return e
+						}
+						if e := libraryInsertItem(call, write, item, keys); e != nil {
+							return e
 						}
 						o.library.progress.Items++
 						o.library.progress.Bytes += added
 					}
 					var pages uint64
-					if err := write.QueryRowContext(call, "PRAGMA page_count").Scan(&pages); err != nil {
-						return err
+					if e := write.QueryRowContext(call, "PRAGMA page_count").Scan(&pages); e != nil {
+						return e
 					}
-					if err := write.Commit(); err != nil {
-						return err
+					if e := write.Commit(); e != nil {
+						return e
 					}
 					o.library.progress.Pages = pages
 					o.library.progress.Contents++
@@ -341,114 +435,98 @@ func TestLibraryIndexPreparationPageCap(t *testing.T) {
 			maxSeed = elapsed
 		}
 		if err != nil {
-			t.Fatalf("seed Content %d after %s: %v", content, elapsed, err)
+			t.Fatalf("seed %d after %s: %v", content, elapsed, err)
 		}
 	}
-	t.Logf("validated fixture prefix: %s total, maximum owner operation %s", time.Since(setupStart), maxSeed)
-
-	var pages, pageSize, maxPages, freePages uint64
-	if err := o.library.index.QueryRowContext(t.Context(), "SELECT page_count,page_size,max_page_count,freelist_count FROM pragma_page_count,pragma_page_size,pragma_max_page_count,pragma_freelist_count").Scan(&pages, &pageSize, &maxPages, &freePages); err != nil {
-		t.Fatal(err)
+	var pageSize, maxPages, freePages uint64
+	if e := o.library.index.QueryRow("SELECT page_count,page_size,max_page_count,freelist_count FROM pragma_page_count,pragma_page_size,pragma_max_page_count,pragma_freelist_count").Scan(&pages, &pageSize, &maxPages, &freePages); e != nil {
+		t.Fatal(e)
 	}
 	previous := o.library.progress
 	if pages != 65536 || maxPages != pages || pageSize != 4096 || pages*pageSize != lib.MaxIndexBytes || freePages != 0 {
-		t.Fatal("not exactly the physical page cap", pages, pageSize, maxPages, freePages)
+		t.Fatal("not exact physical cap", pages, pageSize, maxPages, freePages)
 	}
-	if previous.Ready || !o.library.building || previous.Contents != 58 || previous.Items != 57344 || previous.Bytes >= lib.MaxStagingBytes || previous.Items >= lib.MaxVersions {
-		t.Fatal("fixture prefix/cap reachability", previous)
+	if previous.Ready || !o.library.building || previous.Contents != uint64(len(ids)) || previous.Items != uint64(7168+len(tails)) || previous.Bytes >= lib.MaxStagingBytes || previous.Items >= lib.MaxVersions {
+		t.Fatal("prefix/cap reachability", previous)
 	}
-	// Source Content 59 still has 1024 overflow-sized versions. The next real
-	// Advance must request a new page (#65537); there is no free page to reuse.
-	// The only exhausted bound is the real private database's 256MiB page cap.
 	start := time.Now()
 	result, err := s.Advance(t.Context(), scope)
 	elapsed := time.Since(start)
 	if err != lib.ErrLimitExceeded || result != (lib.Preparation{}) {
-		t.Fatal("physical +1 page was not rejected", result, err)
+		t.Fatal("physical +1 page accepted", result, err)
 	}
 	if o.library.index != nil || o.library.building || o.library.progress != (lib.Preparation{}) || o.library.snapshot != ([32]byte{}) {
-		t.Fatal("failed staging was retained or published")
+		t.Fatal("failed staging retained")
 	}
-	if page, err := s.ListLibrary(t.Context(), lib.Query{}, lib.Page{Limit: 1}, scope); err != lib.ErrIndexNotReady || len(page.Items) != 0 || page.Next != "" {
-		t.Fatal("capacity failure exposed a partial generation", page, err)
+	if page, e := s.ListLibrary(t.Context(), lib.Query{}, lib.Page{Limit: 1}, scope); e != lib.ErrIndexNotReady || len(page.Items) != 0 || page.Next != "" {
+		t.Fatal("partial generation exposed", page, e)
 	}
 	if !reflect.DeepEqual(before, catalogRecoveryRows(t, o.database.db)) {
-		t.Fatal("capacity evidence changed source/schema/receipts")
+		t.Fatal("capacity changed source")
 	}
-	t.Logf("exact capacity: %d pages x %d bytes; items=%d staging=%d; real Advance +1 rejected and cleaned up in %s", pages, pageSize, previous.Items, previous.Bytes, elapsed)
+	t.Logf("B exact capacity %d pages x %d bytes; items=%d staging=%d; validated prefix=%s max owner=%s; real Advance +1 failed in %s", pages, pageSize, previous.Items, previous.Bytes, time.Since(setupStart), maxSeed, elapsed)
 }
 
 func TestLibraryIndexPreparationStagingBytes(t *testing.T) {
-	o := catalogQueryOwner(t)
-	s := lib.NewService(o)
-	scope := o.LibraryReadScope()
-	// Plan exact source cardinalities from the canonical, valid minimal D1
-	// summary. Two singly-owned final versions let us tune UTF-8 byte lengths
-	// without changing identities, violating per-Content bounds or adding keys.
+	// Solve independently from canonical payload lengths and B membership keys.
+	// Independently tuned final source titles reach both cap and cap+1 exactly.
 	item := lib.Item{ContentID: catalogSchemaID("cnt", 1), VersionID: catalogSchemaID("ver", 1), AudioID: 123, Hash: strings.Repeat("0", 40), ContentRevision: 1, Media: 1}
 	raw, _ := lib.CanonicalJSON(item)
-	minimum := uint64(len(raw) + 60)
+	minimum := uint64(len(raw) + 60 + 2*(3+60+62+62) + 30)
 	rich := minimum + 4096
-	n := lib.MaxStagingBytes / rich
-	remaining := int(lib.MaxStagingBytes - (n-1)*rich - 2*minimum)
-	firstTitle := remaining
-	if firstTitle > 4096 {
-		firstTitle = 4096
+	for _, extra := range []uint64{0, 1} {
+		t.Run(fmt.Sprint(extra), func(t *testing.T) {
+			target := lib.MaxStagingBytes + extra
+			richCount := target/rich - 1
+			tailCount := uint64(2)
+			remaining := int(target - richCount*rich - tailCount*minimum)
+			if remaining < 0 || remaining > int(tailCount)*4096 {
+				t.Fatal("unreachable B staging arithmetic", richCount, tailCount, remaining)
+			}
+			owners := (richCount + 1023) / 1024
+			o := catalogQueryOwner(t)
+			s := lib.NewService(o)
+			scope := o.LibraryReadScope()
+			catalogSchemaExec(t, o.database.db, `WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<?) INSERT INTO tc_catalog_content SELECT 'cnt_'||printf('%026d',x),?,NULL,NULL FROM n`, owners, strings.Repeat("a", 4096))
+			catalogSchemaExec(t, o.database.db, `WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<?) INSERT INTO tc_content_versions SELECT 'ver_'||printf('%026d',x),'cnt_'||printf('%026d',1+(x-1)/1024),123,zeroblob(20),0,NULL,NULL FROM n`, richCount)
+			for i := 0; i < int(tailCount); i++ {
+				size := remaining
+				if size > 4096 {
+					size = 4096
+				}
+				remaining -= size
+				libraryUnmanaged(t, o, 10000+i, 200000+i, 1, strings.Repeat("a", size))
+			}
+			if remaining != 0 {
+				t.Fatal("unallocated bytes")
+			}
+			before := catalogRecoveryRows(t, o.database.db)
+			if _, e := s.Prepare(t.Context(), scope); e != nil {
+				t.Fatal(e)
+			}
+			var p lib.Preparation
+			var err error
+			for i := 0; i < 100; i++ {
+				p, err = s.Advance(t.Context(), scope)
+				if err != nil || p.Ready {
+					break
+				}
+			}
+			if extra == 0 {
+				if err != nil || !p.Ready || p.Bytes != lib.MaxStagingBytes || p.Items != richCount+tailCount {
+					t.Fatal("exact staging", p, err, minimum)
+				}
+			} else {
+				if err != lib.ErrLimitExceeded || o.library.index != nil || p != (lib.Preparation{}) {
+					t.Fatal("+1 staging", p, err)
+				}
+			}
+			if !reflect.DeepEqual(before, catalogRecoveryRows(t, o.database.db)) {
+				t.Fatal("staging capacity changed source")
+			}
+			t.Logf("B canonical staging target=%d items=%d contents=%d", target, richCount+tailCount, owners+tailCount)
+		})
 	}
-	lastTitle := remaining - firstTitle
-	if firstTitle < 0 || lastTitle < 0 || lastTitle > 4096 {
-		t.Fatal("unreachable staging arithmetic", minimum, n, remaining)
-	}
-	// Rich rows share bounded Contents of at most 1024 versions.
-	owners := (n - 1 + 1023) / 1024
-	catalogSchemaExec(t, o.database.db, `WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<?) INSERT INTO tc_catalog_content SELECT 'cnt_'||printf('%026d',x),?,NULL,NULL FROM n`, owners, strings.Repeat("a", 4096))
-	catalogSchemaExec(t, o.database.db, `WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<?) INSERT INTO tc_content_versions SELECT 'ver_'||printf('%026d',x),'cnt_'||printf('%026d',1+(x-1)/1024),123,zeroblob(20),0,NULL,NULL FROM n`, n-1)
-	for i, size := range []int{firstTitle, lastTitle} {
-		id := 10000 + i
-		libraryUnmanaged(t, o, id, 200000+i, 1, strings.Repeat("a", size))
-		// helper uses byte 1 fingerprints, whereas planned minimum uses zero hash;
-		// hex strings have the same canonical length, so accounting is identical.
-	}
-	// No application copy of the rich source is retained beside the private DB.
-	if _, err := s.Prepare(t.Context(), scope); err != nil {
-		t.Fatal(err)
-	}
-	var p lib.Preparation
-	for i := 0; i < 100; i++ {
-		var err error
-		p, err = s.Advance(t.Context(), scope)
-		if err != nil {
-			t.Fatal(p, err)
-		}
-		if p.Ready {
-			break
-		}
-	}
-	if !p.Ready || p.Bytes != lib.MaxStagingBytes || p.Items != n+1 {
-		t.Fatal("exact staging boundary", p, n, minimum)
-	}
-	catalogSchemaExec(t, o.database.db, "UPDATE tc_catalog_content SET title=title||'a' WHERE content_id=?", catalogSchemaID("cnt", 10001))
-	if _, err := s.Prepare(t.Context(), scope); err != nil {
-		t.Fatal(err)
-	}
-	var failed bool
-	for i := 0; i < 100; i++ {
-		p, err := s.Advance(t.Context(), scope)
-		if err == lib.ErrLimitExceeded {
-			failed = true
-			break
-		}
-		if err != nil {
-			t.Fatal(err)
-		}
-		if p.Ready {
-			t.Fatal("+1 staging accepted", p)
-		}
-	}
-	if !failed || o.library.index != nil {
-		t.Fatal("staging +1 did not fail closed")
-	}
-	t.Logf("reachable 128MiB exact/+1 canonical staging at %d versions and %d Contents", n+1, owners+2)
 }
 
 func TestLibraryIndexPreparationCanceled(t *testing.T) {
@@ -581,5 +659,46 @@ func TestLibraryInventoryIdentityBrokenGraphs(t *testing.T) {
 				t.Fatal("prepare rewrote broken graph/source")
 			}
 		})
+	}
+}
+
+// Deterministic incompressible-enough ASCII text separates page and staging caps.
+func libraryCapacityText(size int) string {
+	const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+	state := uint64(0x123456789abcdef)
+	out := make([]byte, size)
+	for i := range out {
+		state = state*6364136223846793005 + 1442695040888963407
+		out[i] = alphabet[state>>58]
+	}
+	return string(out)
+}
+
+func TestLibraryIndexPreparationManagedChunks(t *testing.T) {
+	o, _ := librarySearchFixture(t, nil)
+	s := lib.NewService(o)
+	scope := o.LibraryReadScope()
+	before := catalogRecoveryRows(t, o.database.db)
+	if _, e := s.Prepare(t.Context(), scope); e != nil {
+		t.Fatal(e)
+	}
+	p, e := s.Advance(t.Context(), scope)
+	if e != nil || p.Ready || p.Contents == 0 || p.Contents >= 12 || p.Items == 0 || p.Items >= 35 {
+		t.Fatal("managed build not bounded/resumable", p, e)
+	}
+	if r, e := s.ListLibrary(t.Context(), lib.Query{Sort: lib.TitleDesc, Versions: lib.Current}, lib.Page{Limit: 1}, scope); e != lib.ErrIndexNotReady || len(r.Items) != 0 {
+		t.Fatal("partial B generation published", r, e)
+	}
+	for n := 0; !p.Ready && n < 100; n++ {
+		p, e = s.Advance(t.Context(), scope)
+		if e != nil {
+			t.Fatal(p, e)
+		}
+	}
+	if !p.Ready || p.Items != 35 || p.Contents != 12 {
+		t.Fatal("incomplete managed generation", p)
+	}
+	if !reflect.DeepEqual(before, catalogRecoveryRows(t, o.database.db)) {
+		t.Fatal("managed chunks changed source")
 	}
 }

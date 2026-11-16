@@ -154,7 +154,14 @@ internal/adapters/sqlite/library_index.go
 internal/adapters/sqlite/library_repository.go
 internal/adapters/sqlite/library_query_test.go
 internal/adapters/sqlite/library_search_test.go
+internal/adapters/sqlite/library_cursor_test.go
+internal/adapters/sqlite/library_lifecycle_test.go
+internal/adapters/sqlite/library_index_test.go
 ```
+
+Scope finding accepted for request `pi10-b-search-sort-ownership-20261116`: A-only
+Unsupported expectations and private-index trace/capacity fixtures require the
+three additional test files above to preserve cursor and capacity invariants in B.
 
 `search.go`, `search_test.go` and `library_search_test.go` are new. Other files
 extend the complete A path. Own D2/D3 features and D6 partitioned covering indices;

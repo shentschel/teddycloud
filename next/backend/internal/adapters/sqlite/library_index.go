@@ -1,6 +1,8 @@
 package sqlite
 
 import (
+	"bytes"
+	"compress/zlib"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -8,7 +10,9 @@ import (
 	"database/sql/driver"
 	"encoding/base64"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
+	"io"
 	"sync"
 	"sync/atomic"
 
@@ -57,6 +61,7 @@ func (s *libraryState) publish() {
 	_, _ = rand.Read(nonce[:])
 	h := sha256.New()
 	h.Write([]byte(lib.Profile))
+	h.Write([]byte(libraryIndexLayout))
 	h.Write(s.incarnation[:])
 	h.Write(nonce[:])
 	var n [8]byte
@@ -323,7 +328,7 @@ func (r *libraryRead) Prepare(ctx context.Context) (p lib.Preparation, err error
 		s.index = sql.OpenDB(connector)
 		s.index.SetMaxOpenConns(1)
 		s.index.SetMaxIdleConns(1)
-		if _, e = s.index.ExecContext(c, "PRAGMA page_size=4096; PRAGMA max_page_count=65536; CREATE TABLE items(content TEXT COLLATE BINARY NOT NULL,version TEXT COLLATE BINARY NOT NULL,payload BLOB NOT NULL,PRIMARY KEY(content,version)) WITHOUT ROWID"); e != nil {
+		if _, e = s.index.ExecContext(c, libraryIndexSchema); e != nil {
 			s.discard()
 			return libraryMapError(c, e)
 		}
@@ -418,7 +423,7 @@ func (r *libraryRead) Advance(ctx context.Context) (p lib.Preparation, err error
 				return libraryMapError(c, e)
 			}
 			defer write.Rollback()
-			advancedItems := 0
+			advancedItems, managedItems := 0, 0
 			for index, id := range ids {
 				if s.progress.Contents >= lib.MaxContents {
 					return lib.ErrLimitExceeded
@@ -436,11 +441,15 @@ func (r *libraryRead) Advance(ctx context.Context) (p lib.Preparation, err error
 					if e != nil {
 						return e
 					}
-					added := uint64(len(raw) + len(item.ContentID) + len(item.VersionID))
+					keys, e := libraryItemKeys(item)
+					if e != nil {
+						return e
+					}
+					added := libraryStagingSize(item, raw, keys)
 					if e = libraryCapacity(s.progress.Items, s.progress.Bytes, added); e != nil {
 						return e
 					}
-					if _, e = write.ExecContext(c, "INSERT INTO items VALUES (?,?,?)", item.ContentID, item.VersionID, raw); e != nil {
+					if e = libraryInsertItem(c, write, item, keys); e != nil {
 						return libraryMapError(c, e)
 					}
 					s.progress.Items++
@@ -449,7 +458,14 @@ func (r *libraryRead) Advance(ctx context.Context) (p lib.Preparation, err error
 				s.progress.Contents++
 				s.after = id.String()
 				advancedItems += len(entries)
-				if advancedItems >= 4096 && index+1 < len(ids) {
+				if len(entries) > 0 && entries[0].Review != catalog.CatalogUnmanaged {
+					managedItems += len(entries)
+				}
+				// B key/payload work and complete managed provenance validation
+				// must fit the unchanged transaction deadline, including race
+				// instrumentation. Stop only between complete Contents; cheap
+				// inventories retain the existing 128-Content advance behavior.
+				if (advancedItems >= 1024 || managedItems >= 16) && index+1 < len(ids) {
 					done = false
 					break
 				}
@@ -524,4 +540,151 @@ func libraryProject(record catalog.CatalogRecord, revision uint64) lib.Item {
 }
 func librarySnapshot(s *libraryState) string {
 	return base64.RawURLEncoding.EncodeToString(s.snapshot[:])
+}
+
+// Layout changes invalidate the generation independently of the public cursor
+// codec. Keys include the complete D3 tuple, so continuation is one B-tree seek.
+const libraryIndexLayout = "pi10-library-index/2:ascii-prefix/1"
+const libraryIndexSchema = `PRAGMA page_size=4096; PRAGMA max_page_count=65536;
+CREATE TABLE items(content TEXT COLLATE BINARY NOT NULL,version TEXT COLLATE BINARY NOT NULL,payload BLOB NOT NULL,PRIMARY KEY(content,version)) WITHOUT ROWID;
+CREATE TABLE memberships(lane TEXT NOT NULL,owner TEXT NOT NULL,identity_key BLOB NOT NULL,asc_key BLOB NOT NULL,desc_key BLOB NOT NULL,payload BLOB NOT NULL);
+CREATE UNIQUE INDEX library_identity ON memberships(lane,owner,identity_key,payload);
+CREATE UNIQUE INDEX library_title_asc ON memberships(lane,owner,asc_key,payload);
+CREATE UNIQUE INDEX library_title_desc ON memberships(lane,owner,desc_key,payload);`
+
+type libraryKeys struct{ identity, asc, desc []byte }
+
+func libraryItemKeys(item lib.Item) (libraryKeys, error) {
+	title, err := lib.TitleKey(item)
+	if err != nil {
+		return libraryKeys{}, lib.ErrUnavailable
+	}
+	k := libraryKeys{identity: []byte(item.ContentID + item.VersionID)}
+	missing := byte(0)
+	if title == "" {
+		missing = 1
+	}
+	k.asc = append([]byte{missing}, []byte(title)...)
+	k.asc = append(k.asc, 0)
+	k.asc = append(k.asc, k.identity...)
+	k.desc = []byte{missing}
+	for i := 0; i < len(title); i++ {
+		k.desc = append(k.desc, ^title[i])
+	}
+	k.desc = append(k.desc, 255)
+	k.desc = append(k.desc, k.identity...)
+	return k, nil
+}
+func libraryMemberships(item lib.Item, visit func(string, string)) {
+	visit(lib.All, "")
+	visit(lib.All, item.ContentID)
+	if item.Supersession.Status == catalog.Current {
+		visit(lib.Current, "")
+		visit(lib.Current, item.ContentID)
+	}
+}
+
+// Account the canonical summary and every partition membership key before
+// insertion. Private encoded copies and SQLite overhead are page-capped.
+func libraryStagingSize(item lib.Item, raw []byte, keys libraryKeys) uint64 {
+	n := len(raw) + len(keys.identity)
+	libraryMemberships(item, func(lane, owner string) {
+		n += len(lane) + len(owner) + len(keys.identity) + len(keys.asc) + len(keys.desc)
+	})
+	return uint64(n)
+}
+func libraryInsertItem(ctx context.Context, tx *sql.Tx, item lib.Item, keys libraryKeys) error {
+	raw, err := libraryEncodeItem(item)
+	if err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, "INSERT INTO items VALUES (?,?,?)", item.ContentID, item.VersionID, raw); err != nil {
+		return err
+	}
+	err = nil
+	libraryMemberships(item, func(lane, owner string) {
+		if err == nil {
+			_, err = tx.ExecContext(ctx, "INSERT INTO memberships VALUES (?,?,?,?,?,?)", lane, owner, keys.identity, keys.asc, keys.desc, raw)
+		}
+	})
+	return err
+}
+
+// Compact, private payloads omit identities already in the covering order key.
+// Large summaries are compressed; decoded size is bounded before JSON parsing.
+// This is volatile index storage, never a source encoding or public DTO.
+type libraryPayload struct {
+	Audio        uint64                      `json:"a"`
+	Hash         string                      `json:"h"`
+	Revision     uint64                      `json:"r"`
+	Review       catalog.CatalogReviewStatus `json:"v,omitzero"`
+	Custom       bool                        `json:"c,omitempty"`
+	Baseline     lib.Baseline                `json:"b,omitzero"`
+	Title        lib.Field                   `json:"t,omitzero"`
+	Model        lib.Field                   `json:"m,omitzero"`
+	Article      lib.Field                   `json:"n,omitzero"`
+	Supersession lib.Supersession            `json:"s,omitzero"`
+	Media        catalog.MediaState          `json:"f"`
+}
+
+var libraryPayloadWriters = sync.Pool{New: func() any { w, _ := zlib.NewWriterLevel(io.Discard, zlib.BestSpeed); return w }}
+
+func libraryEncodeItem(i lib.Item) ([]byte, error) {
+	raw, e := lib.CanonicalJSON(libraryPayload{i.AudioID, i.Hash, i.ContentRevision, i.Review, i.ProtectedCustom, i.Baseline, i.Title, i.Model, i.Article, i.Supersession, i.Media})
+	if e != nil {
+		return nil, e
+	}
+	if len(raw) > 32768 {
+		return nil, lib.ErrLimitExceeded
+	}
+	if len(raw) < 256 {
+		return append([]byte{0}, raw...), nil
+	}
+	var b bytes.Buffer
+	b.WriteByte(1)
+	w := libraryPayloadWriters.Get().(*zlib.Writer)
+	w.Reset(&b)
+	_, e = w.Write(raw)
+	if e == nil {
+		e = w.Close()
+	}
+	libraryPayloadWriters.Put(w)
+	if e != nil {
+		return nil, lib.ErrUnavailable
+	}
+	return b.Bytes(), nil
+}
+func libraryDecodeItem(raw []byte, content, version string) (lib.Item, error) {
+	if len(raw) < 2 || len(raw) > 32768 {
+		return lib.Item{}, lib.ErrUnavailable
+	}
+	data := raw[1:]
+	if raw[0] == 1 {
+		reader, e := zlib.NewReader(bytes.NewReader(data))
+		if e != nil {
+			return lib.Item{}, lib.ErrUnavailable
+		}
+		data, e = io.ReadAll(io.LimitReader(reader, 32769))
+		closeErr := reader.Close()
+		if e != nil || closeErr != nil || len(data) > 32768 {
+			return lib.Item{}, lib.ErrUnavailable
+		}
+	} else if raw[0] != 0 {
+		return lib.Item{}, lib.ErrUnavailable
+	}
+	var p libraryPayload
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if decoder.Decode(&p) != nil {
+		return lib.Item{}, lib.ErrUnavailable
+	}
+	var extra any
+	if decoder.Decode(&extra) != io.EOF {
+		return lib.Item{}, lib.ErrUnavailable
+	}
+	i := lib.Item{ContentID: content, VersionID: version, AudioID: p.Audio, Hash: p.Hash, ContentRevision: p.Revision, Review: p.Review, ProtectedCustom: p.Custom, Baseline: p.Baseline, Title: p.Title, Model: p.Model, Article: p.Article, Supersession: p.Supersession, Media: p.Media}
+	if e := lib.ValidateItem(i); e != nil {
+		return lib.Item{}, e
+	}
+	return i, nil
 }

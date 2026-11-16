@@ -6,13 +6,12 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
-	"github.com/shentschel/teddycloud/next/backend/internal/domain/evidence"
 	"math"
 	"strings"
-	"unicode/utf8"
 
 	catalog "github.com/shentschel/teddycloud/next/backend/internal/application/catalog"
 	domain "github.com/shentschel/teddycloud/next/backend/internal/domain/catalog"
+	"github.com/shentschel/teddycloud/next/backend/internal/domain/evidence"
 	"github.com/shentschel/teddycloud/next/backend/internal/domain/identity"
 )
 
@@ -32,8 +31,7 @@ const (
 	MaxIndexBytes    uint64 = 256 << 20
 )
 
-// Pointers distinguish absent from present zero/empty options. A validates the
-// entire eventual B shape before returning Unsupported for its valid options.
+// Pointers distinguish absent from present zero/empty options.
 type Query struct {
 	OwnerContentID *identity.ContentID
 	Versions       string
@@ -115,26 +113,26 @@ func NormalizeQuery(q Query, p Page) (Query, error) {
 	if q.Sort == "" {
 		q.Sort = IdentityAsc
 	}
+	if q.Versions == "mine" || q.Versions == "shared" {
+		return Query{}, ErrUnsupported
+	}
 	if q.Versions != All && q.Versions != Current || q.Sort != IdentityAsc && q.Sort != TitleAsc && q.Sort != TitleDesc {
 		return Query{}, ErrInvalidInput
 	}
 	if q.Search != nil {
-		if len(*q.Search) > 256 {
-			return Query{}, ErrLimitExceeded
+		normalized, err := NormalizeSearch(*q.Search)
+		if err != nil {
+			return Query{}, err
 		}
-		if !utf8.ValidString(*q.Search) {
-			return Query{}, ErrInvalidInput
-		}
-		for _, r := range *q.Search {
-			if r < 32 || r == 127 {
-				return Query{}, ErrInvalidInput
-			}
+		q.Search = nil
+		if normalized != "" {
+			q.Search = &normalized
 		}
 	}
-	// No valid B option is silently discarded, even present whitespace search.
-	if q.OwnerContentID != nil || q.Versions != All || q.Sort != IdentityAsc || q.Search != nil {
+	if q.Search != nil && q.Sort == IdentityAsc {
 		return Query{}, ErrUnsupported
 	}
+
 	return q, nil
 }
 
@@ -196,6 +194,10 @@ func Account(result Result) (Result, error) {
 }
 
 func ValidateResult(p Page, r Result) error {
+	return ValidateQueryResult(Query{Sort: IdentityAsc, Versions: All}, p, r)
+}
+
+func ValidateQueryResult(q Query, p Page, r Result) error {
 	if uint64(len(r.Items)) > p.Limit || r.Inspected > p.Limit+1 || r.Inspected < uint64(len(r.Items)) || r.Complete != (r.Next == "") || !r.Complete && len(r.Items) == 0 {
 		return ErrUnavailable
 	}
@@ -210,8 +212,18 @@ func ValidateResult(p Page, r Result) error {
 		if err := ValidateItem(item); err != nil {
 			return err
 		}
-		if i > 0 && strings.Compare(r.Items[i-1].ContentID+r.Items[i-1].VersionID, item.ContentID+item.VersionID) >= 0 {
+		if q.OwnerContentID != nil && item.ContentID != q.OwnerContentID.String() || q.Versions == Current && item.Supersession.Status != catalog.Current {
 			return ErrUnavailable
+		}
+		key, e := TitleKey(item)
+		if e != nil || q.Search != nil && (key == "" || !strings.HasPrefix(key, *q.Search)) {
+			return ErrUnavailable
+		}
+		if i > 0 {
+			cmp, e := CompareItems(r.Items[i-1], item, q.Sort)
+			if e != nil || cmp >= 0 {
+				return ErrUnavailable
+			}
 		}
 	}
 	copy, err := Account(r)

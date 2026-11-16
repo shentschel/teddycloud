@@ -177,13 +177,28 @@ func libraryTraceIndex(t *testing.T, o *LifecycleOwner) *libraryTrace {
 	index := sql.OpenDB(&libraryTraceConnector{Connector: base, trace: trace})
 	index.SetMaxOpenConns(1)
 	index.SetMaxIdleConns(1)
-	if _, err := index.Exec("CREATE TABLE items(content TEXT COLLATE BINARY NOT NULL,version TEXT COLLATE BINARY NOT NULL,payload BLOB NOT NULL,PRIMARY KEY(content,version)) WITHOUT ROWID"); err != nil {
+	if _, err := index.Exec(libraryIndexSchema); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := index.BeginTx(t.Context(), nil)
+	if err != nil {
 		t.Fatal(err)
 	}
 	for _, r := range all {
-		if _, err := index.Exec("INSERT INTO items VALUES (?,?,?)", r.content, r.version, r.payload); err != nil {
+		item, err := libraryDecodeItem(r.payload, r.content, r.version)
+		if err != nil {
+			t.Fatal("trace payload", err)
+		}
+		keys, err := libraryItemKeys(item)
+		if err != nil {
 			t.Fatal(err)
 		}
+		if err := libraryInsertItem(t.Context(), tx, item, keys); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
 	}
 	if err := old.Close(); err != nil {
 		t.Fatal(err)
@@ -229,7 +244,7 @@ func TestLibraryReadOnlyBounds(t *testing.T) {
 		firstCount = count
 		visits := 0
 		for q, n := range index.visits {
-			if strings.Contains(q, "FROM items WHERE (content,version)") {
+			if strings.Contains(q, "FROM memberships") {
 				visits += n
 			}
 		}
@@ -248,10 +263,10 @@ func TestLibraryReadOnlyBounds(t *testing.T) {
 		}
 		continuationCount = count
 		for q, n := range index.visits {
-			if strings.Contains(q, "FROM items WHERE (content,version)") && n > int(limit+1) {
+			if strings.Contains(q, "FROM memberships") && n > int(limit+1) {
 				t.Fatal("candidate scan")
 			}
-			if strings.Contains(q, "SELECT 1") && n != 1 {
+			if strings.Contains(q, "FROM items WHERE content=") && n != 1 {
 				t.Fatal("identity visits")
 			}
 		}
@@ -263,7 +278,8 @@ func TestLibraryReadOnlyBounds(t *testing.T) {
 		t.Logf("limit=%d first statements=%d continuation=%d next inspected=%d", limit, firstCount, continuationCount, next.Inspected)
 	}
 	// Query plan covers payload and identity in the primary B-tree; no temp sort.
-	rows, err := o.library.index.Query("EXPLAIN QUERY PLAN SELECT CASE WHEN typeof(payload)='blob' AND length(payload)<=32768 THEN payload END FROM items WHERE (content,version)>(?,?) ORDER BY content,version LIMIT ?", "", "", 129)
+	statement, args := libraryRange(lib.Query{Sort: lib.IdentityAsc, Versions: lib.All}, 128, nil)
+	rows, err := o.library.index.Query("EXPLAIN QUERY PLAN "+statement, args...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -277,7 +293,7 @@ func TestLibraryReadOnlyBounds(t *testing.T) {
 		plan += detail
 	}
 	rows.Close()
-	if !strings.Contains(plan, "PRIMARY KEY") || strings.Contains(plan, "TEMP B-TREE") {
+	if !strings.Contains(plan, "COVERING INDEX library_identity") || strings.Contains(plan, "TEMP B-TREE") {
 		t.Fatal(plan)
 	}
 	if !reflect.DeepEqual(before, catalogRecoveryRows(t, o.database.db)) {
@@ -331,116 +347,119 @@ func TestLibraryReadOnlyBounds(t *testing.T) {
 	}
 }
 func TestLibraryEpochABA(t *testing.T) {
-	for _, kind := range []string{"local-write-undo", "external-commit-undo", "unmanaged-save", "review", "order", "import", "registration", "supersession", "source-revocation", "media"} {
-		t.Run(kind, func(t *testing.T) {
-			var o *LifecycleOwner
-			var mutate func()
-			if kind == "supersession" {
-				f := newSupersessionFixture(t)
-				o = f.owner
-				mutate = func() {
-					if _, err := f.sup.SupersedeVersion(t.Context(), f.command); err != nil {
+	for _, order := range []string{lib.IdentityAsc, lib.TitleAsc, lib.TitleDesc} {
+		q := lib.Query{Sort: order}
+		for _, kind := range []string{"local-write-undo", "external-commit-undo", "unmanaged-save", "review", "order", "import", "registration", "supersession", "source-revocation", "media"} {
+			t.Run(order+"/"+kind, func(t *testing.T) {
+				var o *LifecycleOwner
+				var mutate func()
+				if kind == "supersession" {
+					f := newSupersessionFixture(t)
+					o = f.owner
+					mutate = func() {
+						if _, err := f.sup.SupersedeVersion(t.Context(), f.command); err != nil {
+							t.Fatal(err)
+						}
+					}
+				} else if kind == "review" || kind == "order" || kind == "import" || kind == "registration" || kind == "source-revocation" {
+					f := newRegistrationIntegrationFixture(t)
+					o = f.owner
+					switch kind {
+					case "review":
+						mutate = func() { f.correct(t, 0) }
+					case "order":
+						mutate = func() { f.decidePosition(t, f.versions[0], 1) }
+					case "import":
+						mutate = func() {
+							report, err := parser.Parse(t.Context(), []byte(`{"format":"catalog-offline-v1","records":[{"record":"later","kind":"public","title":"additional staged evidence"}]}`))
+							if err != nil {
+								t.Fatal(err)
+							}
+							service, err := catalog.NewImportService(o, f.operator.source, f.operator.ingest)
+							if err != nil {
+								t.Fatal(err)
+							}
+							batch, err := domain.NewBatchID()
+							if err != nil {
+								t.Fatal(err)
+							}
+							if _, err := service.Import(t.Context(), batch, report); err != nil {
+								t.Fatal(err)
+							}
+						}
+					case "registration":
+						mutate = func() { f.addVersion(t, 0) }
+					case "source-revocation":
+						mutate = func() {
+							catalogSchemaExec(t, o.database.db, "UPDATE tc_catalog_sources SET revoked=1 WHERE source_id=?", f.public.source.ID().String())
+						}
+					}
+				} else {
+					o = catalogQueryOwner(t)
+					libraryUnmanaged(t, o, 1, 1, 2, "baseline")
+					mutate = func() {
+						catalogSchemaExec(t, o.database.db, "UPDATE tc_catalog_content SET title='changed' WHERE content_id=?", catalogSchemaID("cnt", 1))
+						catalogSchemaExec(t, o.database.db, "UPDATE tc_catalog_content SET title='baseline' WHERE content_id=?", catalogSchemaID("cnt", 1))
+					}
+				}
+				s := lib.NewService(o)
+				scope := o.LibraryReadScope()
+				libraryReady(t, o, s, scope)
+				first, err := s.ListLibrary(t.Context(), q, lib.Page{Limit: 1}, scope)
+				if err != nil {
+					t.Fatal(err)
+				}
+				switch kind {
+				case "external-commit-undo":
+					dsn, _, err := connectionDSN(o.config)
+					if err != nil {
 						t.Fatal(err)
 					}
-				}
-			} else if kind == "review" || kind == "order" || kind == "import" || kind == "registration" || kind == "source-revocation" {
-				f := newRegistrationIntegrationFixture(t)
-				o = f.owner
-				switch kind {
-				case "review":
-					mutate = func() { f.correct(t, 0) }
-				case "order":
-					mutate = func() { f.decidePosition(t, f.versions[0], 1) }
-				case "import":
-					mutate = func() {
-						report, err := parser.Parse(t.Context(), []byte(`{"format":"catalog-offline-v1","records":[{"record":"later","kind":"public","title":"additional staged evidence"}]}`))
-						if err != nil {
-							t.Fatal(err)
-						}
-						service, err := catalog.NewImportService(o, f.operator.source, f.operator.ingest)
-						if err != nil {
-							t.Fatal(err)
-						}
-						batch, err := domain.NewBatchID()
-						if err != nil {
-							t.Fatal(err)
-						}
-						if _, err := service.Import(t.Context(), batch, report); err != nil {
-							t.Fatal(err)
-						}
+					connector, err := sqliteDriver.NewConnector(dsn)
+					if err != nil {
+						t.Fatal(err)
 					}
-				case "registration":
-					mutate = func() { f.addVersion(t, 0) }
-				case "source-revocation":
-					mutate = func() {
-						catalogSchemaExec(t, o.database.db, "UPDATE tc_catalog_sources SET revoked=1 WHERE source_id=?", f.public.source.ID().String())
+					db := sql.OpenDB(connector)
+					defer db.Close()
+					if _, err := db.Exec("UPDATE tc_catalog_content SET title='changed'"); err != nil {
+						t.Fatal(err)
 					}
+					if _, err := db.Exec("UPDATE tc_catalog_content SET title='baseline'"); err != nil {
+						t.Fatal(err)
+					}
+				case "unmanaged-save":
+					// Actual generic repository Save, including same-value ABA.
+					c := testContent(t, "unmanaged", false)
+					if err := o.WithinTransaction(t.Context(), func(r catalog.ContentRepository) error { return r.Save(t.Context(), c) }); err != nil {
+						t.Fatal(err)
+					}
+				case "media":
+					catalogSchemaExec(t, o.database.db, "INSERT INTO tc_blobs VALUES (?,1,4097,1)", make([]byte, 32))
+					catalogSchemaExec(t, o.database.db, "INSERT INTO tc_version_blobs VALUES (?,?)", catalogSchemaID("ver", 1), make([]byte, 32))
+				default:
+					mutate()
 				}
-			} else {
-				o = catalogQueryOwner(t)
-				libraryUnmanaged(t, o, 1, 1, 2, "baseline")
-				mutate = func() {
-					catalogSchemaExec(t, o.database.db, "UPDATE tc_catalog_content SET title='changed' WHERE content_id=?", catalogSchemaID("cnt", 1))
-					catalogSchemaExec(t, o.database.db, "UPDATE tc_catalog_content SET title='baseline' WHERE content_id=?", catalogSchemaID("cnt", 1))
+				before := catalogRecoveryRows(t, o.database.db)
+				old := lib.Page{Limit: 1, Cursor: first.Next, ExpectedSnapshot: first.Snapshot}
+				if r, err := s.ListLibrary(t.Context(), q, old, scope); err != lib.ErrStaleCursor || len(r.Items) != 0 {
+					t.Fatal(r, err)
 				}
-			}
-			s := lib.NewService(o)
-			scope := o.LibraryReadScope()
-			libraryReady(t, o, s, scope)
-			first, err := s.ListLibrary(t.Context(), lib.Query{}, lib.Page{Limit: 1}, scope)
-			if err != nil {
-				t.Fatal(err)
-			}
-			switch kind {
-			case "external-commit-undo":
-				dsn, _, err := connectionDSN(o.config)
-				if err != nil {
+				if _, err := s.ListLibrary(t.Context(), q, lib.Page{Limit: 1}, scope); err != lib.ErrIndexNotReady {
 					t.Fatal(err)
 				}
-				connector, err := sqliteDriver.NewConnector(dsn)
-				if err != nil {
-					t.Fatal(err)
+				libraryReady(t, o, s, scope)
+				fresh, err := s.ListLibrary(t.Context(), q, lib.Page{Limit: 1}, scope)
+				if err != nil || fresh.Snapshot == first.Snapshot {
+					t.Fatal("ABA revived snapshot", err)
 				}
-				db := sql.OpenDB(connector)
-				defer db.Close()
-				if _, err := db.Exec("UPDATE tc_catalog_content SET title='changed'"); err != nil {
-					t.Fatal(err)
+				if _, err := s.ListLibrary(t.Context(), q, old, scope); err != lib.ErrStaleCursor {
+					t.Fatal("ABA revived cursor", err)
 				}
-				if _, err := db.Exec("UPDATE tc_catalog_content SET title='baseline'"); err != nil {
-					t.Fatal(err)
+				if !reflect.DeepEqual(before, catalogRecoveryRows(t, o.database.db)) {
+					t.Fatal("read/refresh altered source")
 				}
-			case "unmanaged-save":
-				// Actual generic repository Save, including same-value ABA.
-				c := testContent(t, "unmanaged", false)
-				if err := o.WithinTransaction(t.Context(), func(r catalog.ContentRepository) error { return r.Save(t.Context(), c) }); err != nil {
-					t.Fatal(err)
-				}
-			case "media":
-				catalogSchemaExec(t, o.database.db, "INSERT INTO tc_blobs VALUES (?,1,4097,1)", make([]byte, 32))
-				catalogSchemaExec(t, o.database.db, "INSERT INTO tc_version_blobs VALUES (?,?)", catalogSchemaID("ver", 1), make([]byte, 32))
-			default:
-				mutate()
-			}
-			before := catalogRecoveryRows(t, o.database.db)
-			old := lib.Page{Limit: 1, Cursor: first.Next, ExpectedSnapshot: first.Snapshot}
-			if r, err := s.ListLibrary(t.Context(), lib.Query{}, old, scope); err != lib.ErrStaleCursor || len(r.Items) != 0 {
-				t.Fatal(r, err)
-			}
-			if _, err := s.ListLibrary(t.Context(), lib.Query{}, lib.Page{Limit: 1}, scope); err != lib.ErrIndexNotReady {
-				t.Fatal(err)
-			}
-			libraryReady(t, o, s, scope)
-			fresh, err := s.ListLibrary(t.Context(), lib.Query{}, lib.Page{Limit: 1}, scope)
-			if err != nil || fresh.Snapshot == first.Snapshot {
-				t.Fatal("ABA revived snapshot", err)
-			}
-			if _, err := s.ListLibrary(t.Context(), lib.Query{}, old, scope); err != lib.ErrStaleCursor {
-				t.Fatal("ABA revived cursor", err)
-			}
-			if !reflect.DeepEqual(before, catalogRecoveryRows(t, o.database.db)) {
-				t.Fatal("read/refresh altered source")
-			}
-		})
+			})
+		}
 	}
 }
 func TestLibraryLifecycleFence(t *testing.T) {

@@ -33,11 +33,13 @@ func (o *testOwner) WithinLibraryRead(c context.Context, s ReadScope, f func(con
 
 type testReader struct {
 	result Result
+	query  Query
 	err    error
 	hook   func()
 }
 
-func (r *testReader) ListLibrary(context.Context, Query, Page) (Result, error) {
+func (r *testReader) ListLibrary(_ context.Context, q Query, _ Page) (Result, error) {
+	r.query = q
 	if r.hook != nil {
 		r.hook()
 	}
@@ -115,5 +117,54 @@ func TestLibraryLifecycleFenceService(t *testing.T) {
 		if p, err := op(); err != ErrUnavailable || p != (Preparation{}) {
 			t.Fatal(p, err)
 		}
+	}
+}
+
+func TestLibraryTotalOrderService(t *testing.T) {
+	a := NewReadAuthority()
+	scope := a.Issue()
+	reader := &testReader{}
+	service := NewService(&testOwner{auth: a, reader: reader})
+	titleA, titleZ := "A", "z"
+	item := func(n string, title *string) Item {
+		i := Item{ContentID: "cnt_00000000000000000000000001", VersionID: "ver_0000000000000000000000000" + n, AudioID: 123, Hash: strings.Repeat("0", 40), ContentRevision: 1, Media: 1}
+		if title != nil {
+			i.Review = 2
+			i.Title = Field{Status: 1, Value: title}
+		}
+		return i
+	}
+	first, last := item("1", &titleZ), item("2", &titleA)
+	missing := item("3", nil)
+	set := func(items []Item) {
+		reader.result, _ = Account(Result{Items: items, Inspected: uint64(len(items)), Snapshot: strings.Repeat("A", 43), Complete: true})
+	}
+	set([]Item{first, last, missing})
+	if _, e := service.ListLibrary(t.Context(), Query{Sort: TitleDesc}, Page{Limit: 16}, scope); e != nil {
+		t.Fatal(e)
+	}
+	set([]Item{last, first, missing})
+	if _, e := service.ListLibrary(t.Context(), Query{Sort: TitleDesc}, Page{Limit: 16}, scope); e != ErrUnavailable {
+		t.Fatal(e)
+	}
+	set([]Item{missing, first})
+	if _, e := service.ListLibrary(t.Context(), Query{Sort: TitleDesc}, Page{Limit: 16}, scope); e != ErrUnavailable {
+		t.Fatal(e)
+	}
+	set([]Item{first, first})
+	if _, e := service.ListLibrary(t.Context(), Query{Sort: TitleDesc}, Page{Limit: 16}, scope); e != ErrUnavailable {
+		t.Fatal(e)
+	}
+	set([]Item{first})
+	search := "  Z  "
+	if _, e := service.ListLibrary(t.Context(), Query{Sort: TitleAsc, Search: &search}, Page{Limit: 16}, scope); e != nil || reader.query.Search == nil || *reader.query.Search != "z" {
+		t.Fatal(e, reader.query)
+	}
+	search = "a"
+	if _, e := service.ListLibrary(t.Context(), Query{Sort: TitleAsc, Search: &search}, Page{Limit: 16}, scope); e != ErrUnavailable {
+		t.Fatal(e)
+	}
+	if _, e := service.ListLibrary(t.Context(), Query{Versions: Current, Sort: TitleAsc}, Page{Limit: 16}, scope); e != ErrUnavailable {
+		t.Fatal(e)
 	}
 }

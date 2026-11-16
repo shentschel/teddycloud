@@ -29,11 +29,11 @@ func TestLibraryPagePartitionInput(t *testing.T) {
 		{"snapshot-bad", Query{}, Page{Limit: 1, ExpectedSnapshot: "x"}, ErrInvalidInput},
 		{"noncanonical", Query{}, Page{Limit: 1, ExpectedSnapshot: strings.Repeat("A", 42) + "B"}, ErrInvalidInput},
 		{"owner-zero", Query{OwnerContentID: &zero}, Page{Limit: 1}, ErrInvalidInput},
-		{"owner", Query{OwnerContentID: &id}, Page{Limit: 1}, ErrUnsupported},
-		{"current", Query{Versions: Current}, Page{Limit: 1}, ErrUnsupported},
-		{"title-asc", Query{Sort: TitleAsc}, Page{Limit: 1}, ErrUnsupported},
-		{"title-desc", Query{Sort: TitleDesc}, Page{Limit: 1}, ErrUnsupported},
-		{"unknown-versions", Query{Versions: "mine"}, Page{Limit: 1}, ErrInvalidInput},
+		{"owner", Query{OwnerContentID: &id}, Page{Limit: 1}, nil},
+		{"current", Query{Versions: Current}, Page{Limit: 1}, nil},
+		{"title-asc", Query{Sort: TitleAsc}, Page{Limit: 1}, nil},
+		{"title-desc", Query{Sort: TitleDesc}, Page{Limit: 1}, nil},
+		{"unknown-versions", Query{Versions: "unknown"}, Page{Limit: 1}, ErrInvalidInput},
 		{"unknown-sort", Query{Sort: "random"}, Page{Limit: 1}, ErrInvalidInput},
 	}
 	for _, tc := range cases {
@@ -42,7 +42,7 @@ func TestLibraryPagePartitionInput(t *testing.T) {
 			if err != tc.want {
 				t.Fatal(err, tc.want)
 			}
-			if err == nil && (q.Versions != All || q.Sort != IdentityAsc) {
+			if err == nil && (q.Versions == "" || q.Sort == "") {
 				t.Fatal(q)
 			}
 		})
@@ -50,7 +50,7 @@ func TestLibraryPagePartitionInput(t *testing.T) {
 	for _, tc := range []struct {
 		s    string
 		want error
-	}{{"", ErrUnsupported}, {"   ", ErrUnsupported}, {"Ä %_\\", ErrUnsupported}, {strings.Repeat("a", 256), ErrUnsupported}, {strings.Repeat("a", 257), ErrLimitExceeded}, {"\xff", ErrInvalidInput}, {"a\n", ErrInvalidInput}, {"\x00", ErrInvalidInput}, {"\x7f", ErrInvalidInput}} {
+	}{{"", nil}, {"   ", nil}, {"Ä %_\\", ErrUnsupported}, {strings.Repeat("a", 256), ErrUnsupported}, {strings.Repeat("a", 257), ErrLimitExceeded}, {"\xff", ErrInvalidInput}, {"a\n", ErrInvalidInput}, {"\x00", ErrInvalidInput}, {"\x7f", ErrInvalidInput}} {
 		if _, err := NormalizeQuery(Query{Search: &tc.s}, Page{Limit: 1}); err != tc.want {
 			t.Fatal(tc.s, err, tc.want)
 		}

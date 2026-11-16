@@ -241,6 +241,20 @@ func TestLibraryPagePartition(t *testing.T) {
 	if !reflect.DeepEqual(before, catalogRecoveryRows(t, o.database.db)) {
 		t.Fatal("page mutated source")
 	}
+	for _, order := range []string{lib.TitleAsc, lib.TitleDesc} {
+		owner := catalogQueryContent(t, 1)
+		q := lib.Query{Sort: order, OwnerContentID: &owner}
+		ids, pages := libraryCollect(t, s, scope, q, 128)
+		if len(ids) != 128 || len(pages) < 2 || pages[0].Complete || pages[0].EncodedBytes > lib.MaxResponseBytes {
+			t.Fatal("B byte-short page", order, len(ids), len(pages))
+		}
+		for _, page := range pages {
+			raw, e := lib.CanonicalJSON(page)
+			if e != nil || uint64(len(raw)) != page.EncodedBytes {
+				t.Fatal("B accounting", e)
+			}
+		}
+	}
 	// Isolate exact accounting arithmetic with a nonempty 210-byte Next. These
 	// synthetic summaries exercise defensive oversized-item rejection, not a
 	// claim that a legal single D1 summary can reach 1 MiB.
@@ -354,7 +368,7 @@ func TestLibraryProjectionReceipts(t *testing.T) {
 	if _, err := s.ListLibrary(t.Context(), lib.Query{}, lib.Page{Limit: 129}, scope); err != lib.ErrLimitExceeded {
 		t.Fatal(err)
 	}
-	if _, err := o.library.index.Exec("UPDATE items SET payload=x'00' WHERE version=?", command.Version().ID().String()); err != nil {
+	if _, err := o.library.index.Exec("UPDATE memberships SET payload=x'00' WHERE substr(identity_key,31)=CAST(? AS BLOB)", command.Version().ID().String()); err != nil {
 		t.Fatal(err)
 	}
 	if r, err := s.ListLibrary(t.Context(), lib.Query{}, lib.Page{Limit: 128}, scope); err != lib.ErrUnavailable || len(r.Items) != 0 || o.library.index != nil {

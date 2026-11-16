@@ -77,7 +77,7 @@ func (s *Service) ListLibrary(ctx context.Context, q Query, p Page, scope ReadSc
 		if e != nil {
 			return e
 		}
-		if e = ValidateResult(p, page); e != nil {
+		if e = ValidateQueryResult(q, p, page); e != nil {
 			return e
 		}
 		result = page
