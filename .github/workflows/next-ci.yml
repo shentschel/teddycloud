@@ -133,6 +133,41 @@ jobs:
           go test -timeout=20m -count=10 -run '^TestSupersession' -skip '^TestSupersessionSQLiteCombinedWriter(Observations|Events)$' ./backend/internal/adapters/sqlite
           go test -timeout=20m -count=10 -skip '^TestSupersession' ./backend/internal/adapters/sqlite
 
+  sqlite-library-race:
+    name: SQLite library race evidence (${{ matrix.name }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: capacity
+            selector: ^TestLibraryIndexPreparation(AdmissionCaps|PageCap|StagingBytes|ManagedChunks)$
+          - name: search
+            selector: ^TestLibrary(TotalOrder|FilterPagination|OwnershipVisibility|SearchPlan|SearchPayloadBounds)$
+          - name: cursor-index-query
+            selector: ^TestLibrary(CursorBinding.*|IndexPreparation|IndexPreparationCanceled|InventoryIdentity.*|Projection.*|PagePartition.*)$
+          - name: lifecycle
+            selector: ^TestLibrary(ReadOnlyBounds.*|EpochABA.*|LifecycleFence.*|SearchTimingBaseline)$
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: |
+            next/backend/go.mod
+            next/tools/go.mod
+            next/tools/go.sum
+            next/go.work
+
+      - name: Run measured PI-10 library race tier
+        working-directory: next
+        # The four disjoint matrix legs cover every TestLibrary test exactly
+        # once. Each retains the unchanged 25m package timeout and assertions.
+        run: go test -count=1 -timeout=25m -race -run '${{ matrix.selector }}' ./backend/internal/adapters/sqlite
+
   sqlite-persistence:
     name: Persistence and domain regression and race evidence
     runs-on: ubuntu-24.04
@@ -170,10 +205,11 @@ jobs:
 
       - name: Run focused persistence and domain race evidence
         working-directory: next
-        # Isolate only the four accounting-boundary fixtures run above.
-        # All pre-existing SQLite and other-package race coverage stays intact;
+        # Isolate only the four accounting-boundary fixtures run above without
+        # race and the complete TestLibrary family covered by the mandatory
+        # matrix job. Every non-Library SQLite test and other package stays here;
         # -count=1 forces an uncached pass with the original package timeout.
-        run: go test -count=1 -timeout=25m -race -skip '^TestSupersessionSQLiteCombined(WriterBytes|WriterObservations|WriterEvents|RegisterContentBytes)$' ./backend/internal/adapters/sqlite ./backend/internal/architecture ./backend/internal/domain/tag ./backend/internal/domain/content ./backend/internal/application/tagregistry ./backend/internal/testutil/taffixture ./backend/internal/adapters/contentfs
+        run: go test -count=1 -timeout=25m -race -skip '^(TestSupersessionSQLiteCombined(WriterBytes|WriterObservations|WriterEvents|RegisterContentBytes)|TestLibrary.*)$' ./backend/internal/adapters/sqlite ./backend/internal/architecture ./backend/internal/domain/tag ./backend/internal/domain/content ./backend/internal/application/tagregistry ./backend/internal/testutil/taffixture ./backend/internal/adapters/contentfs
 
       - name: Require qualified Linux blob filesystem and repetition
         working-directory: next

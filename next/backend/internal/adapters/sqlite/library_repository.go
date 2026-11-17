@@ -23,6 +23,7 @@ func (r *libraryRead) ListLibrary(ctx context.Context, q lib.Query, p lib.Page) 
 		s := r.owner.library
 		digest := libraryQueryDigest(q, p, r.scope, s.incarnation)
 		position := libraryPosition{}
+		var candidates []lib.Item
 		if p.Cursor != "" {
 			position, e = libraryDecodeCursor(p.Cursor, s.secret, digest)
 			if e != nil {
@@ -72,7 +73,7 @@ func (r *libraryRead) ListLibrary(ctx context.Context, q lib.Query, p lib.Page) 
 			if e != nil {
 				return libraryMapError(c, e)
 			}
-			candidates := make([]lib.Item, 0, p.Limit+1)
+			candidates = make([]lib.Item, 0, p.Limit+1)
 			for rows.Next() {
 				var raw, key []byte
 				if e = rows.Scan(&key, &raw); e != nil {
@@ -96,14 +97,17 @@ func (r *libraryRead) ListLibrary(ctx context.Context, q lib.Query, p lib.Page) 
 			if e != nil {
 				return libraryMapError(c, e)
 			}
-			result, e = libraryPartition(candidates, p, librarySnapshot(s), func(last lib.Item) string {
-				return libraryEncodeCursor(s.secret, s.snapshot, digest, last.ContentID, last.VersionID)
-			})
-			return e
+			return nil
 		})
 		if errors.Is(e, lib.ErrStaleCursor) && p.Cursor == "" && p.ExpectedSnapshot == "" {
 			return lib.ErrIndexNotReady
 		}
+		if e != nil {
+			return e
+		}
+		result, e = libraryPartition(candidates, p, librarySnapshot(s), func(last lib.Item) string {
+			return libraryEncodeCursor(s.secret, s.snapshot, digest, last.ContentID, last.VersionID)
+		})
 		return e
 	})
 	if err != nil {
