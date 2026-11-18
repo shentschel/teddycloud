@@ -22,6 +22,16 @@ assumed.
 
 Current execution artifacts:
 
+- [PI-11 typed event vocabulary and delivery contract](pi-11-event-delivery-contract.md)
+- [PI-11 execution plan and exhaustive A/B/T manifests](pi-11-plan.md)
+- [PI-11 worker ceiling and integrated admission budget](pi-11-budget.md)
+- **PI-11/R is a complete refinement decision set for parent review**, based on
+  `ac08326eaeaa7dee5c2414864977982ede0ff51d`. A/B/T and **Live tag/playback
+  events are reliable** remain pending. Durable journal, scoped SSE/reconnect
+  and reconciliation are prospective; legacy box isolation and hardware/applied
+  playback are not inherited capabilities. Four docs only, local commit without
+  push; parent review, publication, exact-head CI and accounting remain separate.
+
 - [PI-10 Library query and pagination contract](pi-10-library-query-contract.md)
 - [PI-10 execution plan and A/B/T manifests](pi-10-plan.md)
 - [PI-10 integrated budget and admission](pi-10-budget.md)
