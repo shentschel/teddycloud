@@ -579,12 +579,10 @@ func (r *catalogRepository) catalogForeignKeys(ctx context.Context) error {
 // even when a corrupt fixture disabled constraint enforcement.
 func (r *catalogRepository) catalogFields(ctx context.Context, record *app.CatalogRecord, revision domain.CatalogRevision, managed bool) error {
 	id := record.Content.String()
-	var corrupt bool
-	if err := r.transaction.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM pragma_foreign_key_check LIMIT 1)").Scan(&corrupt); err != nil {
-		return repositoryError(ctx, err)
-	}
-	if corrupt {
-		return app.ErrRepositoryUnavailable
+	// The repository belongs to this leased transaction. Reuse only its
+	// unchanged database-wide check; writes and DDL invalidate the stamp.
+	if err := r.catalogForeignKeys(ctx); err != nil {
+		return err
 	}
 	var decisions, observations, links, retained uint64
 	if err := r.transaction.QueryRowContext(ctx, `SELECT

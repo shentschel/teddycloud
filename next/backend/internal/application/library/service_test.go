@@ -3,6 +3,7 @@ package library
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -166,5 +167,29 @@ func TestLibraryTotalOrderService(t *testing.T) {
 	}
 	if _, e := service.ListLibrary(t.Context(), Query{Versions: Current, Sort: TitleAsc}, Page{Limit: 16}, scope); e != ErrUnavailable {
 		t.Fatal(e)
+	}
+}
+
+func TestLibraryNoNPlusOneService(t *testing.T) {
+	for _, limit := range []uint64{1, 16, 128} {
+		a := NewReadAuthority()
+		reader := &testReader{}
+		owner := &testOwner{auth: a, reader: reader}
+		s := NewService(owner)
+		items := make([]Item, limit)
+		for i := range items {
+			items[i] = Item{ContentID: "cnt_00000000000000000000000001", VersionID: fmt.Sprintf("ver_%026d", i+1), AudioID: 123, Hash: strings.Repeat("1", 40), ContentRevision: 1, Media: 1}
+		}
+		reader.result, _ = Account(Result{Items: items, Inspected: limit, Snapshot: strings.Repeat("A", 43), Complete: true})
+		reads := 0
+		reader.hook = func() { reads++ }
+		for i := 0; i < 35; i++ {
+			if _, e := s.ListLibrary(t.Context(), Query{}, Page{Limit: limit}, a.Issue()); e != nil {
+				t.Fatal(e)
+			}
+		}
+		if owner.calls != 35 || reads != 35 {
+			t.Fatal("service work grows with page size", limit, owner.calls, reads)
+		}
 	}
 }

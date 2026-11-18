@@ -121,6 +121,10 @@ func libraryPartition(candidates []lib.Item, p lib.Page, snapshot string, cursor
 	if uint64(count) > p.Limit {
 		count = int(p.Limit)
 	}
+	// Most pages fit immediately. Keep their single accounting operation, then
+	// measure item sizes once if the byte cap shortens the page. Re-encoding the
+	// full payload for every rejected prefix makes large summaries quadratic.
+	var prefixBytes []uint64
 	for n := count; n >= 0; n-- {
 		complete := n == len(candidates)
 		if n == 0 && !complete {
@@ -130,12 +134,45 @@ func libraryPartition(candidates []lib.Item, p lib.Page, snapshot string, cursor
 		if !complete {
 			result.Next = cursor(candidates[n-1])
 		}
+		if prefixBytes != nil {
+			// Only the small envelope varies with the candidate prefix/cursor.
+			// Account for the EncodedBytes field's own decimal width exactly;
+			// cursor lengths and JSON escaping need not be assumed constant.
+			envelope := result
+			envelope.Items = []lib.Item{}
+			for {
+				raw, e := lib.CanonicalJSON(envelope)
+				if e != nil {
+					return lib.Result{}, e
+				}
+				size := uint64(len(raw)) + prefixBytes[n]
+				if n > 0 {
+					size += uint64(n - 1)
+				}
+				if size == envelope.EncodedBytes {
+					break
+				}
+				envelope.EncodedBytes = size
+			}
+			if envelope.EncodedBytes > lib.MaxResponseBytes {
+				continue
+			}
+			result.EncodedBytes = envelope.EncodedBytes
+		}
 		result, e := lib.Account(result)
 		if e != nil {
 			return lib.Result{}, e
 		}
 		if result.EncodedBytes <= lib.MaxResponseBytes {
 			return result, nil
+		}
+		prefixBytes = make([]uint64, count+1)
+		for i := 0; i < count; i++ {
+			raw, e := lib.CanonicalJSON(candidates[i])
+			if e != nil {
+				return lib.Result{}, e
+			}
+			prefixBytes[i+1] = prefixBytes[i] + uint64(len(raw))
 		}
 	}
 	return lib.Result{}, lib.ErrLimitExceeded

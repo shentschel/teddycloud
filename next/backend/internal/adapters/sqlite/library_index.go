@@ -471,7 +471,9 @@ func (r *libraryRead) Advance(ctx context.Context) (p lib.Preparation, err error
 				}
 				repo.versions = nil
 				repo.graphs = [2]*catalogGraphSnapshot{}
-				repo.foreignKeys = nil
+				// The FK proof is database-wide and stamped by changes/schema.
+				// Keep it within this read-only Advance transaction only; the
+				// next Advance creates a fresh repository and checks again.
 			}
 			var pageCount, pageSize uint64
 			if e = write.QueryRowContext(c, "SELECT page_count,page_size FROM pragma_page_count,pragma_page_size").Scan(&pageCount, &pageSize); e != nil {
