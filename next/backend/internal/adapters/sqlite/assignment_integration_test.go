@@ -156,7 +156,7 @@ func TestAssignmentActivationCompatibility(t *testing.T) {
 	})
 
 	t.Run("synthetic v11", func(t *testing.T) {
-		migrations := append(SchemaMigrations(), Migration{Version: 11, ID: "0011-test-future", Statements: []string{`CREATE TABLE tc_test_future (id INTEGER) STRICT`}})
+		migrations := append(SchemaMigrations(), Migration{Version: 12, ID: "0012-test-future", Statements: []string{`CREATE TABLE tc_test_future (id INTEGER) STRICT`}})
 		owner, err := OpenLifecycleOwner(t.Context(), Config{Path: filepath.Join(t.TempDir(), "v11.sqlite")}, migrations)
 		if err != nil {
 			t.Fatal(err)

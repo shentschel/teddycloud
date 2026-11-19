@@ -43,6 +43,7 @@ type Config struct {
 // expose database/sql or driver values.
 type Database struct {
 	db                 *sql.DB
+	events             *eventState
 	upgradeBackup      *BackupFile
 	physicalGeneration atomic.Uint64
 }
@@ -132,6 +133,9 @@ func Open(ctx context.Context, config Config, migrations []Migration) (*Database
 		return nil, err
 	}
 
+	if err := database.loadEvents(ctx); err != nil {
+		return nil, err
+	}
 	closeOnError = false
 	return database, nil
 }
@@ -141,7 +145,8 @@ func (database *Database) Close() error {
 	if database == nil || database.db == nil {
 		return nil
 	}
-	return database.db.Close()
+	eventErr := database.closeEvents()
+	return errors.Join(eventErr, database.db.Close())
 }
 
 // UpgradeBackup reports the verified snapshot created immediately before this

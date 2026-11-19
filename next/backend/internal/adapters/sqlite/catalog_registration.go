@@ -362,6 +362,9 @@ func (r *catalogRepository) CommitRegistration(ctx context.Context, op app.Regis
 		}
 		return result, app.ErrRepositoryUnavailable
 	}
+	if err = catalogEvent(r.transaction, id.String(), result.AggregateRevision.Uint64(), "registration"); err != nil {
+		return result, err
+	}
 	r.wrote = true
 	tx := r.transaction
 	r.authorize = append(r.authorize, func() error {

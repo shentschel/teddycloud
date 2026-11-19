@@ -49,6 +49,14 @@ func (s *Service) Import(ctx context.Context, key content.ImportKey, command con
 		}); err != nil {
 			return err
 		}
+		if err := session.StorageInvalidation(ctx, StorageReconcile, StorageIntent); err != nil {
+			return err
+		}
+		defer func() {
+			complete, cancel := context.WithTimeout(context.WithoutCancel(ctx), TransactionTimeout)
+			defer cancel()
+			_ = session.StorageInvalidation(complete, StorageReconcile, StorageCompletion)
+		}()
 		envelope, err := s.media.Publish(ctx, command.BlobID(), command.CompleteBytes(), source, mode)
 		if err != nil {
 			return err
@@ -115,7 +123,15 @@ func (s *Service) Quarantine(ctx context.Context, id content.BlobID, size uint64
 	if s == nil || ctx == nil {
 		return ErrInvalidInput
 	}
-	return s.owner.WithinContentOperation(ctx, func(ctx context.Context, _ Session) error {
+	return s.owner.WithinContentOperation(ctx, func(ctx context.Context, session Session) error {
+		if err := session.StorageInvalidation(ctx, StorageQuarantine, StorageIntent); err != nil {
+			return err
+		}
+		defer func() {
+			complete, cancel := context.WithTimeout(context.WithoutCancel(ctx), TransactionTimeout)
+			defer cancel()
+			_ = session.StorageInvalidation(complete, StorageQuarantine, StorageCompletion)
+		}()
 		return s.media.Quarantine(ctx, id, size)
 	})
 }

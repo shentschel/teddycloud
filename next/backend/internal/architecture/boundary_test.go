@@ -213,7 +213,51 @@ func TestAssignmentAuditNoBypass(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if seen["WithinAssignmentTransaction"] != 1 || seen["AdmitClassification"] != 4 || seen["ResolveClassification"] != 4 {
+	// The fifth ResolveClassification selector is the already-accepted command
+	// kind in the SQLite event mapping, not a new authority call.
+	if seen["WithinAssignmentTransaction"] != 1 || seen["AdmitClassification"] != 4 || seen["ResolveClassification"] != 5 {
 		t.Fatalf("authority inventory changed: %v", seen)
+	}
+}
+
+func TestEventApplicationBoundary(t *testing.T) {
+	root := backendSourceRoot(t)
+	assertForbiddenImports(t, filepath.Join(root, "internal", "application", "eventhub"), []string{"database/sql", "modernc.org/sqlite", "net/http", "os", "github.com/shentschel/teddycloud/next/backend/internal/adapters"}, nil)
+	// Internal composition remains unactivated. Runtime ingress must be added by
+	// a separately reviewed job, not by importing a permissive listener here.
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		relative, e := filepath.Rel(root, path)
+		if e != nil {
+			return e
+		}
+		relative = filepath.ToSlash(relative)
+		if strings.HasPrefix(relative, "internal/adapters/sqlite/") || strings.HasPrefix(relative, "internal/application/eventhub/") {
+			return nil
+		}
+		file, e := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+		if e != nil {
+			return e
+		}
+		ast.Inspect(file, func(node ast.Node) bool {
+			selector, ok := node.(*ast.SelectorExpr)
+			if !ok {
+				return true
+			}
+			switch selector.Sel.Name {
+			case "NewEventHub", "AcquireEventObservation", "ObserveEvent", "EventReadCapability":
+				t.Errorf("event activation outside its internal owner in %s", relative)
+			}
+			return true
+		})
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }

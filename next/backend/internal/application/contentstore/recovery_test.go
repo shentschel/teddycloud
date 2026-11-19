@@ -94,3 +94,13 @@ func TestContentStoreMaintenanceUsesSingleGate(t *testing.T) {
 		t.Fatal("operation escaped or gate leaked")
 	}
 }
+
+func (s *referenceSession) StorageInvalidation(_ context.Context, reason StorageInvalidationReason, phase StorageInvalidationPhase) error {
+	if !s.owner.active {
+		s.owner.t.Fatal("storage invalidation outside owner gate")
+	}
+	if reason != StorageQuarantine || phase != StorageIntent && phase != StorageCompletion {
+		s.owner.t.Fatal("unexpected storage invalidation")
+	}
+	return nil
+}

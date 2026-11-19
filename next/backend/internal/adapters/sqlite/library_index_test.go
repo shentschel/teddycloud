@@ -108,7 +108,7 @@ func TestLibraryIndexPreparation(t *testing.T) {
 			t.Fatal("failure changed source")
 		}
 	})
-	for _, version := range []int{8, 9, 10} {
+	for _, version := range []int{8, 9, 10, 11} {
 		t.Run(strings.Repeat("v", version), func(t *testing.T) {
 			o, err := OpenLifecycleOwner(t.Context(), Config{Path: t.TempDir() + "/schema.sqlite"}, SchemaMigrations()[:version])
 			if err != nil {
@@ -131,7 +131,7 @@ func TestLibraryIndexPreparation(t *testing.T) {
 			}
 		})
 	}
-	for _, change := range []string{"UPDATE tc_schema_migrations SET dirty=1 WHERE version=10", "UPDATE tc_schema_migrations SET version=11 WHERE version=10", "UPDATE tc_schema_migrations SET checksum='wrong' WHERE version=10"} {
+	for _, change := range []string{"UPDATE tc_schema_migrations SET dirty=1 WHERE version=10", "UPDATE tc_schema_migrations SET version=12 WHERE version=11", "UPDATE tc_schema_migrations SET checksum='wrong' WHERE version=10"} {
 		t.Run(change, func(t *testing.T) {
 			o := catalogQueryOwner(t)
 			catalogSchemaExec(t, o.database.db, change)

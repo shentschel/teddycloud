@@ -287,6 +287,9 @@ func (r *catalogRepository) AdoptBaseline(ctx context.Context, op app.AdoptionOp
 	if err = r.registrationAccounting(call, id); err != nil {
 		return result, err
 	}
+	if err = catalogEvent(r.transaction, id.String(), 1, "adoption"); err != nil {
+		return result, err
+	}
 	r.wrote = true
 	r.authorize = append(r.authorize, func() error {
 		_, e := command.Canonical(op.Capability)

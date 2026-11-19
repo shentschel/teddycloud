@@ -121,7 +121,7 @@ func TestAssignmentRestoreFence(t *testing.T) {
 		}
 		wantRows := registrationSchemaRows(t, owner.database.db)
 		snapshot, err := owner.database.CreateBackup(t.Context(), filepath.Join(t.TempDir(), "current.sqlite"), SchemaMigrations())
-		if err != nil || snapshot.SchemaVersion != 10 {
+		if err != nil || snapshot.SchemaVersion != 11 {
 			t.Fatal(snapshot, err)
 		}
 		three := f.execute(t, later)
@@ -164,7 +164,7 @@ func TestAssignmentRestoreFence(t *testing.T) {
 			t.Fatal("pre-restore session remained live", err)
 		}
 		assignmentHistoryError(t, service, oldContinuation, app.ErrStaleCursor)
-		if version, err := owner.CurrentVersion(t.Context()); err != nil || version != 10 {
+		if version, err := owner.CurrentVersion(t.Context()); err != nil || version != 11 {
 			t.Fatal("current-schema restore version", version, err)
 		}
 		if got := registrationSchemaRows(t, owner.database.db); !reflect.DeepEqual(got, wantRows) {
@@ -225,7 +225,7 @@ func TestAssignmentRestoreFence(t *testing.T) {
 			if _, err := os.Lstat(target); !errors.Is(err, os.ErrNotExist) {
 				t.Fatal("invalid restore candidate was published", err)
 			}
-			if version, err := owner.CurrentVersion(t.Context()); err != nil || version != 10 {
+			if version, err := owner.CurrentVersion(t.Context()); err != nil || version != 11 {
 				t.Fatal("preflight failure replaced current owner", version, err)
 			}
 			assignmentAssertReceipt(t, service, command, result, true)

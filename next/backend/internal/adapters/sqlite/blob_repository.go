@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
+	ev "github.com/shentschel/teddycloud/next/backend/internal/application/eventhub"
 	"sync"
 	"time"
 
@@ -105,7 +106,12 @@ func (s *contentSession) transact(ctx, callerContext context.Context, operation 
 	if err != nil {
 		return contentBoundaryError(ctx, err)
 	}
-	defer transaction.Rollback()
+	defer eventRollback(s.database, transaction)
+	collector, err := eventBegin(s.database, transaction)
+	if err != nil {
+		return contentstore.ErrUnavailable
+	}
+	defer eventEnd(transaction)
 	repository := &blobRepository{transaction: transaction, ctx: ctx}
 	defer repository.revoke()
 	callbackErr := operation(repository)
@@ -136,14 +142,31 @@ func (s *contentSession) transact(ctx, callerContext context.Context, operation 
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if err := collector.flush(ctx, transaction); err != nil {
+		return contentstore.ErrUnavailable
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := callerContext.Err(); err != nil {
+		return err
+	}
+	if err := s.ctx.Err(); err != nil {
+		return err
+	}
 	commit := transaction.Commit
 	if s.commit != nil {
 		commit = func() error { return s.commit(transaction) }
 	}
 	if err := commit(); err != nil {
+		if s.database.events != nil {
+			s.database.events.fenced.Store(true)
+		}
 		return errors.Join(contentstore.ErrCommitUncertain, contentBoundaryError(ctx, err))
 	}
 	committed = true
+	collector.committed()
+	s.database.eventHint()
 	return nil
 }
 
@@ -271,6 +294,20 @@ func (r *blobRepository) RecordImport(ctx context.Context, key content.ImportKey
 	if !versionFound || version.BlobID.IsZero() {
 		if e = r.exec(callContext, `INSERT INTO tc_version_blobs(version_id,digest) VALUES(?,?)`, command.Version().ID().String(), digest[:]); e != nil {
 			return result, e
+		}
+	}
+	if _, eventEnabled := eventTransactions.Load(r.transaction); eventEnabled && (!versionFound || version.BlobID.IsZero()) {
+		if e = recordEvent(r.transaction, eventFact{owner: ev.ContentStore, typ: ev.ContentChanged, kind: "content", id: command.Version().ContentID().String(), payload: ev.ContentPayload{ContentID: command.Version().ContentID().String(), VersionID: command.Version().ID().String(), Change: "bound"}}); e != nil {
+			return result, e
+		}
+		var revision uint64
+		e = r.transaction.QueryRowContext(callContext, "SELECT aggregate_revision FROM tc_catalog_managed WHERE content_id=?", command.Version().ContentID().String()).Scan(&revision)
+		if e == nil {
+			if e = catalogEvent(r.transaction, command.Version().ContentID().String(), revision, "media"); e != nil {
+				return result, e
+			}
+		} else if e != sql.ErrNoRows {
+			return result, contentstore.ErrUnavailable
 		}
 	}
 	fingerprint := command.Fingerprint()

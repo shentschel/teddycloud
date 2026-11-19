@@ -152,6 +152,9 @@ func (r *catalogRepository) commitImport(ctx context.Context, op app.ImportOpera
 	if err = r.registrationAccounting(ctx, identity.ContentID{}); err != nil {
 		return result, err
 	}
+	if err = catalogScopeEvent(r.transaction, "import"); err != nil {
+		return result, err
+	}
 	r.wrote = true
 	tx := r.transaction
 	r.authorize = append(r.authorize, func() error {

@@ -23,7 +23,7 @@ var _ app.CatalogRepository = (*catalogRepository)(nil)
 
 func catalogTransactionSchema(version int) bool {
 	switch version {
-	case 5, 6, 7, 8, 9, 10:
+	case 5, 6, 7, 8, 9, 10, 11:
 		return true
 	default:
 		return false
@@ -31,7 +31,7 @@ func catalogTransactionSchema(version int) bool {
 }
 
 func catalogSupersessionSchema(version int) bool {
-	return version == 9 || version == 10
+	return version == 9 || version == 10 || version == 11
 }
 
 // WithinCatalogTransaction retains the restore fence and starts query-only.
@@ -93,7 +93,7 @@ func (owner *LifecycleOwner) catalogTransaction(ctx context.Context, operation f
 	if err != nil {
 		return repositoryError(ctx, err)
 	}
-	defer tx.Rollback()
+	defer eventRollback(owner.database, tx)
 	var version, dirty int
 	if err := tx.QueryRowContext(ctx, "SELECT COALESCE(MAX(version),0),COALESCE(MAX(dirty),0) FROM tc_schema_migrations").Scan(&version, &dirty); err != nil {
 		return repositoryError(ctx, err)
@@ -102,6 +102,11 @@ func (owner *LifecycleOwner) catalogTransaction(ctx context.Context, operation f
 	if !catalogTransactionSchema(version) || dirty != 0 {
 		return app.ErrUnsupported
 	}
+	collector, err := eventBegin(owner.database, tx)
+	if err != nil {
+		return app.ErrRepositoryUnavailable
+	}
+	defer eventEnd(tx)
 	repository := &catalogRepository{transaction: tx, ctx: ctx, owner: owner, database: owner.database, generation: owner.generation.Load(), schemaVersion: version, statements: make(map[string]*sql.Stmt)}
 	defer repository.closeStatements()
 	defer repository.revoke()
@@ -123,12 +128,23 @@ func (owner *LifecycleOwner) catalogTransaction(ctx context.Context, operation f
 			result = ctx.Err()
 		}
 		if result == nil {
+			if _, err := tx.ExecContext(ctx, "PRAGMA query_only=OFF"); err != nil {
+				return app.ErrRepositoryUnavailable
+			}
+			if err := collector.flush(ctx, tx); err != nil {
+				return app.ErrRepositoryUnavailable
+			}
 			commitAttempted = true
 			if err := tx.Commit(); err != nil {
+				if owner.database.events != nil {
+					owner.database.events.fenced.Store(true)
+				}
 				// The driver may have committed before losing its response. Do not
 				// retry the callback or expose the raw cause (including cancellation).
 				return app.ErrIndeterminate
 			}
+			collector.committed()
+			owner.database.eventHint()
 			return nil
 		}
 	}
@@ -792,6 +808,9 @@ func (d *catalogStateReader) source() catalogStoredSource {
 		}
 		if !exists {
 			d.insert("INSERT INTO tc_catalog_sources VALUES (?,?,?,?,?,?,?,0)", s.id, s.revision, issuer, adapter, version, scope, acquisition)
+			if d.err == nil {
+				d.err = catalogScopeEvent(d.repository.transaction, "source-registration")
+			}
 			for _, key := range claims {
 				d.insert("INSERT INTO tc_catalog_source_claims VALUES (?,?,?,?)", s.id, s.revision, acquisition, key)
 			}
@@ -1262,6 +1281,9 @@ func (r *catalogRepository) CommitReview(ctx context.Context, operation app.Revi
 	if _, _, err = r.readStates(call, command.Subject.ContentID(), command.Subject, false, bindings); err != nil {
 		return err
 	}
+	if err = catalogEvent(r.transaction, command.Subject.ContentID().String(), result.AggregateRevision.Uint64(), "review"); err != nil {
+		return err
+	}
 	r.wrote = true
 	tx := r.transaction
 	r.authorize = append(r.authorize, func() error {
@@ -1424,6 +1446,9 @@ func (r *catalogRepository) CommitOrder(ctx context.Context, operation app.Order
 		return err
 	}
 	if _, _, err = r.readStates(call, command.Content, domain.CatalogSubject{}, true, bindings); err != nil {
+		return err
+	}
+	if err = catalogEvent(r.transaction, command.Content.String(), result.AggregateRevision.Uint64(), "order"); err != nil {
 		return err
 	}
 	r.wrote = true

@@ -582,6 +582,9 @@ func (r *catalogRepository) CommitSupersession(ctx context.Context, op app.Super
 		}
 		return result, app.ErrRepositoryUnavailable
 	}
+	if err = catalogEvent(r.transaction, c.Content.String(), result.AggregateRevision.Uint64(), "supersession"); err != nil {
+		return result, err
+	}
 	r.wrote = true
 	// The callback lease is revoked before these owner checks, so capture the
 	// transaction rather than consulting the now unusable repository port.

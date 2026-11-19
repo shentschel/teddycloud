@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	ev "github.com/shentschel/teddycloud/next/backend/internal/application/eventhub"
 	"strconv"
 	"time"
 
@@ -66,6 +67,9 @@ func (database *Database) withinSQLTransaction(ctx context.Context, operation fu
 		restoreCtx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
 		if _, err := connection.ExecContext(restoreCtx, busyTimeoutPragma(busyTimeoutMillis)); err != nil {
+			if database.events != nil {
+				database.events.fenced.Store(true)
+			}
 			resultErr = errors.Join(
 				resultErr,
 				fmt.Errorf("restore transaction wait budget: %w", repositoryError(restoreCtx, err)),
@@ -79,21 +83,37 @@ func (database *Database) withinSQLTransaction(ctx context.Context, operation fu
 	finished := false
 	defer func() {
 		if !finished {
-			_ = transaction.Rollback()
+			eventRollback(database, transaction)
 		}
 	}()
 
+	collector, err := eventBegin(database, transaction)
+	if err != nil {
+		return repositoryError(ctx, err)
+	}
+	defer eventEnd(transaction)
 	if err := operation(transaction); err != nil {
 		if rollbackErr := transaction.Rollback(); rollbackErr != nil {
+			if database.events != nil {
+				database.events.fenced.Store(true)
+			}
 			return errors.Join(err, fmt.Errorf("rollback sqlite transaction: %w", repositoryError(ctx, rollbackErr)))
 		}
 		finished = true
 		return err
 	}
+	if err := collector.flush(ctx, transaction); err != nil {
+		return repositoryError(ctx, err)
+	}
 	if err := transaction.Commit(); err != nil {
+		if database.events != nil {
+			database.events.fenced.Store(true)
+		}
 		return fmt.Errorf("commit sqlite transaction: %w", repositoryError(ctx, err))
 	}
 	finished = true
+	collector.committed()
+	database.eventHint()
 	return nil
 }
 
@@ -122,10 +142,12 @@ func (repository contentRepository) Save(ctx context.Context, content domaincata
 			return applicationcatalog.ErrUnauthorized
 		}
 	}
-	// The guard and upsert share a SQL transaction and its read snapshot.
-	// SQLite refuses to promote a stale snapshot to a writer after another
-	// connection commits adoption; contention never replays the callback.
 	model, article := nullableProductIdentifiers(content.Facts().ProductIdentifiers())
+	var identical bool
+	if err := repository.transaction.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM tc_catalog_content WHERE content_id=? AND title IS ? AND model_number IS ? AND article_number IS ?)", content.ID().String(), content.Facts().Title(), model, article).Scan(&identical); err != nil {
+		return repositoryError(ctx, err)
+	}
+	// The managed guard, exact-value check and upsert share this SQL snapshot.
 	if err := repository.execWithContention(
 		ctx,
 		`INSERT INTO tc_catalog_content (content_id, title, model_number, article_number)
@@ -141,7 +163,10 @@ func (repository contentRepository) Save(ctx context.Context, content domaincata
 	); err != nil {
 		return fmt.Errorf("save catalog content: %w", err)
 	}
-	return nil
+	if identical {
+		return nil
+	}
+	return recordEvent(repository.transaction, eventFact{owner: ev.Catalog, typ: ev.CatalogChanged, kind: "content", id: content.ID().String(), payload: ev.CatalogPayload{ContentID: content.ID().String(), Change: "baseline"}})
 }
 
 func (repository contentRepository) execWithContention(

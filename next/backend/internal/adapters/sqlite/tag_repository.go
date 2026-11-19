@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	ev "github.com/shentschel/teddycloud/next/backend/internal/application/eventhub"
 	"sync"
 	"time"
 
@@ -448,7 +449,7 @@ func (r *tagRepository) CompareAndSwap(ctx context.Context, expected domaintag.R
 	if n != 1 {
 		return applicationtag.ErrRevisionConflict
 	}
-	return nil
+	return recordEvent(r.transaction, eventFact{owner: ev.TagRegistry, typ: ev.TagChanged, kind: "tag", id: next.ID().String(), revision: eventRevision(uint64(next.Revision())), payload: ev.TagPayload{TagID: next.ID().String(), Revision: *eventRevision(uint64(next.Revision())), Change: "metadata"}})
 }
 func (r *tagRepository) metadataExec(ctx context.Context, query string, args ...any) error {
 	mapError := func(ctx context.Context, err error) error {
@@ -478,10 +479,14 @@ func (repository *tagRepository) Insert(ctx context.Context, value domaintag.Tag
 		return applicationtag.ErrInvalidInput
 	}
 	bytes := value.UID().Bytes()
-	return tagBoundaryError(ctx, execWithContention(ctx, repository.transaction, tagStorageError,
+	err = tagBoundaryError(ctx, execWithContention(ctx, repository.transaction, tagStorageError,
 		`INSERT INTO tc_tags (tag_id, uid, revision) VALUES (?, ?, ?)`,
 		value.ID().String(), bytes[:], int64(value.Revision()),
 	))
+	if err != nil {
+		return err
+	}
+	return recordEvent(repository.transaction, eventFact{owner: ev.TagRegistry, typ: ev.TagChanged, kind: "tag", id: value.ID().String(), revision: eventRevision(uint64(value.Revision())), payload: ev.TagPayload{TagID: value.ID().String(), Revision: *eventRevision(uint64(value.Revision())), Change: "created"}})
 }
 
 func tagStorageError(ctx context.Context, err error) error {

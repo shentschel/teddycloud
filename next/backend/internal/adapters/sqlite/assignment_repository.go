@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"errors"
+	ev "github.com/shentschel/teddycloud/next/backend/internal/application/eventhub"
 	"io"
 	"reflect"
 	"runtime"
@@ -109,7 +110,7 @@ func (r *assignmentRepository) check(ctx context.Context) error {
 	if err != nil {
 		return assignmentReadError(ctx, err)
 	}
-	if i != 10 {
+	if i != 10 && i != 11 {
 		return app.ErrUnsupportedState
 	}
 	var corrupt bool
@@ -931,6 +932,22 @@ func (r *assignmentRepository) commit(ctx context.Context, expected uint64, snap
 			return app.ErrRevisionConflict
 		}
 	}
+	change := "multiple"
+	switch event.Command.Kind {
+	case app.Assign:
+		change = "assign"
+	case app.Unassign:
+		change = "unassign"
+	case app.RecordClassification, app.ResolveClassification:
+		change = "classification"
+	case app.RecordOriginalTarget, app.ResolveOriginalTarget:
+		change = "original-target"
+	case app.RetireAssignment:
+		change = "retire"
+	}
+	if err := recordEvent(r.transaction, eventFact{owner: ev.Assignment, typ: ev.AssignmentChanged, kind: "assignment", id: snapshot.ID.String(), revision: eventRevision(event.Result.Revision), payload: ev.AssignmentPayload{AssignmentID: snapshot.ID.String(), TagID: snapshot.TagID.String(), Revision: *eventRevision(event.Result.Revision), Change: change}}); err != nil {
+		return app.ErrUnavailable
+	}
 	return ctx.Err()
 }
 
@@ -1033,7 +1050,11 @@ func (r *assignmentRepository) Target(ctx context.Context, target d.OriginalTarg
 	if _, err := target.CanonicalByteLen(); err != nil {
 		return zero, false, app.ErrInvalidInput
 	}
-	dependency := &catalogRepository{transaction: r.transaction, ctx: ctx, schemaVersion: 10, statements: make(map[string]*sql.Stmt)}
+	var schemaVersion int
+	if err := r.transaction.QueryRowContext(ctx, "SELECT max(version) FROM tc_schema_migrations").Scan(&schemaVersion); err != nil {
+		return app.TargetSnapshot{}, false, app.ErrUnavailable
+	}
+	dependency := &catalogRepository{transaction: r.transaction, ctx: ctx, schemaVersion: schemaVersion, statements: make(map[string]*sql.Stmt)}
 	defer dependency.closeStatements()
 	bad := func(err error) (app.TargetSnapshot, bool, error) { return zero, false, assignmentReadError(ctx, err) }
 	var owner string

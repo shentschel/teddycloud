@@ -33,6 +33,7 @@ type BlobRepository interface {
 // Session uses the owner's selected database without entering its gate again.
 // It must not escape its operation callback or start detached work.
 type Session interface {
+	StorageInvalidation(context.Context, StorageInvalidationReason, StorageInvalidationPhase) error
 	WithinTransaction(context.Context, func(BlobRepository) error) error
 	References(context.Context, content.BlobID) (bool, error)
 }
@@ -87,3 +88,18 @@ type MediaStore interface {
 	Quarantine(context.Context, content.BlobID, uint64) error
 	Verify(context.Context, content.BlobID, uint64) error
 }
+
+// Storage invalidations bracket authorized filesystem work, outside SQL.
+type StorageInvalidationReason uint8
+
+const (
+	StorageReconcile StorageInvalidationReason = iota + 1
+	StorageQuarantine
+)
+
+type StorageInvalidationPhase uint8
+
+const (
+	StorageIntent StorageInvalidationPhase = iota + 1
+	StorageCompletion
+)

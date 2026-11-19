@@ -224,7 +224,7 @@ func newAssignmentRepositoryFixture(t *testing.T) *assignmentRepositoryFixture {
 	if err := upstream.owner.Close(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	db, err := Open(t.Context(), Config{Path: path, UpgradeBackupPath: filepath.Join(t.TempDir(), "v9.sqlite")}, assignmentSchemaMigrations())
+	db, err := Open(t.Context(), Config{Path: path, UpgradeBackupPath: filepath.Join(t.TempDir(), "v9.sqlite")}, SchemaMigrations())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -426,7 +426,7 @@ func TestAssignmentNoCatalogRetarget(t *testing.T) {
 	if err = owner.Close(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	later, err := Open(t.Context(), Config{Path: copyPath, UpgradeBackupPath: filepath.Join(t.TempDir(), "later-pre-v10.sqlite")}, assignmentSchemaMigrations())
+	later, err := Open(t.Context(), Config{Path: copyPath, UpgradeBackupPath: filepath.Join(t.TempDir(), "later-pre-v10.sqlite")}, SchemaMigrations())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -695,7 +695,7 @@ func TestAssignmentRepositoryCorruption(t *testing.T) {
 }
 
 func TestAssignmentRepositoryInert(t *testing.T) {
-	if migrations := SchemaMigrations(); len(migrations) != 10 || migrations[9].Version != 10 {
+	if migrations := SchemaMigrations(); len(migrations) != 11 || migrations[9].Version != 10 {
 		t.Fatal("default assignment schema not activated")
 	}
 	normal, err := Open(t.Context(), Config{Path: filepath.Join(t.TempDir(), "normal.sqlite")}, SchemaMigrations())
@@ -796,9 +796,9 @@ func TestAssignmentRepositoryInert(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Exact staged schema only: corrupt/dirty ledger, missing migration and future
-	// v11 reject without pretending this fixture is a supported v9 catalog lease.
+	// v12 reject without pretending this fixture is a supported v9 catalog lease.
 	staged := assignmentSchemaFixture(t)
-	for _, query := range []string{`UPDATE tc_schema_migrations SET dirty=1 WHERE version=10`, `UPDATE tc_schema_migrations SET checksum='bad' WHERE version=10`, `DELETE FROM tc_schema_migrations WHERE version=10`, `INSERT INTO tc_schema_migrations VALUES (11,'future','bad',0,NULL)`} {
+	for _, query := range []string{`UPDATE tc_schema_migrations SET dirty=1 WHERE version=10`, `UPDATE tc_schema_migrations SET checksum='bad' WHERE version=10`, `DELETE FROM tc_schema_migrations WHERE version=10`, `INSERT INTO tc_schema_migrations VALUES (12,'future','bad',0,NULL)`} {
 		tx, err := staged.db.BeginTx(t.Context(), nil)
 		if err != nil {
 			t.Fatal(err)

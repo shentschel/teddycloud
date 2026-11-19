@@ -70,7 +70,11 @@ func (port *assignmentHookPort) Commit(ctx context.Context, expected uint64, sna
 
 func assignmentSecondConnection(t *testing.T, database *Database) *Database {
 	t.Helper()
-	second, err := Open(t.Context(), Config{Path: dbPathForSupersessionTest(t, database), BusyTimeout: 250 * time.Millisecond}, assignmentSchemaMigrations())
+	version, err := database.CurrentVersion(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := Open(t.Context(), Config{Path: dbPathForSupersessionTest(t, database), BusyTimeout: 250 * time.Millisecond}, SchemaMigrations()[:version])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,7 +164,7 @@ func TestAssignmentTransactionInert(t *testing.T) {
 	if app.OperationTimeout != 10*time.Second || app.TransactionTimeout != 5*time.Second {
 		t.Fatal("assignment deadlines changed")
 	}
-	if migrations := SchemaMigrations(); len(migrations) != 10 || migrations[9].Version != 10 {
+	if migrations := SchemaMigrations(); len(migrations) != 11 || migrations[9].Version != 10 {
 		t.Fatal("coordinated v10 activation missing")
 	}
 	for _, name := range []string{"Save", "WithinAssignmentTransaction"} {

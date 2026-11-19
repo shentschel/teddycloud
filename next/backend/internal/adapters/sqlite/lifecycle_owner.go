@@ -240,6 +240,9 @@ func (owner *LifecycleOwner) Restore(
 		return lifecycleError(ctx, ErrLifecycleRestore)
 	}
 
+	if err := restored.restoreEvents(ctx); err != nil {
+		return lifecycleError(ctx, ErrLifecycleRestore)
+	}
 	owner.database = restored
 	owner.library.closed.Store(false)
 	owner.config = restoredConfig

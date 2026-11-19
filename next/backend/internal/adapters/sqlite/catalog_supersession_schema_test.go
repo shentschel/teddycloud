@@ -54,7 +54,7 @@ func TestSupersessionSchemaUpgrade(t *testing.T) {
 		t.Fatal(err)
 	}
 	migrations := SchemaMigrations()
-	if len(migrations) != 10 || migrations[8].Version != 9 || migrations[8].ID != "0009-catalog-version-supersession" ||
+	if len(migrations) != 11 || migrations[8].Version != 9 || migrations[8].ID != "0009-catalog-version-supersession" ||
 		migrations[9].Version != 10 || migrations[9].ID != "0010-assignment-ledger" {
 		t.Fatal("coordinated v9/v10 migrations not active")
 	}
@@ -72,7 +72,7 @@ func TestSupersessionSchemaUpgrade(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer upgraded.Close()
-	if version, err := upgraded.CurrentVersion(t.Context()); err != nil || version != 10 {
+	if version, err := upgraded.CurrentVersion(t.Context()); err != nil || version != 11 {
 		t.Fatal("normal Open did not activate v10", version, err)
 	}
 	backup, ok := upgraded.UpgradeBackup()
@@ -140,11 +140,11 @@ func TestSupersessionSchemaUpgrade(t *testing.T) {
 }
 
 func TestSupersessionSchemaDispatch(t *testing.T) {
-	for _, version := range []int{4, 5, 7, 8, 9, 10, 11} {
+	for _, version := range []int{4, 5, 7, 8, 9, 10, 11, 12} {
 		t.Run(fmt.Sprint(version), func(t *testing.T) {
 			migrations := SchemaMigrations()
-			if version == 11 {
-				migrations = append(migrations, Migration{Version: 11, ID: "0011-test-future", Statements: []string{"CREATE TABLE test_future (id INTEGER) STRICT"}})
+			if version == 12 {
+				migrations = append(migrations, Migration{Version: 12, ID: "0012-test-future", Statements: []string{"CREATE TABLE test_future (id INTEGER) STRICT"}})
 			} else {
 				migrations = migrations[:version]
 			}
@@ -198,7 +198,7 @@ func TestSupersessionSchemaRegistrationCompatibility(t *testing.T) {
 	}
 	defer f.owner.Close(context.Background())
 	f.bind(t)
-	if current, err := f.owner.CurrentVersion(t.Context()); err != nil || current != 10 {
+	if current, err := f.owner.CurrentVersion(t.Context()); err != nil || current != 11 {
 		t.Fatal("registered v8 fixture not upgraded", current, err)
 	}
 	for table, want := range before {
@@ -235,7 +235,7 @@ func TestSupersessionSchemaRegistrationFailClosed(t *testing.T) {
 		mutate string
 	}{
 		{"pre-registration schema", 7, ""},
-		{"future schema", 10, "UPDATE tc_schema_migrations SET version=11 WHERE version=10"},
+		{"future schema", 11, "UPDATE tc_schema_migrations SET version=12 WHERE version=11"},
 		{"dirty schema", 9, "UPDATE tc_schema_migrations SET dirty=1 WHERE version=9"},
 		{"checksum drift", 9, "UPDATE tc_schema_migrations SET checksum='changed' WHERE version=9"},
 		{"ledger gap", 9, "DELETE FROM tc_schema_migrations WHERE version=8"},

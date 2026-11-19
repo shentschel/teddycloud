@@ -94,7 +94,7 @@ func assignmentSchemaReject(t *testing.T, db *sql.DB, code int, query string, ar
 
 func TestAssignmentSchemaUpgrade(t *testing.T) {
 	active := SchemaMigrations()
-	if len(active) != 10 || active[8].Version != 9 || active[8].ID != "0009-catalog-version-supersession" ||
+	if len(active) != 11 || active[8].Version != 9 || active[8].ID != "0009-catalog-version-supersession" ||
 		active[9].Version != 10 || active[9].ID != "0010-assignment-ledger" {
 		t.Fatal("active v9/v10 identity changed")
 	}
@@ -212,8 +212,8 @@ func TestAssignmentSchemaUpgrade(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer normal.Close()
-	if version, err := normal.CurrentVersion(t.Context()); err != nil || version != 10 {
-		t.Fatal("default runtime did not activate v10", version, err)
+	if version, err := normal.CurrentVersion(t.Context()); err != nil || version != 11 {
+		t.Fatal("default runtime did not activate v11", version, err)
 	}
 	for _, table := range assignmentSchemaTables {
 		var count int
@@ -303,7 +303,7 @@ func TestAssignmentSchemaManifest(t *testing.T) {
 	// Each call returns independently owned statements, like SchemaMigrations.
 	changed := assignmentMigration()
 	changed.Statements[0] = "modified"
-	if assignmentMigration().Statements[0] == "modified" || len(SchemaMigrations()) != 10 {
+	if assignmentMigration().Statements[0] == "modified" || len(SchemaMigrations()) != 11 {
 		t.Fatal("migration aliases mutable state or activation changed")
 	}
 }

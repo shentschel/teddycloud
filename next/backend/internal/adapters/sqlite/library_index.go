@@ -279,7 +279,7 @@ func (r *libraryRead) source(ctx context.Context, requireEpoch bool, op func(con
 	if err = tx.QueryRowContext(call, "SELECT COALESCE(MAX(version),0),COALESCE(MAX(dirty),0) FROM tc_schema_migrations").Scan(&version, &dirty); err != nil {
 		return libraryMapError(call, err)
 	}
-	if version != 9 && version != 10 || dirty != 0 {
+	if version != 9 && version != 10 && version != 11 || dirty != 0 {
 		return lib.ErrUnsupported
 	}
 	if requireEpoch && before != s.epoch {

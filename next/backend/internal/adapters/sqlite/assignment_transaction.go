@@ -109,6 +109,16 @@ func (owner *LifecycleOwner) assignmentSQLTransaction(ctx context.Context, opera
 		if precommit == nil {
 			precommit = ctx.Err()
 		}
+		if precommit == nil && scope.wrote {
+			if collector, ok := eventTransactions.Load(tx); ok {
+				if e := collector.(*eventCollector).flush(ctx, tx); e != nil {
+					precommit = app.ErrUnavailable
+				}
+			}
+		}
+		if precommit == nil {
+			precommit = ctx.Err()
+		}
 		commitReady = precommit == nil && scope.wrote
 		if !commitReady {
 			return errAssignmentPrecommit
